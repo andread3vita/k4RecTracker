@@ -2,11 +2,17 @@ import os
 
 from Gaudi.Configuration import *
 
+################## Parser
+from k4FWCore.parseArgs import parser
+parser.add_argument("--inputFile", default="out_sim_edm4hep.root", help="InputFile")
+parser.add_argument("--outputFile", default="output_IDEA_DIGI.root", help="OutputFile")
+args = parser.parse_args()
+
 # Loading the input SIM file
 from Configurables import k4DataSvc, PodioInput
 
 evtsvc = k4DataSvc("EventDataSvc")
-evtsvc.input = "out_sim_edm4hep.root"
+evtsvc.input = args.inputFile
 inp = PodioInput("InputReader")
 
 ################## Simulation setup
@@ -16,13 +22,9 @@ from Configurables import GeoSvc
 geoservice = GeoSvc("GeoSvc")
 path_to_detector = os.environ.get("K4GEO", "")
 print(path_to_detector)
-detectors_to_use = [
-    "/afs/cern.ch/work/m/mgarciam/private/k4geo/FCCee/IDEA/compact/IDEA_o1_v02/IDEA_o1_v02.xml"
-]
+detectors_to_use = ["/afs/cern.ch/user/a/adevita/public/workDir/k4geo/FCCee/IDEA/compact/IDEA_o1_v02/IDEA_o1_v02.xml"]
 # prefix all xmls with path_to_detector
-geoservice.detectors = [
-    os.path.join(path_to_detector, _det) for _det in detectors_to_use
-]
+geoservice.detectors = [os.path.join(path_to_detector, _det) for _det in detectors_to_use]
 geoservice.OutputLevel = INFO
 
 # digitize vertex hits
@@ -99,7 +101,7 @@ from Configurables import PodioOutput
 out = PodioOutput("out", OutputLevel=INFO)
 out.outputCommands = ["keep *"]
 
-out.filename = "output_IDEA_DIGI.root"
+out.filename = args.outputFile
 
 # CPU information
 from Configurables import AuditorSvc, ChronoAuditor

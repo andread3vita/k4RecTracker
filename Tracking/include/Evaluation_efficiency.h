@@ -18,11 +18,14 @@ namespace edm4hep {
 }  // namespace edm4hep
 #endif
 
+#include "edm4hep/MCParticleCollection.h"
+#include "edm4hep/SimTrackerHitCollection.h"
 #include "extension/TrackCollection.h"
-#include "extension/TrackCollection.h"
+#include "podio/UserDataCollection.h"
 
-// GENFIT
-//#include "WireMeasurement.h"
+// CPP
+#include <algorithm>
+#include <map>
 
 /** @class Evaluation_efficiency
  *
@@ -52,7 +55,19 @@ public:
 
 private:
 
+  
+  // Input tracker hit collection name
+  mutable DataHandle<extension::TrackCollection> m_input_tracks{"inputTracks", Gaudi::DataHandle::Reader, this};
+  mutable DataHandle<edm4hep::MCParticleCollection> m_input_MCparticles{"inputMCparticles", Gaudi::DataHandle::Reader,this};
+
+  mutable DataHandle<edm4hep::SimTrackerHitCollection> m_input_hits_CDC_sim{"inputHits_CDC_sim", Gaudi::DataHandle::Reader, this};
+  mutable DataHandle<edm4hep::SimTrackerHitCollection> m_input_hits_VTXIB_sim{"inputHits_VTXIB_sim", Gaudi::DataHandle::Reader, this};
+  mutable DataHandle<edm4hep::SimTrackerHitCollection> m_input_hits_VTXD_sim{"inputHits_VTXD_sim", Gaudi::DataHandle::Reader, this};
+  mutable DataHandle<edm4hep::SimTrackerHitCollection> m_input_hits_VTXOB_sim{"inputHits_VTXOB_sim", Gaudi::DataHandle::Reader, this};
+
   // Output track collection name
-  mutable DataHandle<extension::TrackCollection> m_input_tracks{"inputTracks", Gaudi::DataHandle::Writer, this};
- 
+  // mutable DataHandle<podio::UserDataCollection<std::map<int, double>>> m_output_trackEff{"outputTracksEff", Gaudi::DataHandle::Writer, this};
+  // mutable DataHandle<podio::UserDataCollection<std::map<int, double>>> m_output_MCpur{"outputMCPur", Gaudi::DataHandle::Writer, this};
+
+  mutable DataHandle <podio::UserDataCollection <int>> m_output_tracking{"outputTrackingEff", Gaudi::DataHandle::Writer, this};
 };

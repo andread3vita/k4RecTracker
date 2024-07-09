@@ -1,29 +1,31 @@
 import os
-import sys
-
 from Gaudi.Configuration import *
 
 # Loading the input SIM file
 from Configurables import k4DataSvc, PodioInput
+from k4FWCore.parseArgs import parser
+
+parser.add_argument("--inputFile", default="../dataset/muons_eta0017_mom100/eval/output_IDEA_DIGI_gun_1.root", help="InputFile")
+parser.add_argument("--outputFile", default="output_tracking.root", help="OutputFile")
+args = parser.parse_args()
 
 evtsvc = k4DataSvc("EventDataSvc")
-evtsvc.input = sys.argv[1] #first argument -> input file
-
+evtsvc.input = args.inputFile
 inp = PodioInput("InputReader")
 
 
 # pattern recognition over digitized hits
-from Configurables import GenFitter
+from Configurables import Evaluation_efficiency
 
-dch_tracking = GenFitter(
-    "GenFitter",
-    modelPath="/afs/cern.ch/user/a/adevita/public/workDir/k4RecTracker/Tracking/model_multivector_1_input.onnx",
-    inputHits_CDC="CDCHDigis",
-    inputHits_VTXD="VTXDDigis",
-    inputHits_VTXIB="VTXIBDigis",
-    inputHits_VTXOB="VTXOBDigis",
-    outputTracks="CDCHTracks",
-    outputHits="Hits",
+trackin_eff = Evaluation_efficiency(
+    "Evaluation_efficiency",
+    inputTracks="CDCHTracks",
+    inputMCparticles="MCParticles",
+    inputHits_CDC_sim="CDCHHits",
+    inputHits_VTXD_sim="VTXDCollection",
+    inputHits_VTXIB_sim="VTXIBCollection",
+    inputHits_VTXOB_sim="VTXOBCollection",
+    outputTrackingEff="tracking_eff",
     OutputLevel=INFO,
 )
 
@@ -33,7 +35,7 @@ from Configurables import PodioOutput
 out = PodioOutput("out", OutputLevel=INFO)
 out.outputCommands = ["keep *"]
 
-out.filename = "out.root" #second argument -> output file
+out.filename = args.outputFile
 
 # CPU information
 from Configurables import AuditorSvc, ChronoAuditor
@@ -54,11 +56,11 @@ ApplicationMgr(
     TopAlg=[
         inp,
         event_counter,
-        dch_tracking,
+        trackin_eff,
         out,
     ],
     EvtSel="NONE",
-    EvtMax=1,
+    EvtMax=10,
     ExtSvc=[evtsvc, audsvc],
     StopOnSignal=True,
 )

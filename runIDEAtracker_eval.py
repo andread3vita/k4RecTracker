@@ -1,12 +1,16 @@
 import os
-
 from Gaudi.Configuration import *
 
 # Loading the input SIM file
 from Configurables import k4DataSvc, PodioInput
+from k4FWCore.parseArgs import parser
+
+parser.add_argument("--inputFile", default="../dataset/muons_eta0017_mom100/output_IDEA_DIGI_gun_1.root", help="InputFile")
+parser.add_argument("--outputFile", default="output_tracking.root", help="OutputFile")
+args = parser.parse_args()
 
 evtsvc = k4DataSvc("EventDataSvc")
-evtsvc.input = "output_IDEA_DIGI.root"
+evtsvc.input = args.inputFile
 inp = PodioInput("InputReader")
 
 
@@ -15,7 +19,7 @@ from Configurables import GenFitter_eval
 
 dch_tracking = GenFitter_eval(
     "GenFitter",
-    modelPath="/afs/cern.ch/work/m/mgarciam/private/k4RecTracker_dev_0/Tracking/model_multivector_1_input.onnx",
+    modelPath="/afs/cern.ch/user/a/adevita/public/workDir/k4RecTracker/Tracking/model_multivector_1_input.onnx",
     inputHits_CDC="CDCHDigis",
     inputHits_VTXD="VTXDDigis",
     inputHits_VTXIB="VTXIBDigis",
@@ -36,7 +40,7 @@ from Configurables import PodioOutput
 out = PodioOutput("out", OutputLevel=INFO)
 out.outputCommands = ["keep *"]
 
-out.filename = "output_tracking.root"
+out.filename = args.outputFile
 
 # CPU information
 from Configurables import AuditorSvc, ChronoAuditor
@@ -61,7 +65,6 @@ ApplicationMgr(
         out,
     ],
     EvtSel="NONE",
-    EvtMax=1,
     ExtSvc=[evtsvc, audsvc],
     StopOnSignal=True,
 )
