@@ -1,0 +1,6 @@
+npart_range 1,1
+eta_range 0.017454179,0.017454179
+mom_range 10,10
+drmax 0
+pid_list 13
+nevents 10

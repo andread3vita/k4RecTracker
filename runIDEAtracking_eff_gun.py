@@ -1,6 +1,7 @@
 from Gaudi.Configuration import INFO, WARNING
 from k4FWCore import ApplicationMgr
 from Configurables import k4DataSvc, PodioOutput, PodioInput
+from Configurables import Efficiency_calc_gun
 from Configurables import AuditorSvc, ChronoAuditor
 from k4FWCore.parseArgs import parser
 from Configurables import HiveSlimEventLoopMgr, HiveWhiteBoard, AvalancheSchedulerSvc
@@ -35,24 +36,23 @@ io_svc = IOSvc("IOSvc")
 io_svc.input = args.inputFile
 io_svc.output = args.outputFile
 
+################ eff
 
-# pattern recognition over digitized hits
-from Configurables import tracking_func
-
-dch_tracking = tracking_func(
-    "GenFitter",
-    inputHits_CDC=["CDCHDigis"],
-    inputHits_VTXD=["VTXDDigis"],
-    inputHits_VTXIB=["VTXIBDigis"],
-    inputHits_VTXOB=["VTXOBDigis"],
+trackin_eff = Efficiency_calc_gun(
+    "Evaluation_efficiency",
+    InputCollectionTracks=["CDCHTracks"],
+    InputCollectionParticles=["MCParticles"],
     inputHits_CDC_sim=["CDCHHits"],
     inputHits_VTXD_sim=["VTXDCollection"],
     inputHits_VTXIB_sim=["VTXIBCollection"],
     inputHits_VTXOB_sim=["VTXOBCollection"],
-    outputTracks=["CDCHTracks"],
-    outputHits=["Hits"],
-    clustering_space=["clustering_space"],
-    clustering_space_tracks=["clustering_space_tracks"],
+    pdg_MCParticles=["pdg_MCParticles"],
+    pt_MCParticles=["pt_MCParticles"],
+    index_MCParticles=["index_MCParticles"],
+    isReco=["isReco"],
+    isPrimary=["isPrimary"],
+    outputTrackingEff_primary=["outputTrackingEff_primary"],
+    outputTrackingEff_secondary=["outputTrackingEff_secondary"],
     OutputLevel=INFO,
 )
 
@@ -64,7 +64,7 @@ audsvc = AuditorSvc()
 audsvc.Auditors = [chra]
 
 ApplicationMgr(
-    TopAlg=[dch_tracking],
+    TopAlg=[trackin_eff],
     EvtSel="NONE",
     # ExtSvc=[EventDataSvc("EventDataSvc"), audsvc],
     StopOnSignal=True,
@@ -74,3 +74,4 @@ ApplicationMgr(
     MessageSvcType="InertMessageSvc",
     OutputLevel=INFO,
 )
+
