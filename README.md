@@ -25,14 +25,14 @@ cd ../../
 export FCCDETECTORS=$PWD/FCCDetectors/;PATH=$PWD/FCCDetectors/install/bin/:$PATH;CMAKE_PREFIX_PATH=$PWD/FCCDetectors/install/:$CMAKE_PREFIX_PATH;LD_LIBRARY_PATH=$PWD/FCCDetectors/install/lib:$LD_LIBRARY_PATH;export PYTHONPATH=$PWD/FCCDetectors/install/python:$PYTHONPATH;LD_LIBRARY_PATH=$PWD/FCCDetectors/install/lib64:$LD_LIBRARY_PATH
 
 git clone THIS REPO
-cd k4RecTracker
-# change branch to DChitGlobal
+# cd your repository after cloning then change branch to the DChitGlobal
 source setup.sh
 mkdir build install
 cd build
 cmake .. -DCMAKE_INSTALL_PREFIX=../install
 make install -j 8
 cd ../../
+k4_local_repo
 ```
 
 The following should be called in the folder hosting both `k4RecTracker` and `FCCDetectors` each time you start a new session (even you do not need to re-build): 
