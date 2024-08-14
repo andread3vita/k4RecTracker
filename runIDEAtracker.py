@@ -1,46 +1,46 @@
-from Gaudi.Configuration import INFO, WARNING
-from k4FWCore import ApplicationMgr
-from Configurables import k4DataSvc, PodioOutput, PodioInput
-from Configurables import AuditorSvc, ChronoAuditor
-from k4FWCore.parseArgs import parser
-from Configurables import HiveSlimEventLoopMgr, HiveWhiteBoard, AvalancheSchedulerSvc
-
 import os
 
-evtslots = 10
-threads = 12
+from Gaudi.Configuration import INFO, WARNING
 
-whiteboard = HiveWhiteBoard(
-    "EventDataSvc",
-    EventSlots=evtslots,
-    ForceLeaves=True,
-)
+from Configurables import AuditorSvc, ChronoAuditor
+from Configurables import EventDataSvc
+from Configurables import HiveSlimEventLoopMgr, HiveWhiteBoard, AvalancheSchedulerSvc
 
-slimeventloopmgr = HiveSlimEventLoopMgr(
-    "HiveSlimEventLoopMgr", SchedulerName="AvalancheSchedulerSvc", OutputLevel=WARNING
-)
+# evtslots = 1
+# threads = 1
 
-scheduler = AvalancheSchedulerSvc(ThreadPoolSize=threads, ShowDataFlow=True, OutputLevel=WARNING)
+# whiteboard = HiveWhiteBoard(
+#     "EventDataSvc",
+#     EventSlots=evtslots,
+#     ForceLeaves=True,
+# )
+
+# slimeventloopmgr = HiveSlimEventLoopMgr(
+#     "HiveSlimEventLoopMgr", SchedulerName="AvalancheSchedulerSvc", OutputLevel=WARNING
+# )
+
+# scheduler = AvalancheSchedulerSvc(ThreadPoolSize=threads, ShowDataFlow=True, OutputLevel=WARNING)
 
 ################ parser
+from k4FWCore.parseArgs import parser
 
 parser.add_argument("--inputFile", default="/afs/cern.ch/user/a/adevita/public/workDir/test/dataset/muons_eta0017_mom10/eval/output_IDEA_tracking_gun_10.root", help="InputFile")
 parser.add_argument("--outputFile", default="output_eff.root", help="OutputFile")
 args = parser.parse_args()
 
 ################ input & output
-
 from k4FWCore import IOSvc
+
 io_svc = IOSvc("IOSvc")
 io_svc.input = args.inputFile
 io_svc.output = args.outputFile
 
 
 # pattern recognition over digitized hits
-from Configurables import tracking_func
+from Configurables import GGTF_tracking_dbscan
 
-dch_tracking = tracking_func(
-    "GenFitter",
+GGTF = GGTF_tracking_dbscan(
+    "GGTF_tracking_dbscan",
     inputHits_CDC=["CDCHDigis"],
     inputHits_VTXD=["VTXDDigis"],
     inputHits_VTXIB=["VTXIBDigis"],
@@ -50,27 +50,33 @@ dch_tracking = tracking_func(
     inputHits_VTXIB_sim=["VTXIBCollection"],
     inputHits_VTXOB_sim=["VTXOBCollection"],
     outputTracks=["CDCHTracks"],
-    outputHits=["Hits"],
-    clustering_space=["clustering_space"],
-    clustering_space_tracks=["clustering_space_tracks"],
     OutputLevel=INFO,
 )
+GGTF.modelPath = "/afs/cern.ch/user/a/adevita/public/workDir/k4RecTracker/Tracking/model_multivector_1_input.onnx"
 
 ################ Application
-from Configurables import EventDataSvc
+from k4FWCore import ApplicationMgr
 
 chra = ChronoAuditor()
 audsvc = AuditorSvc()
 audsvc.Auditors = [chra]
 
+# ApplicationMgr(
+#     TopAlg=[GGTF],
+#     EvtSel="NONE",
+#     StopOnSignal=True,
+#     EvtMax=-1,
+#     ExtSvc=[whiteboard],
+#     EventLoop=slimeventloopmgr,
+#     MessageSvcType="InertMessageSvc",
+#     OutputLevel=INFO,
+# )
+
 ApplicationMgr(
-    TopAlg=[dch_tracking],
+    TopAlg=[GGTF],
     EvtSel="NONE",
-    # ExtSvc=[EventDataSvc("EventDataSvc"), audsvc],
+    ExtSvc=[EventDataSvc("EventDataSvc"), audsvc],
     StopOnSignal=True,
     EvtMax=-1,
-    ExtSvc=[whiteboard],
-    EventLoop=slimeventloopmgr,
-    MessageSvcType="InertMessageSvc",
     OutputLevel=INFO,
 )

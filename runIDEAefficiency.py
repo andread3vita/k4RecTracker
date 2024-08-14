@@ -1,27 +1,26 @@
 from Gaudi.Configuration import INFO, WARNING
 from k4FWCore import ApplicationMgr
 from Configurables import k4DataSvc, PodioOutput, PodioInput
-from Configurables import Efficiency_calc_gun
 from Configurables import AuditorSvc, ChronoAuditor
 from k4FWCore.parseArgs import parser
 from Configurables import HiveSlimEventLoopMgr, HiveWhiteBoard, AvalancheSchedulerSvc
 
 import os
 
-evtslots = 10
-threads = 12
+evtslots = 1
+threads = 1
 
-whiteboard = HiveWhiteBoard(
-    "EventDataSvc",
-    EventSlots=evtslots,
-    ForceLeaves=True,
-)
+# whiteboard = HiveWhiteBoard(
+#     "EventDataSvc",
+#     EventSlots=evtslots,
+#     ForceLeaves=True,
+# )
 
-slimeventloopmgr = HiveSlimEventLoopMgr(
-    "HiveSlimEventLoopMgr", SchedulerName="AvalancheSchedulerSvc", OutputLevel=WARNING
-)
+# slimeventloopmgr = HiveSlimEventLoopMgr(
+#     "HiveSlimEventLoopMgr", SchedulerName="AvalancheSchedulerSvc", OutputLevel=WARNING
+# )
 
-scheduler = AvalancheSchedulerSvc(ThreadPoolSize=threads, ShowDataFlow=True, OutputLevel=WARNING)
+# scheduler = AvalancheSchedulerSvc(ThreadPoolSize=threads, ShowDataFlow=True, OutputLevel=WARNING)
 
 ################ parser
 
@@ -37,22 +36,27 @@ io_svc.input = args.inputFile
 io_svc.output = args.outputFile
 
 ################ eff
+from Configurables import GGTF_efficiency
 
-trackin_eff = Efficiency_calc_gun(
-    "Evaluation_efficiency",
+trackin_eff = GGTF_efficiency(
+    "GGTF_efficiency",
     InputCollectionTracks=["CDCHTracks"],
     InputCollectionParticles=["MCParticles"],
     inputHits_CDC_sim=["CDCHHits"],
     inputHits_VTXD_sim=["VTXDCollection"],
     inputHits_VTXIB_sim=["VTXIBCollection"],
     inputHits_VTXOB_sim=["VTXOBCollection"],
-    pdg_MCParticles=["pdg_MCParticles"],
-    pt_MCParticles=["pt_MCParticles"],
-    index_MCParticles=["index_MCParticles"],
+    out_costheta=["out_costheta"],
+    out_pt=["out_pt"],
+    out_phi=["out_phi"],
+    out_pdg=["out_pdg"],
+    out_num_hits=["out_num_hits"],
+    out_pur=["out_pur"],
+    out_eff=["out_eff"],
+    assigned_track_mc=["assigned_track_mc"],
+    numberFakes=["numberFakes"],
     isReco=["isReco"],
-    isPrimary=["isPrimary"],
-    outputTrackingEff_primary=["outputTrackingEff_primary"],
-    outputTrackingEff_secondary=["outputTrackingEff_secondary"],
+    isTrack=["isTrack"],
     OutputLevel=INFO,
 )
 
@@ -63,15 +67,23 @@ chra = ChronoAuditor()
 audsvc = AuditorSvc()
 audsvc.Auditors = [chra]
 
+# ApplicationMgr(
+#     TopAlg=[trackin_eff],
+#     EvtSel="NONE",
+#     StopOnSignal=True,
+#     EvtMax=-1,
+#     ExtSvc=[whiteboard],
+#     EventLoop=slimeventloopmgr,
+#     MessageSvcType="InertMessageSvc",
+#     OutputLevel=INFO,
+# )
+
 ApplicationMgr(
     TopAlg=[trackin_eff],
     EvtSel="NONE",
-    # ExtSvc=[EventDataSvc("EventDataSvc"), audsvc],
+    ExtSvc=[EventDataSvc("EventDataSvc"), audsvc],
     StopOnSignal=True,
     EvtMax=-1,
-    ExtSvc=[whiteboard],
-    EventLoop=slimeventloopmgr,
-    MessageSvcType="InertMessageSvc",
     OutputLevel=INFO,
 )
 

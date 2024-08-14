@@ -25,6 +25,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <set>
 
 #include "Gaudi/Property.h"
 #include "edm4hep/MCParticleCollection.h"
@@ -59,33 +60,16 @@ using DCTrackerHitColl_sim = edm4hep::SimTrackerHitCollection;
 using VertexColl_sim = edm4hep::SimTrackerHitCollection;
 using TrackColl = extension::TrackCollection;
 
-// Define threshold constants
-const double pt_thr__ = 0.100;
-const double cos_thr__ = 0.99;
-const double hits_thr__ = 4.0;
-
-const double pur_thr__ = 0.66;
-const double eff_thr__ = 0.05;
-
-struct Efficiency_calc_pythia final : 
-        k4FWCore::MultiTransformer<std::tuple<DoubleColl, 
-                                              DoubleColl, 
-                                              DoubleColl, 
-                                              IntColl, 
-                                              DoubleColl,
-                                              DoubleColl,
-                                              IntColl, 
-                                              IntColl,
-                                              IntColl,
-                                              IntColl,
-                                              DoubleColl>(          const TrackColl&, 
-                                                                 const ParticleColl&,
-                                                                 const DCTrackerHitColl_sim&,
-                                                                 const VertexColl_sim&,
-                                                                 const VertexColl_sim&,
-                                                                 const VertexColl_sim&)> 
+struct GGTF_efficiency final : 
+        k4FWCore::MultiTransformer<std::tuple<DoubleColl, DoubleColl, DoubleColl, IntColl, IntColl,DoubleColl,DoubleColl,IntColl,IntColl,IntColl,IntColl>(          
+                                                                                                                            const TrackColl&, 
+                                                                                                                            const ParticleColl&,
+                                                                                                                            const DCTrackerHitColl_sim&,
+                                                                                                                            const VertexColl_sim&,
+                                                                                                                            const VertexColl_sim&,
+                                                                                                                            const VertexColl_sim&)> 
 {
-    Efficiency_calc_pythia(const std::string& name, ISvcLocator* svcLoc) : 
+    GGTF_efficiency(const std::string& name, ISvcLocator* svcLoc) : 
         MultiTransformer ( name, svcLoc,
             {   
                 
@@ -99,21 +83,21 @@ struct Efficiency_calc_pythia final :
             },
             {   
                 KeyValues("out_costheta", {"out_costheta"}),
-                KeyValues("out_phi", {"out_phi"}),
                 KeyValues("out_pt", {"out_pt"}),
+                KeyValues("out_phi", {"out_phi"}),
                 KeyValues("out_pdg", {"out_pdg"}),
-                KeyValues("out_purity", {"out_purity"}),
+                KeyValues("out_num_hits", {"out_num_hits"}),
+                KeyValues("out_pur", {"out_pur"}),
                 KeyValues("out_eff", {"out_eff"}),
-                KeyValues("out_index_part", {"out_index_part"}),
-                KeyValues("out_nHits", {"out_nHits"}),
-                KeyValues("out_isReco_tracks", {"out_isReco_tracks"}),
-                KeyValues("out_isReco_particles", {"out_isReco_particles"}),
-                KeyValues("out_pt_particles", {"out_pt_particles"}),
-            
+                KeyValues("assigned_track_mc", {"assigned_track_mc"}),
+                KeyValues("numberFakes", {"numberFakes"}),
+                KeyValues("isReco", {"isReco"}),
+                KeyValues("isTrack", {"isTrack"}),
+
             }) {}
             
 
-    std::tuple<DoubleColl, DoubleColl, DoubleColl, IntColl, DoubleColl,DoubleColl, IntColl, IntColl,IntColl,IntColl,DoubleColl> operator()( const TrackColl& inputTracks, 
+    std::tuple<DoubleColl, DoubleColl, DoubleColl, IntColl, IntColl,DoubleColl,DoubleColl,IntColl,IntColl,IntColl,IntColl> operator()( const TrackColl& inputTracks, 
                                                                                              const ParticleColl& inputMCparticles,
                                                                                              const DCTrackerHitColl_sim& inputHits_CDC_sim,
                                                                                              const VertexColl_sim& inputHits_VTXIB_sim,
@@ -121,12 +105,11 @@ struct Efficiency_calc_pythia final :
                                                                                              const VertexColl_sim& inputHits_VTXOB_sim) const override 
     {
 
-        std::vector<double> costheta_mc = {};
-        std::vector<double> phi_mc = {};
-        std::vector<int>  pdg_mc = {};
-        std::vector<double> pt_mc = {};
-
-        std::vector<int>  index_mc = {};
+        DoubleColl costheta_mc = {};
+        DoubleColl pt_mc = {};
+        DoubleColl phi_mc = {};
+        IntColl  pdg_mc = {};
+        
         for (const auto MC_par : inputMCparticles) {
 
             // define a lorentz vector and compute theta and pt
@@ -138,20 +121,17 @@ struct Efficiency_calc_pythia final :
             double costheta = info[0];
             double pt       = info[1];
             double phi = info[2];
-
             int pdg = MC_par.getPDG();
-            auto index_MC = static_cast<int>(MC_par.getObjectID().index);
 
             pt_mc.push_back(pt);
             costheta_mc.push_back(costheta);
             pdg_mc.push_back(pdg);
             phi_mc.push_back(phi);
-            index_mc.push_back(index_MC);
 
         }
 
         /// compute the number of hits for each particle
-        std::vector<int> particle_hits(index_mc.size(), 0);
+        std::vector<int> particle_hits(phi_mc.size(), 0);
         for (const auto hit : inputHits_VTXD_sim) {
 
             int part_index = hit.getParticle().getObjectID().index;
@@ -172,49 +152,32 @@ struct Efficiency_calc_pythia final :
         int part_index = hit.getParticle().getObjectID().index;
         particle_hits[part_index] += 1;
         }
-
         size_t numPart = particle_hits.size();
-
-        /// check which particle is reconstrutable
-        std::vector<int> isReco;
-        for (size_t i = 0; i < numPart; i++) {
-
-            int isRec = (pt_mc[i] > pt_thr__) && (costheta_mc[i] < cos_thr__) && (particle_hits[i] > hits_thr__);
-            isReco.push_back(isRec);
-        
-        }
 
         /// Efficiency
         int total_hits = 0;
         std::vector<std::map<int, double>> eff_mc;
         std::vector<std::map<int, int>>    hits_Tracks;
 
-        std::vector<int> track_isCluster;
-
         std::vector<int> hits_num;
+        std::vector<int> track_labels;
         for (const auto track : inputTracks) {
+            
+            int label = track.getDEdx();
+            track_labels.push_back(label);
 
             auto hits_in_track = track.getTrackerHits();
-            int  numHits       = hits_in_track.size() > 0 ? hits_in_track.size() : 1;
-
-            hits_num.push_back(hits_in_track.size());
-
-            int label = hits_in_track[0].getType();
-            if (label >= 0)
-            {
-                track_isCluster.push_back(1);
-            }
-            else
-            {
-                track_isCluster.push_back(0);
-            }
+            int numHits_track = hits_in_track.size();
+            hits_num.push_back(numHits_track);
 
             std::vector<int> hit_idx;
-            hit_idx.reserve(hits_in_track.size());
-            for (int k = 0; k < numHits; ++k) {
-            int idx = static_cast<int>(hits_in_track[k].getEDep());
-            hit_idx.push_back(idx);
-            total_hits += 1;
+            hit_idx.reserve(numHits_track);
+
+            for (auto hit : hits_in_track) {
+
+                int idx = hit.getEDep();
+                hit_idx.push_back(idx);
+                total_hits += 1;
             }
 
             std::map<int, int> counter;
@@ -226,7 +189,7 @@ struct Efficiency_calc_pythia final :
             std::map<int, int>    hitsPart;
             for (size_t value = 0; value < numPart; ++value) {
                 
-                EFF[value]      = counter[value] / static_cast<double>(numHits);
+                EFF[value]      = counter[value] / static_cast<double>(numHits_track);
                 hitsPart[value] = counter[value];
             
             }
@@ -263,91 +226,103 @@ struct Efficiency_calc_pythia final :
             pur_tracks.push_back(PUR);
         }
 
-        DoubleColl out_costheta;
-        DoubleColl out_phi;
-        DoubleColl out_pt;
-        IntColl out_pdg;
-      
-        DoubleColl out_purity;
-        DoubleColl out_eff;
-        IntColl out_index_part;
-        IntColl out_nHits;
-        IntColl out_isReco_tracks;
+        DoubleColl efficiency_mc;
+        DoubleColl purity_mc;
+        IntColl assigned_track_mc;
+        IntColl isReco;
+        IntColl isTrack;
+        for (size_t i = 0; i < pur_tracks.size(); ++i) {
 
-        for (size_t i = 0; i < eff_mc.size(); ++i) {
-            
-            double pur = -1.0;
-            int idx_assigned_part = -1;
+            double pur;
+            double eff;
+            double assigned_eff;
+            double assigned_pur;
+            int assigned_track;
 
-            for (size_t s = 0; s < pur_tracks.size(); ++s) {
+            int RECO;
+            int TRACK;
+            for (size_t s = 0; s < eff_mc.size(); ++s) {
                 
-                double pur_temp;
-                auto pur_it = pur_tracks[s].find(i);
-                if (pur_it != pur_tracks[s].end()) {
-                    pur_temp = pur_it->second;
+                auto pur_it = pur_tracks[i].find(s);
+                if (pur_it != pur_tracks[i].end()) {
+                    pur = pur_it->second;
                 }
 
-                if(pur_temp>pur)
-                {
-                    pur = pur_temp;
-                    idx_assigned_part = s;
+                auto eff_it = eff_mc[s].find(i);
+                if (eff_it != eff_mc[s].end()) {
+                    eff = eff_it->second;
+
                 }
+                
+                if (pur > pur_thr__ && eff > eff_thr__)
+                {   
 
-            }
+                    assigned_track = track_labels[s];
+                    assigned_eff = eff;
+                    assigned_pur = pur;
+                    TRACK = 1;
 
-            // Find the efficiency
-            double eff = 0.0;
-            auto eff_it = eff_mc[i].find(idx_assigned_part);
-            if (eff_it != eff_mc[i].end()) {
-                eff = eff_it->second;
-
-            }
-
-            double cos = -1e3;
-            double phi = -1e3;
-            double pt = -1e3;
-            int pdg = -1e3;
-            double pur_ass = -1e3;
-            double eff_ass = -1e3;
-            int idx =-1e3;
-            int number_of_hits = hits_num[i];
-            int isReco_val = -1e3;
-
-            // Check if purity and efficiency are above the thresholds
-            if (pur > pur_thr__ && eff > eff_thr__)
-            {   
-                cos = costheta_mc[idx_assigned_part];
-                phi = phi_mc[idx_assigned_part];
-                pt = pt_mc[idx_assigned_part];
-                pdg = pdg_mc[idx_assigned_part];
-                pur_ass = pur;
-                eff_ass = eff;
-                idx = index_mc[idx_assigned_part];
-
-                if(isReco[idx_assigned_part])
-                {
-                    isReco_val = 1;
+                    break;
+                    
                 }
+                else
+                {   
+                    assigned_track = 0;
+                    assigned_eff = -1.0;
+                    assigned_pur = -1.0;
+                    TRACK = 0;
+                }
+                
+            
             }
 
-            out_costheta.push_back(cos);
-            out_phi.push_back(phi);
-            out_pt.push_back(pt);
-            out_pdg.push_back(pdg);
-            out_purity.push_back(pur_ass);
-            out_eff.push_back(eff_ass);
-            out_index_part.push_back(idx);
-            out_nHits.push_back(number_of_hits);
-            out_isReco_tracks.push_back(isReco_val);
+            RECO = int((pt_mc[i]> pt_thr) && (costheta_mc[i] < cos_thr) && (particle_hits[i] > hits_thr));
+
+            isReco.push_back(RECO);
+            isTrack.push_back(TRACK && RECO);
+
+            assigned_track_mc.push_back(assigned_track);
+            purity_mc.push_back(assigned_pur);
+            efficiency_mc.push_back(assigned_eff);
 
         }
 
-        // IntColl out_isReco_particles = isReco;
+        std::set<int> unique_tracks;    
+        for (int num : assigned_track_mc) 
+        {        
+            if (num != 0) 
+            {            
+                unique_tracks.insert(num);        
+            }   
+        }
 
-        return std::make_tuple(std::move(out_costheta), std::move(out_phi), std::move(out_pt), std::move(out_pdg),std::move(out_purity),std::move(out_eff),std::move(out_index_part),std::move(out_nHits),std::move(out_isReco_tracks),std::move(isReco),std::move(pt_mc));
+        int numberOfFakes = inputTracks.size()-unique_tracks.size();
+
+        IntColl numberFakes;
+        numberFakes.push_back(numberOfFakes);
+
+        return std::make_tuple( std::move(costheta_mc), 
+                                std::move(pt_mc), 
+                                std::move(phi_mc), 
+                                std::move(pdg_mc),
+                                std::move(particle_hits),
+                                std::move(purity_mc),
+                                std::move(efficiency_mc),
+                                std::move(assigned_track_mc),
+                                std::move(numberFakes),
+                                std::move(isReco),
+                                std::move(isTrack));
     }
     
+    private:
+
+        Gaudi::Property< double > pt_thr{this, "pt_thr", 0.1, "pt_thr"};
+        Gaudi::Property< double > cos_thr{this, "cos_thr", 0.99, "cos_thr"};
+        Gaudi::Property< int > hits_thr{this, "hits_thr", 4 , "hits_thr"};
+
+        Gaudi::Property< double > pur_thr__{this, "modelPath",  0.66, "pur_thr__"};
+        Gaudi::Property< double > eff_thr__{this, "eff_thr__", 0.05, "eff_thr__"};
 
 };
 
-DECLARE_COMPONENT(Efficiency_calc_pythia)
+DECLARE_COMPONENT(GGTF_efficiency)
