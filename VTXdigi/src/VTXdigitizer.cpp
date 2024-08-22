@@ -6,6 +6,7 @@ VTXdigitizer::VTXdigitizer(const std::string& aName, ISvcLocator* aSvcLoc)
     : Gaudi::Algorithm(aName, aSvcLoc), m_geoSvc("GeoSvc", "VTXdigitizer") {
   declareProperty("inputSimHits", m_input_sim_hits, "Input sim vertex hit collection name");
   declareProperty("outputDigiHits", m_output_digi_hits, "Output digitized vertex hit collection name");
+  declareProperty("outputSimDigiAssociation", m_output_sim_digi_link, "Output link between sim hits and digitized hits");
 }
 
 VTXdigitizer::~VTXdigitizer() {}
@@ -49,12 +50,12 @@ StatusCode VTXdigitizer::execute(const EventContext&) const {
   const edm4hep::SimTrackerHitCollection* input_sim_hits = m_input_sim_hits.get();
   verbose() << "Input Sim Hit collection size: " << input_sim_hits->size() << endmsg;
 
-  unsigned nDismissedHits=0;
-
   // Digitize the sim hits
   edm4hep::TrackerHit3DCollection* output_digi_hits = m_output_digi_hits.createAndPut();
+  edm4hep::TrackerHitSimTrackerHitLinkCollection* output_sim_digi_link_col = m_output_sim_digi_link.createAndPut();
   for (const auto& input_sim_hit : *input_sim_hits) {
     auto output_digi_hit = output_digi_hits->create();
+    auto output_sim_digi_link = output_sim_digi_link_col->create();
 
     // smear the hit position: need to go in the local frame of the silicon sensor to smear in the direction along/perpendicular to the stave
 
@@ -105,8 +106,6 @@ StatusCode VTXdigitizer::execute(const EventContext&) const {
             
           simHitGlobalPositionVector = oldPosOnSurf ;
         } 
-        else
-          ++nDismissedHits;
       }
     }
 
@@ -171,6 +170,11 @@ StatusCode VTXdigitizer::execute(const EventContext&) const {
     output_digi_hit.setTime(input_sim_hit.getTime() + m_gauss_time.shoot());
 
     output_digi_hit.setCellID(cellID);
+
+    // Set the link between sim and digi hit
+    output_sim_digi_link.setFrom(output_digi_hit);
+    output_sim_digi_link.setTo(input_sim_hit);
+
   }
   return StatusCode::SUCCESS;
 }

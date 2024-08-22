@@ -7,8 +7,8 @@ from Configurables import HiveSlimEventLoopMgr, HiveWhiteBoard, AvalancheSchedul
 
 import os
 
-evtslots = 1
-threads = 1
+evtslots = 10
+threads = 12
 
 # whiteboard = HiveWhiteBoard(
 #     "EventDataSvc",
@@ -42,12 +42,13 @@ trackin_eff = GGTF_efficiency(
     "GGTF_efficiency",
     InputCollectionTracks=["CDCHTracks"],
     InputCollectionParticles=["MCParticles"],
-    inputHits_CDC_sim=["CDCHHits"],
+    Input_dc_links=["CDCHDigisAssociation"],
     inputHits_VTXD_sim=["VTXDCollection"],
     inputHits_VTXIB_sim=["VTXIBCollection"],
     inputHits_VTXOB_sim=["VTXOBCollection"],
     out_costheta=["out_costheta"],
     out_pt=["out_pt"],
+    out_vertex=["out_vertex"],
     out_phi=["out_phi"],
     out_pdg=["out_pdg"],
     out_num_hits=["out_num_hits"],
@@ -55,8 +56,9 @@ trackin_eff = GGTF_efficiency(
     out_eff=["out_eff"],
     assigned_track_mc=["assigned_track_mc"],
     numberFakes=["numberFakes"],
-    isReco=["isReco"],
-    isTrack=["isTrack"],
+    isReconstructable=["isReconstructable"],
+    isAssigned=["isAssigned"],
+    isRecoAndAssigned=["isRecoAndAssigned"],
     OutputLevel=INFO,
 )
 

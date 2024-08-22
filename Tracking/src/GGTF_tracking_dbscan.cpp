@@ -21,6 +21,7 @@
 #include <cmath>
 #include <iostream>
 #include <map>
+#include <memory> 
 #include <numeric>
 #include <queue>
 #include <sstream>
@@ -76,15 +77,32 @@ using TrackColl = extension::TrackCollection;
 #include <cxxabi.h>
 #include <memory>
 
-template <typename T>
-std::string getTypeName() {
-    int status;
-    // Ottieni il nome del tipo in una forma leggibile
-    std::unique_ptr<char, void(*)(void*)> res {
-        abi::__cxa_demangle(typeid(T).name(), nullptr, nullptr, &status),
-        std::free
-    };
-    return (status == 0) ? res.get() : typeid(T).name();
+void printInputTensors(const std::vector<Ort::Value>& input_tensors, size_t total_size) {
+    for (const auto& tensor : input_tensors) {
+        // Controlla se l'oggetto contiene un tensore
+        if (tensor.IsTensor()) {
+            // Usa GetTensorData invece di GetTensorMutableData per oggetti const
+            const float* data = tensor.GetTensorData<float>();
+            std::vector<float> tensor_data(data, data + total_size);
+
+            // Stampa i dati del tensore
+            std::cout << "Tensor length: " << tensor_data.size() / 7 << std::endl;
+            
+            for (size_t i = 0; i < tensor_data.size(); i += 7) {
+                std::cout << "[";
+                for (size_t j = i; j < i + 7 && j < tensor_data.size(); ++j) {
+                    std::cout << tensor_data[j];
+                    if (j < i + 6 && j < tensor_data.size() - 1) {
+                        std::cout << ", ";
+                    }
+                }
+                std::cout << "]" << std::endl;
+            }
+
+        } else {
+            std::cerr << "The input value is not a tensor!" << std::endl;
+        }
+    }
 }
 
 /** @struct GGTF_tracking
@@ -101,7 +119,7 @@ std::string getTypeName() {
  *    - digitalized hits from vertex (global coordinates) : HitsColl
  *
  *  output:
- *    - Clustering labels : IntColl -> VTXD , VTXIB , VTXOB , CDC
+ *    - Hits collection : HitsColl (VTXD , VTXIB , VTXOB , CDC)
  *    - Track collection : TrackColl
  *
  *
@@ -112,7 +130,7 @@ std::string getTypeName() {
  */
 
 struct GGTF_tracking_dbscan final : 
-        k4FWCore::MultiTransformer<std::tuple<TrackColl>(
+        k4FWCore::MultiTransformer<std::tuple<TrackColl,HitsColl>(
                                                                     const DCTrackerHitColl&, 
                                                                     const HitsColl&,
                                                                     const HitsColl&,
@@ -142,13 +160,14 @@ struct GGTF_tracking_dbscan final :
             },
             {   
 
-                KeyValues("outputTracks", {"outputTracks"})      
+                KeyValues("outputTracks", {"outputTracks"}),
+                KeyValues("outputHits", {"outputHits"})           
             
             }
             ) {}
             
     StatusCode initialize() {
-      
+
         // Initialize the ONNX memory info object for CPU memory allocation.
         // This specifies that the memory will be allocated using the Arena Allocator on the CPU.
         fInfo = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
@@ -192,7 +211,7 @@ struct GGTF_tracking_dbscan final :
     }
 
 
-    std::tuple<TrackColl> operator()(
+    std::tuple<TrackColl,HitsColl> operator()(
                                                 const DCTrackerHitColl& inputHits_CDC, 
                                                 const HitsColl& inputHits_VTXIB,
                                                 const HitsColl& inputHits_VTXD,
@@ -214,6 +233,23 @@ struct GGTF_tracking_dbscan final :
         //
         // These for loops are used to store the index of the MC particle for each hit. For now, this information 
         // will be saved in the EDep of the hit stored in each track.
+
+        //const extension::MCRecoDriftChamberDigiAssociation* inputAssociation_CDC_sim = m_input_Association_CDC.get();
+        std::cout << "Input Hit collection size VTXD_sim: " << inputHits_VTXD_sim.size() << std::endl;
+        std::cout << "Input Hit collection size VTXIB_sim: " << inputHits_VTXIB_sim.size() << std::endl;
+        std::cout << "Input Hit collection size VTXOB_sim: " << inputHits_VTXOB_sim.size() << std::endl;
+        std::cout << "Input Hit collection size CDC_sim: " << inputHits_CDC_sim.size() << std::endl;
+        std::cout << "______________________________________________________" << std::endl;
+        std::cout << "Tot hits: " << inputHits_CDC_sim.size() + inputHits_VTXOB_sim.size() + inputHits_VTXIB_sim.size() + inputHits_VTXD_sim.size() << std::endl;
+        std::cout << "  " << std::endl;
+
+        std::cout << "Input Hit collection size VTXD: " << inputHits_VTXD.size() << std::endl;
+        std::cout << "Input Hit collection size VTXIB: " << inputHits_VTXIB.size() << std::endl;
+        std::cout << "Input Hit collection size VTXOB: " << inputHits_VTXOB.size() << std::endl;
+        std::cout << "Input Hit collection size CDC: " << inputHits_CDC.size() << std::endl;
+        std::cout << "______________________________________________________" << std::endl;
+        std::cout << "Tot hits: " << inputHits_CDC.size() + inputHits_VTXOB.size() + inputHits_VTXIB.size() + inputHits_VTXD.size() << std::endl;
+        std::cout << "  " << std::endl;
 
         // Vector to store MC particle indices for the VTXD detector hits
         std::vector <float> ListHitMC_VTXD; 
@@ -266,7 +302,7 @@ struct GGTF_tracking_dbscan final :
             ListGlobalInputs.push_back(input_hit.getPosition().z);
             
             // Add placeholder values for additional input dimensions.
-            ListGlobalInputs.push_back(1.0); // Placeholder for detector type label (1 for vertex detector, 0 for drift chamber)
+            ListGlobalInputs.push_back(1.0); 
             ListGlobalInputs.push_back(0.0);
             ListGlobalInputs.push_back(0.0);
             ListGlobalInputs.push_back(0.0); 
@@ -290,7 +326,7 @@ struct GGTF_tracking_dbscan final :
             ListGlobalInputs.push_back(input_hit.getPosition().z);
             
             // Add placeholder values for additional input dimensions.
-            ListGlobalInputs.push_back(1.0); // Placeholder for detector type label (1 for vertex detector, 0 for drift chamber)
+            ListGlobalInputs.push_back(1.0);
             ListGlobalInputs.push_back(0.0);
             ListGlobalInputs.push_back(0.0);
             ListGlobalInputs.push_back(0.0); 
@@ -314,7 +350,7 @@ struct GGTF_tracking_dbscan final :
             ListGlobalInputs.push_back(input_hit.getPosition().z);
             
             // Add placeholder values for additional input dimensions.
-            ListGlobalInputs.push_back(1.0); // Placeholder for detector type label (1 for vertex detector, 0 for drift chamber)
+            ListGlobalInputs.push_back(1.0); 
             ListGlobalInputs.push_back(0.0);
             ListGlobalInputs.push_back(0.0);
             ListGlobalInputs.push_back(0.0); 
@@ -338,7 +374,7 @@ struct GGTF_tracking_dbscan final :
             ListGlobalInputs.push_back(input_hit.getLeftPosition().z);
             
             // Add the difference between the right and left hit positions to the global input list.
-            ListGlobalInputs.push_back(0.0); // Placeholder for detector type label (1 for vertex detector, 0 for drift chamber)
+            ListGlobalInputs.push_back(0.0); 
             ListGlobalInputs.push_back(input_hit.getRightPosition().x - input_hit.getLeftPosition().x);
             ListGlobalInputs.push_back(input_hit.getRightPosition().y - input_hit.getLeftPosition().y);
             ListGlobalInputs.push_back(input_hit.getRightPosition().z - input_hit.getLeftPosition().z); 
@@ -356,148 +392,192 @@ struct GGTF_tracking_dbscan final :
         ////////// ML STEP //////////
         /////////////////////////////
 
-        // Calculate the total size of the input tensor, based on the number of hits (it) and the 
-        // number of features per hit (7: x, y, z, and four placeholders).
-        size_t total_size = it * 7;
-
-        // Define the shape of the input tensor. The tensor will have `it` rows (one for each hit)
-        // and 7 columns (representing the features of each hit).
-        std::vector<int64_t> tensor_shape = {it, 7};
-
-        // Create a vector to store the input tensors that will be fed into the ONNX model.
-        std::vector<Ort::Value> input_tensors;
-
-        // Create an ONNX tensor from the input data (ListGlobalInputs) and add it to the input_tensors vector.
-        // The tensor is created using the memory information (fInfo), the data pointer, the total size,
-        // and the tensor shape defined earlier.
-        input_tensors.emplace_back(Ort::Value::CreateTensor<float>(fInfo, ListGlobalInputs.data(), total_size, tensor_shape.data(), tensor_shape.size()));
-
-        // Run the ONNX inference session with the provided input tensor.
-        // The model will process the input data and produce output tensors.
-        // The input tensor names (fInames), input tensors (input_tensors), output tensor names (fOnames), 
-        // and the sizes of these vectors are passed to the Run method.
-        auto output_model_tensors = fSession->Run(Ort::RunOptions{nullptr}, fInames.data(), input_tensors.data(), fInames.size(), fOnames.data(), fOnames.size());
-
-        // Extract the raw output data from the first output tensor returned by the model.
-        // This data is stored as a float array.
-        float* floatarr = output_model_tensors.front().GetTensorMutableData<float>();
-
-        // Convert the raw output data into a std::vector of floats for easier handling.
-        // The size of the vector is determined by the number of hits (it) and the number of 
-        // output features per hit (3 coordinates and charge).
-        std::vector<float> output_model_vector(floatarr, floatarr + it * 4);
-
-        /////////////////////////////////////
-        ////////// CLUSTERING STEP //////////
-        /////////////////////////////////////
-
-        torch::Tensor output_model_tensor = torch::from_blob(output_model_vector.data(), {it, 4}, torch::kFloat32).clone();    
-
-
-        std::vector<point3w> points;
-        for (int i = 0; i < output_model_tensor.size(0); ++i) {
-            auto x = output_model_tensor[i][0].item<float>();
-            auto y = output_model_tensor[i][1].item<float>();
-            auto z = output_model_tensor[i][2].item<float>();
-            auto weight = output_model_tensor[i][3].item<float>();
-            points.push_back({x, y, z, weight});
-        }
-
-        float eps =  0.50; 
-        int min_pts = 4;
-        auto clusters = dbscan(points, eps, min_pts);
-
-        std::vector<int> labels(points.size(), -1);
-        for (size_t cluster_idx = 0; cluster_idx < clusters.size(); ++cluster_idx) {
-            for (auto point_idx : clusters[cluster_idx]) {
-                labels[point_idx] = static_cast<int>(cluster_idx);
-            }
-        }
-
-        auto clustering = torch::from_blob(labels.data(), {static_cast<long>(labels.size())}, torch::kInt32).clone();
-
-        torch::Tensor unique_tensor;
-        torch::Tensor inverse_indices;
-        std::tie(unique_tensor, inverse_indices)  = at::_unique(clustering, true, true);
-                
-
-        /////////////////////////////////
-        ////////// OUTPUT STEP //////////
-        /////////////////////////////////
-
+        // Create a new TrackCollection and TrackerHit3DCollection for storing the output tracks and hits
         extension::TrackCollection* output_tracks = new extension::TrackCollection();
         extension::TrackerHit3DCollection* output_hits = new extension::TrackerHit3DCollection();
+        if (it > 0)
+        {
+            // Calculate the total size of the input tensor, based on the number of hits (it) and the 
+            // number of features per hit (7: x, y, z, and four placeholders).
+            size_t total_size = it * 7;
 
-        int64_t number_of_tracks = unique_tensor.numel(); 
-        for (int i = 0; i < number_of_tracks; ++i) {
-            auto id_of_track = unique_tensor.index({i});
-            auto output_track  = output_tracks->create();
+            // Define the shape of the input tensor. The tensor will have `it` rows (one for each hit)
+            // and 7 columns (representing the features of each hit).
+            std::vector<int64_t> tensor_shape = {it, 7};
 
-            output_track.setChi2(1.);
-            output_track.setNdf(1);
-            output_track.setType(id_of_track.item<int>());
+            // // Create a vector to store the input tensors that will be fed into the ONNX model.
+            std::vector<Ort::Value> input_tensors;
 
-            torch::Tensor mask = (clustering == id_of_track);
-            torch::Tensor indices = torch::nonzero(mask);
-            int64_t number_of_hits = indices.numel();
-
-            for (int j = 0; j < number_of_hits; ++j) {
-
-                auto index_id = indices.index({j});
-                torch::Tensor mask_VTXD = (ListHitType_VTXD_tensor == index_id);
-                torch::Tensor mask_VTXIB = (ListHitType_VTXIB_tensor == index_id);
-                torch::Tensor mask_VTOB = (ListHitType_VTXOB_tensor == index_id);
-                torch::Tensor mask_CDC = (ListHitType_CDC_tensor == index_id);
+            // // Create an ONNX tensor from the input data (ListGlobalInputs) and add it to the input_tensors vector.
+            // // The tensor is created using the memory information (fInfo), the data pointer, the total size,
+            // // and the tensor shape defined earlier.
+            // input_tensors.emplace_back(Ort::Value::CreateTensor<float>(fInfo, ListGlobalInputs.data(), total_size, tensor_shape.data(), tensor_shape.size()));
             
+            input_tensors.push_back(Ort::Value::CreateTensor<float>(fInfo, ListGlobalInputs.data(), total_size, tensor_shape.data(), tensor_shape.size()));
 
-                if ((torch::sum(mask_VTXD)>0).item<bool>()){
+            //printInputTensors(input_tensors, total_size);
 
-                auto hit = inputHits_VTXD.at(index_id.item<int>());
-                auto hit_extension  = output_hits->create();
-                hit_extension.setCellID(hit.getCellID());
-                hit_extension.setType(id_of_track.item<int>());
-                hit_extension.setEDep(ListHitMC_VTXD[index_id.item<int>()]);
-                hit_extension.setPosition(hit.getPosition());
-                output_track.addToTrackerHits(hit_extension);
+            // Run the ONNX inference session with the provided input tensor.
+            // The model will process the input data and produce output tensors.
+            // The input tensor names (fInames), input tensors (input_tensors), output tensor names (fOnames), 
+            // and the sizes of these vectors are passed to the Run method.
+            auto output_model_tensors = fSession->Run(Ort::RunOptions{nullptr}, fInames.data(), input_tensors.data(), fInames.size(), fOnames.data(), fOnames.size());
+            
+            // Extract the raw output data from the first output tensor returned by the model.
+            // This data is stored as a float array.
+            float* floatarr = output_model_tensors.front().GetTensorMutableData<float>();
+
+            // Convert the raw output data into a std::vector of floats for easier handling.
+            // The size of the vector is determined by the number of hits (it) and the number of 
+            // output features per hit (3 coordinates and charge).
+            std::vector<float> output_model_vector(floatarr, floatarr + it * 4);
+
+            /////////////////////////////////////
+            ////////// CLUSTERING STEP //////////
+            /////////////////////////////////////
+
+            // Convert the output vector from the model to a Torch tensor, specifying the shape and data type
+            torch::Tensor output_model_tensor = torch::from_blob(output_model_vector.data(), {it, 4}, torch::kFloat32).clone();    
+
+            // Initialize a vector to store the 3D points with an associated weight
+            std::vector<point3w> points;
+            for (int i = 0; i < output_model_tensor.size(0); ++i) {
+                auto x = output_model_tensor[i][0].item<float>();
+                auto y = output_model_tensor[i][1].item<float>();
+                auto z = output_model_tensor[i][2].item<float>();
+                auto weight = output_model_tensor[i][3].item<float>();
                 
-                } else if ((torch::sum(mask_VTXIB)>0).item<bool>()){
-                index_id = index_id-it_0;
+                // Store the point in the points vector
+                points.push_back({x, y, z, weight});
+            }
 
-                auto hit = inputHits_VTXIB.at(index_id.item<int>());
-                auto hit_extension  = output_hits->create();
-                hit_extension.setCellID(hit.getCellID());
-                hit_extension.setType(id_of_track.item<int>());
-                hit_extension.setEDep(ListHitMC_VTXIB[index_id.item<int>()]);
-                hit_extension.setPosition(hit.getPosition());
-                output_track.addToTrackerHits(hit_extension);
+            // Apply the DBSCAN clustering algorithm to the points with the given step size and minimum points per cluster
+            // NOTE: dbscan doesn't take into account the weights, so the fourth entry of each point will be ignored.
+            auto clusters = dbscan(points, step_size, min_points);
 
-                } else if ((torch::sum(mask_VTOB)>0).item<bool>()){
-                index_id = index_id-(it_1+it_0);
+            // Initialize a vector to store the cluster labels, with default label -1 (indicating noise or unclustered points)
+            std::vector<int> labels(points.size(), -1);
+            // Assign cluster labels to the corresponding points
+            for (size_t cluster_idx = 0; cluster_idx < clusters.size(); ++cluster_idx) {
+                for (auto point_idx : clusters[cluster_idx]) {
+                    labels[point_idx] = static_cast<int>(cluster_idx)+1;
+                }
+            }
 
-                auto hit = inputHits_VTXOB.at(index_id.item<int>());
-                auto hit_extension  = output_hits->create();
-                hit_extension.setCellID(hit.getCellID());
-                hit_extension.setType(id_of_track.item<int>());
-                hit_extension.setEDep(ListHitMC_VTXOB[index_id.item<int>()]);
-                hit_extension.setPosition(hit.getPosition());
-                output_track.addToTrackerHits(hit_extension);
+            // Convert the vector of cluster labels back to a Torch tensor
+            auto clustering = torch::from_blob(labels.data(), {static_cast<long>(labels.size())}, torch::kInt32).clone();
+            
+            // Find unique cluster labels and the corresponding indices that map the original points to these unique labels
+            torch::Tensor unique_tensor;
+            torch::Tensor inverse_indices;
+            std::tie(unique_tensor, inverse_indices) = at::_unique(clustering, true, true);
 
-                } else if ((torch::sum(mask_CDC)>0).item<bool>()){
-                index_id = index_id-(it_1+it_2 +it_0);
+            /////////////////////////////////
+            ////////// OUTPUT STEP //////////
+            /////////////////////////////////
 
-                auto hit = inputHits_CDC.at(index_id.item<int>());
-                auto hit_extension  = output_hits->create();
-                hit_extension.setCellID(hit.getCellID());
-                hit_extension.setType(id_of_track.item<int>());
-                hit_extension.setEDep(ListHitMC_CDC[index_id.item<int>()]);
-                hit_extension.setPosition(hit.getLeftPosition());
-                output_track.addToTrackerHits(hit_extension);
+            // Get the total number of unique tracks based on the unique_tensor size
+            int64_t number_of_tracks = unique_tensor.numel(); 
+
+            // Loop through each unique track ID
+            for (int i = 0; i < number_of_tracks; ++i) {
+
+                // Retrieve the current track ID
+                auto id_of_track = unique_tensor.index({i});
+                
+                // Create a new track in the output collection and set its type to the current track ID
+                auto output_track = output_tracks->create();
+                output_track.setType(id_of_track.item<int>());
+
+                // Create a mask to select all hits belonging to the current track
+                torch::Tensor mask = (clustering == id_of_track);
+                
+                // Find the indices of the hits that belong to the current track
+                torch::Tensor indices = torch::nonzero(mask);
+                int64_t number_of_hits = indices.numel();
+
+                // Loop through each hit index for the current track
+                for (int j = 0; j < number_of_hits; ++j) {
+
+                    // Get the current hit index
+                    auto index_id = indices.index({j});
+                    
+                    // Check which detector the hit belongs to (VTXD, VTXIB, VTOB, CDC)
+                    torch::Tensor mask_VTXD = (ListHitType_VTXD_tensor == index_id);
+                    torch::Tensor mask_VTXIB = (ListHitType_VTXIB_tensor == index_id);
+                    torch::Tensor mask_VTOB = (ListHitType_VTXOB_tensor == index_id);
+                    torch::Tensor mask_CDC = (ListHitType_CDC_tensor == index_id);
+
+                    // If the hit belongs to the VTXD detector
+                    if ((torch::sum(mask_VTXD) > 0).item<bool>()) {
+
+                        // Retrieve the corresponding hit from the VTXD input hits collection
+                        auto hit = inputHits_VTXD.at(index_id.item<int>());
+                        
+                        // Create a new hit in the output hits collection
+                        auto hit_extension = output_hits->create();
+                        
+                        // Set the hit's attributes: CellID, type (corresponding to the MC particle index that the hit is associated with) and position
+                        hit_extension.setCellID(hit.getCellID());
+                        hit_extension.setType(ListHitMC_VTXD[index_id.item<int>()]);
+                        hit_extension.setPosition(hit.getPosition());
+
+                        // Associate the hit with the current track
+                        output_track.addToTrackerHits(hit_extension);
+
+                    } 
+                    // If the hit belongs to the VTXIB detector
+                    else if ((torch::sum(mask_VTXIB) > 0).item<bool>()) {
+                        index_id = index_id - it_0;
+
+                        // Set the hit's attributes: CellID, type (corresponding to the MC particle index that the hit is associated with) and position
+                        auto hit = inputHits_VTXIB.at(index_id.item<int>());
+                        auto hit_extension = output_hits->create();
+                        hit_extension.setCellID(hit.getCellID());
+                        hit_extension.setType(ListHitMC_VTXIB[index_id.item<int>()]);
+                        hit_extension.setPosition(hit.getPosition());
+
+                        // Associate the hit with the current track
+                        output_track.addToTrackerHits(hit_extension);
+
+                    } 
+                    // If the hit belongs to the VTOB detector
+                    else if ((torch::sum(mask_VTOB) > 0).item<bool>()) {
+                        index_id = index_id - (it_1 + it_0);
+
+                        // Set the hit's attributes: CellID, type (corresponding to the MC particle index that the hit is associated with) and position
+                        auto hit = inputHits_VTXOB.at(index_id.item<int>());
+                        auto hit_extension = output_hits->create();
+                        hit_extension.setCellID(hit.getCellID());
+                        hit_extension.setType(ListHitMC_VTXOB[index_id.item<int>()]);
+                        hit_extension.setPosition(hit.getPosition());
+
+                        // Associate the hit with the current track
+                        output_track.addToTrackerHits(hit_extension);
+
+                    } 
+                    // If the hit belongs to the CDC detector
+                    else if ((torch::sum(mask_CDC) > 0).item<bool>()) {
+                        index_id = index_id - (it_1 + it_2 + it_0);
+
+                        // Set the hit's attributes: CellID, type (corresponding to the MC particle index that the hit is associated with), 
+                        // and position (only the left position)
+                        auto hit = inputHits_CDC.at(index_id.item<int>());
+                        auto hit_extension = output_hits->create();
+                        hit_extension.setCellID(hit.getCellID());
+                        hit_extension.setType(ListHitMC_CDC[index_id.item<int>()]);
+                        hit_extension.setPosition(hit.getLeftPosition());
+
+                        // Associate the hit with the current track
+                        output_track.addToTrackerHits(hit_extension);
+                    }
                 }
             }
         }
 
-        delete output_hits;
-        return std::make_tuple(std::move(*output_tracks));
+        // Return the output collections as a tuple
+        return std::make_tuple(std::move(*output_tracks), std::move(*output_hits));
+
 
     } 
 
@@ -520,6 +600,7 @@ struct GGTF_tracking_dbscan final :
         /// This object provides information about memory allocation and is used during the creation of 
         /// ONNX tensors. It specifies the memory type and device (e.g., CPU, GPU).
         const OrtMemoryInfo* fInfo;
+        struct MemoryInfo;
 
         /// Stores the input and output names for the ONNX model.
         /// These vectors contain the names of the inputs (fInames) and outputs (fOnames) that the model expects.
@@ -528,7 +609,16 @@ struct GGTF_tracking_dbscan final :
 
         /// Property to specify the path to the ONNX model file.
         /// This is a configurable property that defines the location of the ONNX model file on the filesystem.
-        Gaudi::Property< std::string > modelPath{this, "modelPath", "/afs/cern.ch/user/a/adevita/public/workDir/k4RecTracker/Tracking/model_multivector_1_input.onnx", "modelPath"};
+        Gaudi::Property<std::string> modelPath{this, "modelPath", "/afs/cern.ch/user/a/adevita/public/workDir/k4RecTracker/Tracking/model_multivector_1_input.onnx", "modelPath"};
+
+        /// Property to configure the step size for the DBSCAN clustering algorithm.
+        /// This parameter controls the maximum distance between points in a cluster.
+        Gaudi::Property<double> step_size{this, "step_size", 0.5, "step_size"};
+
+        /// Property to configure the minimum number of points required to form a cluster in the DBSCAN algorithm.
+        /// This parameter defines the density threshold for identifying clusters.
+        Gaudi::Property<int> min_points{this, "min_points", 10, "min_points"};
+
 
 
 };

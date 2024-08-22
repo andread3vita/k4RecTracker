@@ -31,54 +31,50 @@ geoservice.OutputLevel = INFO
 from Configurables import VTXdigitizer
 import math
 
-innerVertexResolution_x = 0.003  # [mm], assume 5 µm resolution for ARCADIA sensor
-innerVertexResolution_y = 0.003  # [mm], assume 5 µm resolution for ARCADIA sensor
-innerVertexResolution_t = 1000  # [ns]
-outerVertexResolution_x = 0.050 / math.sqrt(
-    12
-)  # [mm], assume ATLASPix3 sensor with 50 µm pitch
-outerVertexResolution_y = 0.150 / math.sqrt(
-    12
-)  # [mm], assume ATLASPix3 sensor with 150 µm pitch
-outerVertexResolution_t = 1000  # [ns]
+innerVertexResolution_x = 0.003 # [mm], assume 5 µm resolution for ARCADIA sensor
+innerVertexResolution_y = 0.003 # [mm], assume 5 µm resolution for ARCADIA sensor
+innerVertexResolution_t = 1000 # [ns]
+outerVertexResolution_x = 0.050/math.sqrt(12) # [mm], assume ATLASPix3 sensor with 50 µm pitch
+outerVertexResolution_y = 0.150/math.sqrt(12) # [mm], assume ATLASPix3 sensor with 150 µm pitch
+outerVertexResolution_t = 1000 # [ns]
 
-vtxib_digitizer = VTXdigitizer(
-    "VTXIBdigitizer",
+vtxib_digitizer = VTXdigitizer("VTXIBdigitizer",
     inputSimHits="VTXIBCollection",
     outputDigiHits="VTXIBDigis",
-    detectorName="Vertex",
-    readoutName="VTXIBCollection",
-    xResolution=innerVertexResolution_x,  # mm, r-phi direction
-    yResolution=innerVertexResolution_y,  # mm, z direction
-    tResolution=innerVertexResolution_t,
-    forceHitsOntoSurface=False,
-    OutputLevel=INFO,
+    outputSimDigiAssociation = "VTXIB_links",
+    detectorName = "Vertex",
+    readoutName = "VTXIBCollection",
+    xResolution = innerVertexResolution_x, # mm, r-phi direction
+    yResolution = innerVertexResolution_y, # mm, z direction
+    tResolution = innerVertexResolution_t,
+    forceHitsOntoSurface = False,
+    OutputLevel = INFO
 )
 
-vtxob_digitizer = VTXdigitizer(
-    "VTXOBdigitizer",
+vtxob_digitizer = VTXdigitizer("VTXOBdigitizer",
     inputSimHits="VTXOBCollection",
     outputDigiHits="VTXOBDigis",
-    detectorName="Vertex",
-    readoutName="VTXOBCollection",
-    xResolution=outerVertexResolution_x,  # mm, r-phi direction
-    yResolution=outerVertexResolution_y,  # mm, z direction
-    tResolution=outerVertexResolution_t,  # ns
-    forceHitsOntoSurface=False,
-    OutputLevel=INFO,
+    outputSimDigiAssociation = "VTXOB_links",
+    detectorName = "Vertex",
+    readoutName = "VTXOBCollection",
+    xResolution = outerVertexResolution_x, # mm, r-phi direction
+    yResolution = outerVertexResolution_y, # mm, z direction
+    tResolution = outerVertexResolution_t, # ns
+    forceHitsOntoSurface = False,
+    OutputLevel = INFO
 )
 
-vtxd_digitizer = VTXdigitizer(
-    "VTXDdigitizer",
+vtxd_digitizer  = VTXdigitizer("VTXDdigitizer",
     inputSimHits="VTXDCollection",
     outputDigiHits="VTXDDigis",
-    detectorName="Vertex",
-    readoutName="VTXDCollection",
-    xResolution=outerVertexResolution_x,  # mm, r direction
-    yResolution=outerVertexResolution_y,  # mm, phi direction
-    tResolution=outerVertexResolution_t,  # ns
-    forceHitsOntoSurface=False,
-    OutputLevel=INFO,
+    outputSimDigiAssociation = "VTXD_links",
+    detectorName = "Vertex",
+    readoutName = "VTXDCollection",
+    xResolution = outerVertexResolution_x, # mm, r direction
+    yResolution = outerVertexResolution_y, # mm, phi direction
+    tResolution = outerVertexResolution_t, # ns
+    forceHitsOntoSurface = False,
+    OutputLevel = INFO
 )
 
 # digitize drift chamber hits
@@ -111,17 +107,16 @@ audsvc = AuditorSvc()
 audsvc.Auditors = [chra]
 out.AuditExecute = True
 
-from Configurables import EventCounter
+# from Configurables import EventCounter
 
-event_counter = EventCounter("event_counter")
-event_counter.Frequency = 1
+# event_counter = EventCounter("event_counter")
+# event_counter.Frequency = 1
 
 from Configurables import ApplicationMgr
 
 ApplicationMgr(
     TopAlg=[
         inp,
-        event_counter,
         vtxib_digitizer,
         vtxob_digitizer,
         vtxd_digitizer,
@@ -129,7 +124,7 @@ ApplicationMgr(
         out,
     ],
     EvtSel="NONE",
-    EvtMax=100,
+    EvtMax=-1,
     ExtSvc=[geoservice, evtsvc, audsvc],
     StopOnSignal=True,
 )

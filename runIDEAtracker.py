@@ -6,8 +6,8 @@ from Configurables import AuditorSvc, ChronoAuditor
 from Configurables import EventDataSvc
 from Configurables import HiveSlimEventLoopMgr, HiveWhiteBoard, AvalancheSchedulerSvc
 
-# evtslots = 1
-# threads = 1
+# evtslots = 10
+# threads = 12
 
 # whiteboard = HiveWhiteBoard(
 #     "EventDataSvc",
@@ -50,6 +50,7 @@ GGTF = GGTF_tracking_dbscan(
     inputHits_VTXIB_sim=["VTXIBCollection"],
     inputHits_VTXOB_sim=["VTXOBCollection"],
     outputTracks=["CDCHTracks"],
+    outputHits=["outputHits"],
     OutputLevel=INFO,
 )
 GGTF.modelPath = "/afs/cern.ch/user/a/adevita/public/workDir/k4RecTracker/Tracking/model_multivector_1_input.onnx"

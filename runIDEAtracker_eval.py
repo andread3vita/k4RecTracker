@@ -15,10 +15,10 @@ inp = PodioInput("InputReader")
 
 
 # pattern recognition over digitized hits
-from Configurables import GenFitter_eval_dbscan
+from Configurables import GGTF_tracking_dbscan_eval
 
-dch_tracking = GenFitter_eval_dbscan(
-    "GenFitter",
+GGTF_tracking = GGTF_tracking_dbscan_eval(
+    "GGTF_tracking_dbscan_eval",
     modelPath="/afs/cern.ch/user/a/adevita/public/workDir/k4RecTracker/Tracking/model_multivector_1_input.onnx",
     inputHits_CDC="CDCHDigis",
     inputHits_VTXD="VTXDDigis",
@@ -50,18 +50,12 @@ audsvc = AuditorSvc()
 audsvc.Auditors = [chra]
 out.AuditExecute = True
 
-from Configurables import EventCounter
-
-event_counter = EventCounter("event_counter")
-event_counter.Frequency = 1
-
 from Configurables import ApplicationMgr
 
 ApplicationMgr(
     TopAlg=[
         inp,
-        event_counter,
-        dch_tracking,
+        GGTF_tracking,
         out,
     ],
     EvtSel="NONE",

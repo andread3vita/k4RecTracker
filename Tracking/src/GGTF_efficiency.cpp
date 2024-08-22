@@ -32,6 +32,7 @@
 #include "edm4hep/SimTrackerHitCollection.h"
 #include "edm4hep/TrackCollection.h"
 #include "edm4hep/TrackerHit3D.h"
+#include "edm4hep/TrackerHitSimTrackerHitLinkCollection.h"
 #include "podio/UserDataCollection.h"
 #include "k4FWCore/Transformer.h"
 
@@ -39,6 +40,7 @@
 #include "extension/DriftChamberDigiLocalCollection.h"
 #include "extension/TrackCollection.h"
 #include "extension/MutableTrackerHit3D.h"
+#include "extension/MCRecoDriftChamberDigiAssociationCollection.h"
 
 #if __has_include("edm4hep/TrackerHit3DCollection.h")
 #include "edm4hep/TrackerHit3DCollection.h"
@@ -60,11 +62,31 @@ using DCTrackerHitColl_sim = edm4hep::SimTrackerHitCollection;
 using VertexColl_sim = edm4hep::SimTrackerHitCollection;
 using TrackColl = extension::TrackCollection;
 
+using DC_links = extension::MCRecoDriftChamberDigiAssociationCollection;
+using VTX_links = edm4hep::TrackerHitSimTrackerHitLinkCollection;
+
+/** @struct GGTF_efficiency
+ *
+ *  Gaudi MultiTransformer...
+ *
+ *  input: 
+*
+ *
+ *  output:
+ *
+ *
+ *
+ *  @author Andrea De Vita, Maria Dolores Garcia, Brieuc Francois
+ *  @date   2024-08
+ *
+ */
+
 struct GGTF_efficiency final : 
-        k4FWCore::MultiTransformer<std::tuple<DoubleColl, DoubleColl, DoubleColl, IntColl, IntColl,DoubleColl,DoubleColl,IntColl,IntColl,IntColl,IntColl>(          
+        k4FWCore::MultiTransformer<std::tuple<DoubleColl, DoubleColl,DoubleColl,DoubleColl,IntColl, IntColl,DoubleColl,DoubleColl,IntColl,IntColl,IntColl,IntColl,IntColl>(          
                                                                                                                             const TrackColl&, 
                                                                                                                             const ParticleColl&,
-                                                                                                                            const DCTrackerHitColl_sim&,
+                                                                                                                            // const DCTrackerHitColl_sim&,
+                                                                                                                            const DC_links&,
                                                                                                                             const VertexColl_sim&,
                                                                                                                             const VertexColl_sim&,
                                                                                                                             const VertexColl_sim&)> 
@@ -75,7 +97,8 @@ struct GGTF_efficiency final :
                 
                 KeyValues("InputCollectionTracks", {"inputTracks"}),
                 KeyValues("InputCollectionParticles", {"inputMCparticles"}),
-                KeyValues("inputHits_CDC_sim", {"inputHits_CDC_sim"}),
+                KeyValues("Input_dc_links", {"Input_dc_links"}),
+                // KeyValues("inputHits_CDC_sim", {"inputHits_CDC_sim"}),
                 KeyValues("inputHits_VTXIB_sim", {"inputHits_VTXIB_sim"}),
                 KeyValues("inputHits_VTXD_sim", {"inputHits_VTXD_sim"}),
                 KeyValues("inputHits_VTXOB_sim", {"inputHits_VTXOB_sim"})
@@ -85,30 +108,34 @@ struct GGTF_efficiency final :
                 KeyValues("out_costheta", {"out_costheta"}),
                 KeyValues("out_pt", {"out_pt"}),
                 KeyValues("out_phi", {"out_phi"}),
+                KeyValues("out_vertex", {"out_vertex"}),
                 KeyValues("out_pdg", {"out_pdg"}),
                 KeyValues("out_num_hits", {"out_num_hits"}),
                 KeyValues("out_pur", {"out_pur"}),
                 KeyValues("out_eff", {"out_eff"}),
                 KeyValues("assigned_track_mc", {"assigned_track_mc"}),
                 KeyValues("numberFakes", {"numberFakes"}),
-                KeyValues("isReco", {"isReco"}),
-                KeyValues("isTrack", {"isTrack"}),
+                KeyValues("isReconstructable", {"isReconstructable"}),
+                KeyValues("isAssigned", {"isAssigned"}),
+                KeyValues("isRecoAndAssigned", {"isRecoAndAssigned"})
 
             }) {}
             
 
-    std::tuple<DoubleColl, DoubleColl, DoubleColl, IntColl, IntColl,DoubleColl,DoubleColl,IntColl,IntColl,IntColl,IntColl> operator()( const TrackColl& inputTracks, 
-                                                                                             const ParticleColl& inputMCparticles,
-                                                                                             const DCTrackerHitColl_sim& inputHits_CDC_sim,
-                                                                                             const VertexColl_sim& inputHits_VTXIB_sim,
-                                                                                             const VertexColl_sim& inputHits_VTXD_sim,
-                                                                                             const VertexColl_sim& inputHits_VTXOB_sim) const override 
+    std::tuple<DoubleColl, DoubleColl, DoubleColl,DoubleColl,IntColl, IntColl,DoubleColl,DoubleColl,IntColl,IntColl,IntColl,IntColl,IntColl> operator()(  const TrackColl& inputTracks, 
+                                                                                                                                                const ParticleColl& inputMCparticles,
+                                                                                                                                                // const DCTrackerHitColl_sim& inputHits_CDC_sim,
+                                                                                                                                                const DC_links& Input_dc_links,
+                                                                                                                                                const VertexColl_sim& inputHits_VTXIB_sim,
+                                                                                                                                                const VertexColl_sim& inputHits_VTXD_sim,
+                                                                                                                                                const VertexColl_sim& inputHits_VTXOB_sim) const override 
     {
 
         DoubleColl costheta_mc = {};
         DoubleColl pt_mc = {};
         DoubleColl phi_mc = {};
         IntColl  pdg_mc = {};
+        DoubleColl vertex_mc = {};
         
         for (const auto MC_par : inputMCparticles) {
 
@@ -117,6 +144,9 @@ struct GGTF_efficiency final :
             double         py     = MC_par.getMomentum().y;
             double         pz     = MC_par.getMomentum().z;
             std::vector<double> info = computeCosThetaPtAndPhi(px, py, pz);
+
+            auto vertex_vec = MC_par.getVertex();
+            double R = sqrt(pow(vertex_vec[0],2)+pow(vertex_vec[1],2)+pow(vertex_vec[2],2));
             
             double costheta = info[0];
             double pt       = info[1];
@@ -127,6 +157,7 @@ struct GGTF_efficiency final :
             costheta_mc.push_back(costheta);
             pdg_mc.push_back(pdg);
             phi_mc.push_back(phi);
+            vertex_mc.push_back(R);
 
         }
 
@@ -148,22 +179,30 @@ struct GGTF_efficiency final :
         particle_hits[part_index] += 1;
         }
 
-        for (const auto hit : inputHits_CDC_sim) {
-        int part_index = hit.getParticle().getObjectID().index;
-        particle_hits[part_index] += 1;
+        // for (const auto hit : inputHits_CDC_sim) {
+        // int part_index = hit.getParticle().getObjectID().index;
+        // particle_hits[part_index] += 1;
+        // }
+
+        for (const auto link : Input_dc_links) {
+
+            auto sim_hit = link.getSim();
+            int part_index = sim_hit.getParticle().getObjectID().index;
+            particle_hits[part_index] += 1;
         }
+
         size_t numPart = particle_hits.size();
 
-        /// Efficiency
+        /// Purity
         int total_hits = 0;
-        std::vector<std::map<int, double>> eff_mc;
+        std::vector<std::map<int, double>> purity_tracks;
         std::vector<std::map<int, int>>    hits_Tracks;
 
         std::vector<int> hits_num;
         std::vector<int> track_labels;
         for (const auto track : inputTracks) {
             
-            int label = track.getDEdx();
+            int label = track.getType();
             track_labels.push_back(label);
 
             auto hits_in_track = track.getTrackerHits();
@@ -172,10 +211,9 @@ struct GGTF_efficiency final :
 
             std::vector<int> hit_idx;
             hit_idx.reserve(numHits_track);
-
             for (auto hit : hits_in_track) {
 
-                int idx = hit.getEDep();
+                int idx = hit.getType();
                 hit_idx.push_back(idx);
                 total_hits += 1;
             }
@@ -185,53 +223,47 @@ struct GGTF_efficiency final :
                 counter[idx]++;
             }
 
-            std::map<int, double> EFF;
+            std::map<int, double> PUR;
             std::map<int, int>    hitsPart;
             for (size_t value = 0; value < numPart; ++value) {
                 
-                EFF[value]      = counter[value] / static_cast<double>(numHits_track);
+                PUR[value]      = counter[value] / static_cast<double>(numHits_track);
                 hitsPart[value] = counter[value];
             
             }
 
-            eff_mc.push_back(EFF);
+            purity_tracks.push_back(PUR);
             hits_Tracks.push_back(hitsPart);
 
         }
-
-        /// Purity
-        std::vector<std::map<int, double>> pur_tracks;
-        int temp_count = 0;
+       
+        /// Efficiency
+        std::vector<std::map<int, double>> eff_particles;
+        int part_idx = 0;
         for (const auto part : inputMCparticles) {
-            int numHitsTracker = 0;
 
-            for (const auto& hits_map : hits_Tracks) {
-            auto it = hits_map.find(temp_count);
-            if (it != hits_map.end()) {
-                numHitsTracker += it->second;
-            }
-            }
-
+            int numHitsTracker = particle_hits[part_idx];
             numHitsTracker = (numHitsTracker > 0) ? numHitsTracker : 1;
 
-            std::map<int, double> PUR;
+            std::map<int, double> EFF;
             for (size_t value = 0; value < hits_Tracks.size(); ++value) {
                 
-                auto it       = hits_Tracks[value].find(temp_count);
+                auto it       = hits_Tracks[value].find(part_idx);
                 int  hitCount = (it != hits_Tracks[value].end()) ? it->second : 0;
-                PUR[value]    = static_cast<double>(hitCount) / numHitsTracker;
+                EFF[value]    = static_cast<double>(hitCount) / numHitsTracker;
             }
 
-            temp_count += 1;
-            pur_tracks.push_back(PUR);
+            part_idx += 1;
+            eff_particles.push_back(EFF);
         }
 
         DoubleColl efficiency_mc;
         DoubleColl purity_mc;
         IntColl assigned_track_mc;
-        IntColl isReco;
-        IntColl isTrack;
-        for (size_t i = 0; i < pur_tracks.size(); ++i) {
+        IntColl isReconstructable;
+        IntColl isAssigned;
+        IntColl isRecoAndAssigned;
+        for (size_t i = 0; i < eff_particles.size(); ++i) {
 
             double pur;
             double eff;
@@ -240,16 +272,16 @@ struct GGTF_efficiency final :
             int assigned_track;
 
             int RECO;
-            int TRACK;
-            for (size_t s = 0; s < eff_mc.size(); ++s) {
+            int ASSIGNED;
+            for (size_t s = 0; s < purity_tracks.size(); ++s) {
                 
-                auto pur_it = pur_tracks[i].find(s);
-                if (pur_it != pur_tracks[i].end()) {
+                auto pur_it = purity_tracks[s].find(i);
+                if (pur_it != purity_tracks[s].end()) {
                     pur = pur_it->second;
                 }
 
-                auto eff_it = eff_mc[s].find(i);
-                if (eff_it != eff_mc[s].end()) {
+                auto eff_it = eff_particles[i].find(s);
+                if (eff_it != eff_particles[i].end()) {
                     eff = eff_it->second;
 
                 }
@@ -260,7 +292,7 @@ struct GGTF_efficiency final :
                     assigned_track = track_labels[s];
                     assigned_eff = eff;
                     assigned_pur = pur;
-                    TRACK = 1;
+                    ASSIGNED = 1;
 
                     break;
                     
@@ -270,7 +302,7 @@ struct GGTF_efficiency final :
                     assigned_track = 0;
                     assigned_eff = -1.0;
                     assigned_pur = -1.0;
-                    TRACK = 0;
+                    ASSIGNED = 0;
                 }
                 
             
@@ -278,8 +310,9 @@ struct GGTF_efficiency final :
 
             RECO = int((pt_mc[i]> pt_thr) && (costheta_mc[i] < cos_thr) && (particle_hits[i] > hits_thr));
 
-            isReco.push_back(RECO);
-            isTrack.push_back(TRACK && RECO);
+            isReconstructable.push_back(RECO);
+            isAssigned.push_back(ASSIGNED);
+            isRecoAndAssigned.push_back(RECO && ASSIGNED);
 
             assigned_track_mc.push_back(assigned_track);
             purity_mc.push_back(assigned_pur);
@@ -304,14 +337,16 @@ struct GGTF_efficiency final :
         return std::make_tuple( std::move(costheta_mc), 
                                 std::move(pt_mc), 
                                 std::move(phi_mc), 
+                                std::move(vertex_mc),
                                 std::move(pdg_mc),
                                 std::move(particle_hits),
                                 std::move(purity_mc),
                                 std::move(efficiency_mc),
                                 std::move(assigned_track_mc),
                                 std::move(numberFakes),
-                                std::move(isReco),
-                                std::move(isTrack));
+                                std::move(isReconstructable),
+                                std::move(isAssigned),
+                                std::move(isRecoAndAssigned));
     }
     
     private:

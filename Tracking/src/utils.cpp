@@ -115,10 +115,9 @@ torch::Tensor get_clustering(std::vector<float> output_vector, int64_t num_rows,
     return clustering;
 }
 
-// Helper function to print the shape of a tensor or array in a human-readable format
-std::string print_shape(const std::vector<std::int64_t>& v) {
-    std::stringstream ss("");
-    for (std::size_t i = 0; i < v.size() - 1; i++) ss << v[i] << "x"; // Append dimensions separated by 'x'
-    ss << v[v.size() - 1]; // Append the last dimension without 'x'
-    return ss.str(); // Return the formatted shape string
+std::string print_shape1(const std::vector<std::int64_t>& v) {
+std::stringstream ss("");
+for (std::size_t i = 0; i < v.size() - 1; i++) ss << v[i] << "x";
+ss << v[v.size() - 1];
+return ss.str();
 }

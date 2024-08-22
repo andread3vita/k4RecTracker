@@ -32,10 +32,11 @@ namespace edm4hep {
 #include <memory> 
 #include <vector> 
 #include <string>   
+
 // GENFIT
 //#include "WireMeasurement.h"
 
-/** @class GenFitter_eval
+/** @class GGTF_tracking_dbscan_eval
  *
  *  
  *  
@@ -44,10 +45,10 @@ namespace edm4hep {
  *
  */
 
-class GenFitter_eval_dbscan : public Gaudi::Algorithm {
+class GGTF_tracking_dbscan_eval : public Gaudi::Algorithm {
 public:
-  explicit GenFitter_eval_dbscan(const std::string&, ISvcLocator*);
-  virtual ~GenFitter_eval_dbscan();
+  explicit GGTF_tracking_dbscan_eval(const std::string&, ISvcLocator*);
+  virtual ~GGTF_tracking_dbscan_eval();
   /**  Initialize.
    *   @return status code
    */

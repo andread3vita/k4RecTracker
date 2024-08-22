@@ -1,9 +1,3 @@
-#include <cstddef>
-#include <nanoflann/nanoflann.hpp>
-#include <vector>
-#include <span>
-#include <algorithm>
-#include <utility>
 #include "dbscan.hpp"
 
 inline auto get_pt(const point3w& p, std::size_t dim) {
@@ -38,8 +32,8 @@ auto sort_clusters(std::vector<std::vector<size_t>>& clusters) {
 }
 
 template<typename Adaptor>
-auto dbscan(const Adaptor& adapt, float eps, int min_pts) {
-    eps *= eps;
+auto dbscan(const Adaptor& adapt, float epsilon, int min_pts) {
+    epsilon *= epsilon;
     using namespace nanoflann;
     using my_kd_tree_t = KDTreeSingleIndexAdaptor<L2_Simple_Adaptor<float, decltype(adapt)>, decltype(adapt), 3>;
 
@@ -55,7 +49,7 @@ auto dbscan(const Adaptor& adapt, float eps, int min_pts) {
     for (size_t i = 0; i < n_points; i++) {
         if (visited[i]) continue;
 
-        index.radiusSearch(adapt.elem_ptr(i), eps, matches, SearchParams(32, 0.f, false));
+        index.radiusSearch(adapt.elem_ptr(i), epsilon, matches, SearchParams(32, 0.f, false));
         if (matches.size() < static_cast<size_t>(min_pts)) continue;
         visited[i] = true;
 
@@ -67,7 +61,7 @@ auto dbscan(const Adaptor& adapt, float eps, int min_pts) {
             if (visited[nb_idx]) continue;
             visited[nb_idx] = true;
 
-            index.radiusSearch(adapt.elem_ptr(nb_idx), eps, sub_matches, SearchParams(32, 0.f, false));
+            index.radiusSearch(adapt.elem_ptr(nb_idx), epsilon, sub_matches, SearchParams(32, 0.f, false));
 
             if (sub_matches.size() >= static_cast<size_t>(min_pts)) {
                 std::copy(sub_matches.begin(), sub_matches.end(), std::back_inserter(matches));
@@ -80,7 +74,7 @@ auto dbscan(const Adaptor& adapt, float eps, int min_pts) {
     return clusters;
 }
 
-auto dbscan(const std::span<const point3w>& data, float eps, int min_pts) -> std::vector<std::vector<size_t>> {
+auto dbscan(const std::span<const point3w>& data, float epsilon, int min_pts) -> std::vector<std::vector<size_t>> {
     const auto adapt = adaptor<point3w>(data);
-    return dbscan(adapt, eps, min_pts);
+    return dbscan(adapt, epsilon, min_pts);
 }
