@@ -28,10 +28,14 @@
 #include <string>
 #include <typeinfo>
 #include <vector>
+#include <fstream>  // Per std::ifstream
+#include <vector>   // Per std::vector
+#include <iterator> // Per std::istreambuf_iterator
 
 #include <ATen/ATen.h>
 #include <torch/torch.h>
 #include "onnxruntime_cxx_api.h"
+#include "onnxruntime_run_options_config_keys.h"
 
 #include "dbscan.hpp"
 #include "utils.hpp"
@@ -165,8 +169,27 @@ struct GGTF_tracking_dbscan final :
             
             }
             ) {}
-            
+    
+
     StatusCode initialize() {
+
+        // Leggi il file .onnx in modalità binaria
+        std::ifstream model_file(modelPath.value().c_str(), std::ios::binary | std::ios::ate);
+        if (!model_file) {
+            std::cerr << "Failed to open the ONNX model file: " << modelPath << std::endl;
+        }
+
+        // Ottieni la dimensione del file
+        std::streamsize model_size = model_file.tellg();
+        model_file.seekg(0, std::ios::beg);
+
+        // Crea un buffer per contenere il file modello
+        std::vector<char> model_data_temp(model_size);
+        if (!model_file.read(model_data_temp.data(), model_size)) {
+            std::cerr << "Failed to read the ONNX model file: " << modelPath << std::endl;
+        }
+
+        model_data = model_data_temp;
 
         // Initialize the ONNX memory info object for CPU memory allocation.
         // This specifies that the memory will be allocated using the Arena Allocator on the CPU.
@@ -183,6 +206,8 @@ struct GGTF_tracking_dbscan final :
 
         // Disable all graph optimizations to keep the model execution as close to the original as possible.
         fSessionOptions.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_DISABLE_ALL);
+
+        fSessionOptions.DisableMemPattern();
 
         // Create an ONNX inference session using the configured environment and session options.
         // The session is used to load the model specified by the `modelPath`.
@@ -204,8 +229,8 @@ struct GGTF_tracking_dbscan final :
         // Store the retrieved input and output names in the respective vectors.
         fInames.push_back(input_name);
         fOnames.push_back(output_names);
-      
-      
+
+
         return StatusCode::SUCCESS;
 
     }
@@ -222,9 +247,11 @@ struct GGTF_tracking_dbscan final :
                                                 const SimHits& inputHits_VTXOB_sim) const override 
     {
 
-        ////////////////////////////////////////
-        ////////// DATA PREPROCESSING //////////
-        ////////////////////////////////////////
+        torch::NoGradGuard no_grad;
+
+        // ////////////////////////////////////////
+        // ////////// DATA PREPROCESSING //////////
+        // ////////////////////////////////////////
         
         // Although there is a link between digi hits and MC hits, we cannot use it because the output tracks 
         // do not contain the original hits, but rather copies. This step is necessary because it is not possible 
@@ -234,14 +261,14 @@ struct GGTF_tracking_dbscan final :
         // These for loops are used to store the index of the MC particle for each hit. For now, this information 
         // will be saved in the EDep of the hit stored in each track.
 
-        //const extension::MCRecoDriftChamberDigiAssociation* inputAssociation_CDC_sim = m_input_Association_CDC.get();
-        std::cout << "Input Hit collection size VTXD_sim: " << inputHits_VTXD_sim.size() << std::endl;
-        std::cout << "Input Hit collection size VTXIB_sim: " << inputHits_VTXIB_sim.size() << std::endl;
-        std::cout << "Input Hit collection size VTXOB_sim: " << inputHits_VTXOB_sim.size() << std::endl;
-        std::cout << "Input Hit collection size CDC_sim: " << inputHits_CDC_sim.size() << std::endl;
-        std::cout << "______________________________________________________" << std::endl;
-        std::cout << "Tot hits: " << inputHits_CDC_sim.size() + inputHits_VTXOB_sim.size() + inputHits_VTXIB_sim.size() + inputHits_VTXD_sim.size() << std::endl;
-        std::cout << "  " << std::endl;
+        // //const extension::MCRecoDriftChamberDigiAssociation* inputAssociation_CDC_sim = m_input_Association_CDC.get();
+        // std::cout << "Input Hit collection size VTXD_sim: " << inputHits_VTXD_sim.size() << std::endl;
+        // std::cout << "Input Hit collection size VTXIB_sim: " << inputHits_VTXIB_sim.size() << std::endl;
+        // std::cout << "Input Hit collection size VTXOB_sim: " << inputHits_VTXOB_sim.size() << std::endl;
+        // std::cout << "Input Hit collection size CDC_sim: " << inputHits_CDC_sim.size() << std::endl;
+        // std::cout << "______________________________________________________" << std::endl;
+        // std::cout << "Tot hits: " << inputHits_CDC_sim.size() + inputHits_VTXOB_sim.size() + inputHits_VTXIB_sim.size() + inputHits_VTXD_sim.size() << std::endl;
+        // std::cout << "  " << std::endl;
 
         std::cout << "Input Hit collection size VTXD: " << inputHits_VTXD.size() << std::endl;
         std::cout << "Input Hit collection size VTXIB: " << inputHits_VTXIB.size() << std::endl;
@@ -395,7 +422,7 @@ struct GGTF_tracking_dbscan final :
         // Create a new TrackCollection and TrackerHit3DCollection for storing the output tracks and hits
         extension::TrackCollection* output_tracks = new extension::TrackCollection();
         extension::TrackerHit3DCollection* output_hits = new extension::TrackerHit3DCollection();
-        if (it > 0)
+        if (it > 0 && it < 20000)
         {
             // Calculate the total size of the input tensor, based on the number of hits (it) and the 
             // number of features per hit (7: x, y, z, and four placeholders).
@@ -415,12 +442,10 @@ struct GGTF_tracking_dbscan final :
             
             input_tensors.push_back(Ort::Value::CreateTensor<float>(fInfo, ListGlobalInputs.data(), total_size, tensor_shape.data(), tensor_shape.size()));
 
-            //printInputTensors(input_tensors, total_size);
-
-            // Run the ONNX inference session with the provided input tensor.
-            // The model will process the input data and produce output tensors.
-            // The input tensor names (fInames), input tensors (input_tensors), output tensor names (fOnames), 
-            // and the sizes of these vectors are passed to the Run method.
+            // // Run the ONNX inference session with the provided input tensor.
+            // // The model will process the input data and produce output tensors.
+            // // The input tensor names (fInames), input tensors (input_tensors), output tensor names (fOnames), 
+            // // and the sizes of these vectors are passed to the Run method.
             auto output_model_tensors = fSession->Run(Ort::RunOptions{nullptr}, fInames.data(), input_tensors.data(), fInames.size(), fOnames.data(), fOnames.size());
             
             // Extract the raw output data from the first output tensor returned by the model.
@@ -573,7 +598,26 @@ struct GGTF_tracking_dbscan final :
                     }
                 }
             }
+
+            inverse_indices.reset();
+            unique_tensor.reset();
+            clustering.reset();
+            
+            input_tensors.clear();
+            output_model_tensors.clear();
+            
+            
         }
+
+        ListHitType_VTXIB_tensor.reset();
+        ListHitType_VTXOB_tensor.reset();
+        ListHitType_VTXD_tensor.reset();
+        ListHitType_CDC_tensor.reset();
+
+        std::vector<float>().swap(ListHitType_VTXD);
+        std::vector<float>().swap(ListHitType_VTXIB);
+        std::vector<float>().swap(ListHitType_VTXOB);
+        std::vector<float>().swap(ListHitType_CDC);
 
         // Return the output collections as a tuple
         return std::make_tuple(std::move(*output_tracks), std::move(*output_hits));
@@ -582,6 +626,8 @@ struct GGTF_tracking_dbscan final :
     } 
 
     private:
+        
+        std::vector<char> model_data;
 
         /// Pointer to the ONNX environment.
         /// This object manages the global state of the ONNX runtime, such as logging and threading.
