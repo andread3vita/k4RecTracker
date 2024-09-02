@@ -82,7 +82,7 @@ using VTX_links = edm4hep::TrackerHitSimTrackerHitLinkCollection;
  */
 
 struct GGTF_efficiency final : 
-        k4FWCore::MultiTransformer<std::tuple<DoubleColl, DoubleColl,DoubleColl,DoubleColl,IntColl, IntColl,DoubleColl,DoubleColl,IntColl,IntColl,IntColl,IntColl,IntColl>(          
+        k4FWCore::MultiTransformer<std::tuple<DoubleColl, DoubleColl,DoubleColl,DoubleColl,IntColl, IntColl,IntColl,DoubleColl,DoubleColl,IntColl,IntColl,IntColl,IntColl,IntColl,IntColl>(          
                                                                                                                             const TrackColl&, 
                                                                                                                             const ParticleColl&,
                                                                                                                             // const DCTrackerHitColl_sim&,
@@ -111,10 +111,12 @@ struct GGTF_efficiency final :
                 KeyValues("out_vertex", {"out_vertex"}),
                 KeyValues("out_pdg", {"out_pdg"}),
                 KeyValues("out_num_hits", {"out_num_hits"}),
+                KeyValues("out_num_hits_driftChamber", {"out_num_hits_driftChamber"}),
                 KeyValues("out_pur", {"out_pur"}),
                 KeyValues("out_eff", {"out_eff"}),
                 KeyValues("assigned_track_mc", {"assigned_track_mc"}),
                 KeyValues("numberFakes", {"numberFakes"}),
+                KeyValues("genStatus", {"genStatus"}),
                 KeyValues("isReconstructable", {"isReconstructable"}),
                 KeyValues("isAssigned", {"isAssigned"}),
                 KeyValues("isRecoAndAssigned", {"isRecoAndAssigned"})
@@ -122,7 +124,7 @@ struct GGTF_efficiency final :
             }) {}
             
 
-    std::tuple<DoubleColl, DoubleColl, DoubleColl,DoubleColl,IntColl, IntColl,DoubleColl,DoubleColl,IntColl,IntColl,IntColl,IntColl,IntColl> operator()(  const TrackColl& inputTracks, 
+    std::tuple<DoubleColl, DoubleColl,DoubleColl,DoubleColl,IntColl, IntColl,IntColl,DoubleColl,DoubleColl,IntColl,IntColl,IntColl,IntColl,IntColl,IntColl> operator()(  const TrackColl& inputTracks, 
                                                                                                                                                 const ParticleColl& inputMCparticles,
                                                                                                                                                 // const DCTrackerHitColl_sim& inputHits_CDC_sim,
                                                                                                                                                 const DC_links& Input_dc_links,
@@ -136,6 +138,7 @@ struct GGTF_efficiency final :
         DoubleColl phi_mc = {};
         IntColl  pdg_mc = {};
         DoubleColl vertex_mc = {};
+        IntColl genStatus_mc = {};
         
         for (const auto MC_par : inputMCparticles) {
 
@@ -152,17 +155,20 @@ struct GGTF_efficiency final :
             double pt       = info[1];
             double phi = info[2];
             int pdg = MC_par.getPDG();
+            int genStatus = MC_par.getGeneratorStatus();
 
             pt_mc.push_back(pt);
             costheta_mc.push_back(costheta);
             pdg_mc.push_back(pdg);
             phi_mc.push_back(phi);
             vertex_mc.push_back(R);
+            genStatus_mc.push_back(genStatus);
 
         }
 
         /// compute the number of hits for each particle
         std::vector<int> particle_hits(phi_mc.size(), 0);
+        std::vector<int> particle_hits_cd(phi_mc.size(), 0);
         for (const auto hit : inputHits_VTXD_sim) {
 
             int part_index = hit.getParticle().getObjectID().index;
@@ -179,16 +185,12 @@ struct GGTF_efficiency final :
         particle_hits[part_index] += 1;
         }
 
-        // for (const auto hit : inputHits_CDC_sim) {
-        // int part_index = hit.getParticle().getObjectID().index;
-        // particle_hits[part_index] += 1;
-        // }
-
         for (const auto link : Input_dc_links) {
 
             auto sim_hit = link.getSim();
             int part_index = sim_hit.getParticle().getObjectID().index;
             particle_hits[part_index] += 1;
+            particle_hits_cd[part_index] += 1;
         }
 
         size_t numPart = particle_hits.size();
@@ -227,7 +229,7 @@ struct GGTF_efficiency final :
             std::map<int, int>    hitsPart;
             for (size_t value = 0; value < numPart; ++value) {
                 
-                PUR[value]      = counter[value] / static_cast<double>(numHits_track);
+                PUR[value]      = counter[value] / static_cast<double>(numHits_track); // number of hits that belong to MC (inside the track) / total number of hits inside the track
                 hitsPart[value] = counter[value];
             
             }
@@ -250,7 +252,7 @@ struct GGTF_efficiency final :
                 
                 auto it       = hits_Tracks[value].find(part_idx);
                 int  hitCount = (it != hits_Tracks[value].end()) ? it->second : 0;
-                EFF[value]    = static_cast<double>(hitCount) / numHitsTracker;
+                EFF[value]    = static_cast<double>(hitCount) / numHitsTracker; // number of hits inside track that belong to MC / total number of hits that belong to MC
             }
 
             part_idx += 1;
@@ -308,7 +310,13 @@ struct GGTF_efficiency final :
             
             }
 
-            RECO = int((pt_mc[i]> pt_thr) && (costheta_mc[i] < cos_thr) && (particle_hits[i] > hits_thr));
+            RECO = int( (pt_mc[i]> pt_thr) &&
+                        (costheta_mc[i] < cos_thr) && 
+                        (particle_hits[i] > hits_thr) && 
+                        (particle_hits_cd[i] > cd_hits_thr) &&
+                        (genStatus_mc[i] == 1) &&
+                        (vertex_mc[i] < vertex_thr)
+                      );
 
             isReconstructable.push_back(RECO);
             isAssigned.push_back(ASSIGNED);
@@ -340,10 +348,12 @@ struct GGTF_efficiency final :
                                 std::move(vertex_mc),
                                 std::move(pdg_mc),
                                 std::move(particle_hits),
+                                std::move(particle_hits_cd),
                                 std::move(purity_mc),
                                 std::move(efficiency_mc),
                                 std::move(assigned_track_mc),
                                 std::move(numberFakes),
+                                std::move(genStatus_mc),
                                 std::move(isReconstructable),
                                 std::move(isAssigned),
                                 std::move(isRecoAndAssigned));
@@ -353,10 +363,12 @@ struct GGTF_efficiency final :
 
         Gaudi::Property< double > pt_thr{this, "pt_thr", 0.1, "pt_thr"};
         Gaudi::Property< double > cos_thr{this, "cos_thr", 0.99, "cos_thr"};
-        Gaudi::Property< int > hits_thr{this, "hits_thr", 4 , "hits_thr"};
+        Gaudi::Property< int > hits_thr{this, "hits_thr", 15 , "hits_thr"};
+        Gaudi::Property< int > cd_hits_thr{this, "cd_hits_thr", 4 , "cd_hits_thr"};
+        Gaudi::Property< double > vertex_thr{this, "vertex_thr", 50 , "vertex_thr"};
 
-        Gaudi::Property< double > pur_thr__{this, "modelPath",  0.66, "pur_thr__"};
-        Gaudi::Property< double > eff_thr__{this, "eff_thr__", 0.05, "eff_thr__"};
+        Gaudi::Property< double > pur_thr__{this, "modelPath",  0.5, "pur_thr__"};
+        Gaudi::Property< double > eff_thr__{this, "eff_thr__", 0.5, "eff_thr__"};
 
 };
 

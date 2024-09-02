@@ -77,19 +77,19 @@ vtxd_digitizer  = VTXdigitizer("VTXDdigitizer",
     OutputLevel = INFO
 )
 
-# digitize drift chamber hits
-from Configurables import DCHsimpleDigitizerExtendedEdm
+# # digitize drift chamber hits
+# from Configurables import DCHsimpleDigitizerExtendedEdm
 
-dch_digitizer = DCHsimpleDigitizerExtendedEdm(
-    "DCHsimpleDigitizerExtendedEdm",
-    inputSimHits="CDCHHits",
-    outputDigiHits="CDCHDigis",
-    outputSimDigiAssociation="CDCHDigisAssociation",
-    readoutName="CDCHHits",
-    xyResolution=0.1,  # mm
-    zResolution=1,  # mm
-    OutputLevel=INFO,
-)
+# dch_digitizer = DCHsimpleDigitizerExtendedEdm(
+#     "DCHsimpleDigitizerExtendedEdm",
+#     inputSimHits="CDCHHits",
+#     outputDigiHits="CDCHDigis",
+#     outputSimDigiAssociation="CDCHDigisAssociation",
+#     readoutName="CDCHHits",
+#     xyResolution=0.1,  # mm
+#     zResolution=1,  # mm
+#     OutputLevel=INFO,
+# )
 
 ################ Output
 from Configurables import PodioOutput
@@ -120,7 +120,7 @@ ApplicationMgr(
         vtxib_digitizer,
         vtxob_digitizer,
         vtxd_digitizer,
-        dch_digitizer,
+        # dch_digitizer,
         out,
     ],
     EvtSel="NONE",

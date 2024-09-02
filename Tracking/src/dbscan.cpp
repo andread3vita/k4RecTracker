@@ -13,7 +13,7 @@ struct adaptor {
 
     inline std::size_t kdtree_get_point_count() const { return points.size(); }
 
-    inline float kdtree_get_pt(const std::size_t idx, const std::size_t dim) const {
+    inline double kdtree_get_pt(const std::size_t idx, const std::size_t dim) const {
         return get_pt(points[idx], dim);
     }
 
@@ -32,10 +32,10 @@ auto sort_clusters(std::vector<std::vector<size_t>>& clusters) {
 }
 
 template<typename Adaptor>
-auto dbscan(const Adaptor& adapt, float epsilon, int min_pts) {
+auto dbscan(const Adaptor& adapt, double epsilon, int min_pts) {
     epsilon *= epsilon;
     using namespace nanoflann;
-    using my_kd_tree_t = KDTreeSingleIndexAdaptor<L2_Simple_Adaptor<float, decltype(adapt)>, decltype(adapt), 3>;
+    using my_kd_tree_t = KDTreeSingleIndexAdaptor<L2_Simple_Adaptor<double, decltype(adapt)>, decltype(adapt), 3>;
 
     auto index = my_kd_tree_t(3, adapt, KDTreeSingleIndexAdaptorParams(10));
     index.buildIndex();
@@ -43,8 +43,8 @@ auto dbscan(const Adaptor& adapt, float epsilon, int min_pts) {
     const auto n_points = adapt.kdtree_get_point_count();
     auto visited = std::vector<bool>(n_points);
     auto clusters = std::vector<std::vector<size_t>>();
-    auto matches = std::vector<std::pair<size_t, float>>();
-    auto sub_matches = std::vector<std::pair<size_t, float>>();
+    auto matches = std::vector<std::pair<size_t, double>>();
+    auto sub_matches = std::vector<std::pair<size_t, double>>();
 
     for (size_t i = 0; i < n_points; i++) {
         if (visited[i]) continue;
@@ -74,7 +74,7 @@ auto dbscan(const Adaptor& adapt, float epsilon, int min_pts) {
     return clusters;
 }
 
-auto dbscan(const std::span<const point3w>& data, float epsilon, int min_pts) -> std::vector<std::vector<size_t>> {
+auto dbscan(const std::span<const point3w>& data, double epsilon, int min_pts) -> std::vector<std::vector<size_t>> {
     const auto adapt = adaptor<point3w>(data);
     return dbscan(adapt, epsilon, min_pts);
 }

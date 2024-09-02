@@ -10,6 +10,8 @@
 source /cvmfs/sw-nightlies.hsf.org/key4hep/setup.sh -r 2024-08-20
 
 TORCH_PATH=$(dirname $(python -c 'import torch; print(f"{torch.__file__}")'))
+
+
 export CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:${TORCH_PATH}/share/cmake
 export LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:${TORCH_PATH}/lib
 

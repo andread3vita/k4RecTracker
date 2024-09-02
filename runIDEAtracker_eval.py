@@ -1,64 +1,72 @@
 import os
-from Gaudi.Configuration import *
 
-# Loading the input SIM file
-from Configurables import k4DataSvc, PodioInput
+from Gaudi.Configuration import INFO, WARNING
+
+from Configurables import AuditorSvc, ChronoAuditor
+from Configurables import EventDataSvc
+from Configurables import HiveSlimEventLoopMgr, HiveWhiteBoard, AvalancheSchedulerSvc
+
+################ parser
 from k4FWCore.parseArgs import parser
 
-parser.add_argument("--inputFile", default="../dataset/muons_eta0017_mom100/output_IDEA_DIGI_gun_1.root", help="InputFile")
-parser.add_argument("--outputFile", default="output_tracking.root", help="OutputFile")
+parser.add_argument("--inputFile", default="/afs/cern.ch/user/a/adevita/public/workDir/test/dataset/muons_eta0017_mom10/eval/output_IDEA_tracking_gun_10.root", help="InputFile")
+parser.add_argument("--outputFile", default="output_eff.root", help="OutputFile")
 args = parser.parse_args()
 
-evtsvc = k4DataSvc("EventDataSvc")
-evtsvc.input = args.inputFile
-inp = PodioInput("InputReader")
+################ input & output
+from k4FWCore import IOSvc
 
+io_svc = IOSvc("IOSvc")
+io_svc.input = args.inputFile
+io_svc.output = args.outputFile
+
+# # pattern recognition over digitized hits
+# from Configurables import GGTF_tracking_dbscan_check
+
+# GGTF_tracking = GGTF_tracking_dbscan_check(
+#     "GGTF_tracking_dbscan_eval",
+#     inputHits_CDC=["CDCHDigis"],
+#     inputHits_VTXD=["VTXDDigis"],
+#     inputHits_VTXIB=["VTXIBDigis"],
+#     inputHits_VTXOB=["VTXOBDigis"],
+#     inputHits_CDC_sim=["CDCHHits"],
+#     inputHits_VTXD_sim=["VTXDCollection"],
+#     inputHits_VTXIB_sim=["VTXIBCollection"],
+#     inputHits_VTXOB_sim=["VTXOBCollection"],
+#     inputModel=["inputModel"],
+#     outputModel=["outputModel"],
+#     outputClustering=["outputClustering"],
+#     OutputLevel=INFO,
+# )
 
 # pattern recognition over digitized hits
-from Configurables import GGTF_tracking_dbscan_eval
+from Configurables import GGTF_tracking_dbscan_noSim
 
-GGTF_tracking = GGTF_tracking_dbscan_eval(
+GGTF_tracking = GGTF_tracking_dbscan_noSim(
     "GGTF_tracking_dbscan_eval",
-    modelPath="/afs/cern.ch/user/a/adevita/public/workDir/k4RecTracker/Tracking/model_multivector_1_input.onnx",
-    inputHits_CDC="CDCHDigis",
-    inputHits_VTXD="VTXDDigis",
-    inputHits_VTXIB="VTXIBDigis",
-    inputHits_VTXOB="VTXOBDigis",
-    inputHits_CDC_sim="CDCHHits",
-    inputHits_VTXD_sim="VTXDCollection",
-    inputHits_VTXIB_sim="VTXIBCollection",
-    inputHits_VTXOB_sim="VTXOBCollection",
-    inputAssociation_CDC_sim="CDCHDigisAssociation",
-    outputTracks="CDCHTracks",
-    clustering_space_tracks="clustering_space_tracks",
+    inputHits_CDC=["CDCHDigis"],
+    inputHits_VTXD=["VTXDDigis"],
+    inputHits_VTXIB=["VTXIBDigis"],
+    inputHits_VTXOB=["VTXOBDigis"],
+    outputTracks=["CDCHTracks"],
     OutputLevel=INFO,
 )
 
-################ Output
-from Configurables import PodioOutput
 
-out = PodioOutput("out", OutputLevel=INFO)
-out.outputCommands = ["keep *"]
+GGTF_tracking.modelPath = "/afs/cern.ch/user/a/adevita/public/workDir/k4RecTracker/Tracking/model_multivector_1_input.onnx"
 
-out.filename = args.outputFile
-
-# CPU information
-from Configurables import AuditorSvc, ChronoAuditor
+################ Application
+from k4FWCore import ApplicationMgr
 
 chra = ChronoAuditor()
 audsvc = AuditorSvc()
 audsvc.Auditors = [chra]
-out.AuditExecute = True
-
-from Configurables import ApplicationMgr
 
 ApplicationMgr(
-    TopAlg=[
-        inp,
-        GGTF_tracking,
-        out,
-    ],
+    TopAlg=[GGTF_tracking],
     EvtSel="NONE",
-    ExtSvc=[evtsvc, audsvc],
+    ExtSvc=[EventDataSvc("EventDataSvc"), audsvc],
     StopOnSignal=True,
+    EvtMax=2,
+    OutputLevel=INFO,
 )

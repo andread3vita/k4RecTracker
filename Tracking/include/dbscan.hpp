@@ -19,7 +19,7 @@
  * or beta value.
  */
 struct point3w {
-    float x, y, z, beta;
+    double x, y, z, beta;
 };
 
 /**
@@ -34,4 +34,4 @@ struct point3w {
  * @param min_pts The minimum number of points required to form a cluster.
  * @return A vector of clusters, where each cluster is a vector of point indices.
  */
-auto dbscan(const std::span<const point3w>& data, float epsilon, int min_pts) -> std::vector<std::vector<size_t>>;
+auto dbscan(const std::span<const point3w>& data, double epsilon, int min_pts) -> std::vector<std::vector<size_t>>;
