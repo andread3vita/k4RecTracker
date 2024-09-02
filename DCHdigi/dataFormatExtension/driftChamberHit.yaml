@@ -3,6 +3,7 @@ schema_version: 1
 options:
   # should getters / setters be prefixed with get / set?
   getSyntax: True
+  setSyntax: True
   # should POD members be exposed with getters/setters in classes that have them as members?
   exposePODMembers: False
   includeSubfolder: True
@@ -26,14 +27,11 @@ datatypes:
     Author: "B. Francois, CERN"
     Members:
       - uint64_t cellID               // ID of the wire that created this hit
-      - int32_t type                       // type of raw data hit (just to be compliant with TrackerHitInterface)
-      - int32_t quality                    // quality bit flag of the hit (just to be compliant with TrackerHitInterface)
       - edm4hep::Vector3d leftPosition // position of the hit assuming it was on the left side of the wire, radially in the middle of the cell [mm]
       - edm4hep::Vector3d rightPosition // position of the hit assuming it was on the right side of the wire, radially in the middle of the cell [mm]
       - float time                    // time of the hit [ns].
       - float eDep                    // energy deposited on the hit [GeV].
       - float eDepError               // error measured on eDep [GeV].
-      - edm4hep::Vector3d position [mm]    // hit position (just to be compliant with TrackerHitInterface)
       - uint32_t clusterCount         // number of clusters associated to this hit
 
   extension::MCRecoDriftChamberDigiAssociation:
@@ -44,6 +42,32 @@ datatypes:
     OneToOneRelations:
       - extension::DriftChamberDigi digi    // reference to the digitized hit
       - edm4hep::SimTrackerHit sim // reference to the simulated hit
+
+  edm4hep::DriftChamberDigiV2:
+    Description: "Digitized hit (before tracking) for Drift Chamber v2 (requires data extension)."
+    Author: "A. Tolosa-Delgado, B. Francois, CERN"
+    Members:
+      - uint64_t cellID               // ID of the sensor that created this hit
+      - int32_t type                  // type of the raw data hit
+      - int32_t quality               // quality bit flag of the hit
+      - float time                    // time of the hit [ns]
+      - float eDep                    // energy deposited on the hit [GeV]
+      - float eDepError               // error measured on eDep [GeV]
+      - edm4hep::Vector3d position    // point on the sensitive wire (SW) which is closest to the simhit [mm]
+      - edm4hep::Vector3d directionSW // direction of SW
+      - float distanceToWire          // distance hit-wire [mm]
+      - uint32_t clusterCount         // number of clusters associated to this hit
+      - uint32_t clusterSize          // number of electrons per cluster
+
+  edm4hep::MCRecoDriftChamberDigiV2Association:
+    Description: "Association between a DriftChamberDigi and the corresponding simulated hit"
+    Author: "B. Francois, CERN"
+    Members:
+      - float weight              // weight of this association
+    OneToOneRelations:
+      - edm4hep::DriftChamberDigiV2 digi    // reference to the digitized hit
+      - edm4hep::SimTrackerHit sim // reference to the simulated hit
+
 
   extension::Track:
     Description: "Reconstructed track"
@@ -134,4 +158,4 @@ interfaces:
     Types:
       - extension::TrackerHitPlane
       - extension::TrackerHit3D
-      - extension::DriftChamberDigi
+      - edm4hep::DriftChamberDigiV2

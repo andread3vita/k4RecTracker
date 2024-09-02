@@ -32,6 +32,11 @@
 #include <vector>   // Per std::vector
 #include <iterator> // Per std::istreambuf_iterator
 
+#include <iostream>
+#include <typeinfo>
+#include <cxxabi.h>
+#include <memory>
+
 #include <ATen/ATen.h>
 #include <torch/torch.h>
 #include "onnxruntime_cxx_api.h"
@@ -41,109 +46,33 @@
 #include "utils.hpp"
 
 #include "Gaudi/Property.h"
-#include "edm4hep/MCParticleCollection.h"
-#include "edm4hep/SimTrackerHitCollection.h"
-#include "edm4hep/TrackCollection.h"
-#include "edm4hep/TrackerHit3D.h"
-#include "podio/UserDataCollection.h"
 #include "k4FWCore/Transformer.h"
 
-#include "extension/DriftChamberDigiCollection.h"
-#include "extension/DriftChamberDigiLocalCollection.h"
-#include "extension/MCRecoDriftChamberDigiAssociationCollection.h"
-#include "extension/TrackCollection.h"
-#include "extension/MutableTrackerHit3D.h"
-#include "extension/TrackerHit3DCollection.h"
-#include "edm4hep/SimTrackerHitCollection.h"
-
-#if __has_include("edm4hep/TrackerHit3DCollection.h")
-#include "edm4hep/TrackerHit3DCollection.h"
-#else
-#include "edm4hep/TrackerHitCollection.h"
-namespace edm4hep { using TrackerHit3DCollection = edm4hep::TrackerHitCollection; }  // namespace edm4hep
-#endif
 
 // Define collection types
+#include "podio/UserDataCollection.h"
 using DoubleColl = podio::UserDataCollection<double>;
 using IntColl = podio::UserDataCollection<int>;
+using FloatColl = podio::UserDataCollection<float>;
 
+#include "edm4hep/MCParticleCollection.h"
 using ParticleColl = edm4hep::MCParticleCollection;
-using DCTrackerHitColl = extension::DriftChamberDigiCollection;
-using DCTrackerHitColl_sim = edm4hep::SimTrackerHitCollection;
-using VertexColl_sim = edm4hep::SimTrackerHitCollection;
-using SimHits = edm4hep::SimTrackerHitCollection;
 
-using HitsColl = extension::TrackerHit3DCollection;
+#include "extension/TrackerHit3DCollection.h"
+using VertexHitsColl = extension::TrackerHit3DCollection;
+
+#include "extension/DriftChamberDigiV2Collection.h"
+using DCHitColl = edm4hep::DriftChamberDigiV2Collection;
+
+#include "extension/TrackCollection.h"
 using TrackColl = extension::TrackCollection;
 
-#include <iostream>
-#include <typeinfo>
-#include <cxxabi.h>
-#include <memory>
-
-void printInputTensors(const std::vector<Ort::Value>& input_tensors, size_t total_size) {
-    for (const auto& tensor : input_tensors) {
-        // Controlla se l'oggetto contiene un tensore
-        if (tensor.IsTensor()) {
-            // Usa GetTensorData invece di GetTensorMutableData per oggetti const
-            const float* data = tensor.GetTensorData<float>();
-            std::vector<float> tensor_data(data, data + total_size);
-
-            // Stampa i dati del tensore
-            std::cout << "Tensor length: " << tensor_data.size() / 7 << std::endl;
-            
-            for (size_t i = 0; i < tensor_data.size(); i += 7) {
-                std::cout << "[";
-                for (size_t j = i; j < i + 7 && j < tensor_data.size(); ++j) {
-                    std::cout << tensor_data[j];
-                    if (j < i + 6 && j < tensor_data.size() - 1) {
-                        std::cout << ", ";
-                    }
-                }
-                std::cout << "]" << std::endl;
-            }
-
-        } else {
-            std::cerr << "The input value is not a tensor!" << std::endl;
-        }
-    }
-}
-
-/** @struct GGTF_tracking
- *
- *  Gaudi MultiTransformer that generates a Track collection by analyzing the digitalized hits through the GGTF_tracking. 
- *  The first step takes the raw hits and it returns a collection of 4-dimensional points inside an embedding space.
- *  Eeach 4-dim point has 3 geometric coordinates and 1 charge, the meaning of which can be described intuitively by a potential, 
- *  which attracts hits belonging to the same cluster and drives away those that do not.
- *  This collection of 4-dim points is analysed by a clustering step, which groups together hits belonging to the same track.
- *
- *  input: 
- *    - MC hits from DC and vertex : SimHits
- *    - digitalized hits from DC (global coordinates) : DCTrackerHitColl 
- *    - digitalized hits from vertex (global coordinates) : HitsColl
- *
- *  output:
- *    - Hits collection : HitsColl (VTXD , VTXIB , VTXOB , CDC)
- *    - Track collection : TrackColl
- *
- *
- *
- *  @author Andrea De Vita, Maria Dolores Garcia, Brieuc Francois
- *  @date   2024-08
- *
- */
-
 struct GGTF_tracking_dbscan final : 
-        k4FWCore::MultiTransformer<std::tuple<TrackColl,HitsColl>(
-                                                                    const DCTrackerHitColl&, 
-                                                                    const HitsColl&,
-                                                                    const HitsColl&,
-                                                                    const HitsColl&,
-
-                                                                    const SimHits&,
-                                                                    const SimHits&,
-                                                                    const SimHits&,
-                                                                    const SimHits&)> 
+        k4FWCore::MultiTransformer< std::tuple<TrackColl>( 
+                                                                    const DCHitColl&, 
+                                                                    const VertexHitsColl&,
+                                                                    const VertexHitsColl&,
+                                                                    const VertexHitsColl&)> 
             
                                                                                             
 {
@@ -154,23 +83,14 @@ struct GGTF_tracking_dbscan final :
                 KeyValues("inputHits_CDC", {"inputHits_CDC"}),
                 KeyValues("inputHits_VTXIB", {"inputHits_VTXIB"}),
                 KeyValues("inputHits_VTXD", {"inputHits_VTXD"}),
-                KeyValues("inputHits_VTXOB", {"inputHits_VTXOB"}),
+                KeyValues("inputHits_VTXOB", {"inputHits_VTXOB"})
 
-                KeyValues("inputHits_CDC_sim", {"inputHits_CDC_sim"}),
-                KeyValues("inputHits_VTXIB_sim", {"inputHits_VTXIB_sim"}),
-                KeyValues("inputHits_VTXD_sim", {"inputHits_VTXD_sim"}),
-                KeyValues("inputHits_VTXOB_sim", {"inputHits_VTXOB_sim"})
-            
             },
             {   
-
-                KeyValues("outputTracks", {"outputTracks"}),
-                KeyValues("outputHits", {"outputHits"})           
+                KeyValues("outputTracks", {"outputTracks"})        
             
-            }
-            ) {}
+            }) {}
     
-
     StatusCode initialize() {
 
         // Leggi il file .onnx in modalità binaria
@@ -235,23 +155,19 @@ struct GGTF_tracking_dbscan final :
 
     }
 
-
-    std::tuple<TrackColl,HitsColl> operator()(
-                                                const DCTrackerHitColl& inputHits_CDC, 
-                                                const HitsColl& inputHits_VTXIB,
-                                                const HitsColl& inputHits_VTXD,
-                                                const HitsColl& inputHits_VTXOB,
-                                                const SimHits& inputHits_CDC_sim,
-                                                const SimHits& inputHits_VTXIB_sim,
-                                                const SimHits& inputHits_VTXD_sim,
-                                                const SimHits& inputHits_VTXOB_sim) const override 
+    
+    std::tuple<TrackColl> operator()(
+                                                const DCHitColl& inputHits_CDC, 
+                                                const VertexHitsColl& inputHits_VTXIB,
+                                                const VertexHitsColl& inputHits_VTXD,
+                                                const VertexHitsColl& inputHits_VTXOB) const override 
     {
 
         torch::NoGradGuard no_grad;
 
-        // ////////////////////////////////////////
-        // ////////// DATA PREPROCESSING //////////
-        // ////////////////////////////////////////
+        ////////////////////////////////////////
+        ////////// DATA PREPROCESSING //////////
+        ////////////////////////////////////////
         
         // Although there is a link between digi hits and MC hits, we cannot use it because the output tracks 
         // do not contain the original hits, but rather copies. This step is necessary because it is not possible 
@@ -261,15 +177,6 @@ struct GGTF_tracking_dbscan final :
         // These for loops are used to store the index of the MC particle for each hit. For now, this information 
         // will be saved in the EDep of the hit stored in each track.
 
-        // //const extension::MCRecoDriftChamberDigiAssociation* inputAssociation_CDC_sim = m_input_Association_CDC.get();
-        // std::cout << "Input Hit collection size VTXD_sim: " << inputHits_VTXD_sim.size() << std::endl;
-        // std::cout << "Input Hit collection size VTXIB_sim: " << inputHits_VTXIB_sim.size() << std::endl;
-        // std::cout << "Input Hit collection size VTXOB_sim: " << inputHits_VTXOB_sim.size() << std::endl;
-        // std::cout << "Input Hit collection size CDC_sim: " << inputHits_CDC_sim.size() << std::endl;
-        // std::cout << "______________________________________________________" << std::endl;
-        // std::cout << "Tot hits: " << inputHits_CDC_sim.size() + inputHits_VTXOB_sim.size() + inputHits_VTXIB_sim.size() + inputHits_VTXD_sim.size() << std::endl;
-        // std::cout << "  " << std::endl;
-
         std::cout << "Input Hit collection size VTXD: " << inputHits_VTXD.size() << std::endl;
         std::cout << "Input Hit collection size VTXIB: " << inputHits_VTXIB.size() << std::endl;
         std::cout << "Input Hit collection size VTXOB: " << inputHits_VTXOB.size() << std::endl;
@@ -277,42 +184,6 @@ struct GGTF_tracking_dbscan final :
         std::cout << "______________________________________________________" << std::endl;
         std::cout << "Tot hits: " << inputHits_CDC.size() + inputHits_VTXOB.size() + inputHits_VTXIB.size() + inputHits_VTXD.size() << std::endl;
         std::cout << "  " << std::endl;
-
-        // Vector to store MC particle indices for the VTXD detector hits
-        std::vector <float> ListHitMC_VTXD; 
-        for (const auto input_sim_hit : inputHits_VTXD_sim) {
-            auto MC_particle = input_sim_hit.getParticle(); // Retrieve the associated MC particle
-            auto object_id_MC = MC_particle.getObjectID();  // Get the object ID of the MC particle
-            auto index_MC = object_id_MC.index;             // Extract the index from the object ID
-            ListHitMC_VTXD.push_back(index_MC);             // Store the index in the vector
-        }
-
-        // Vector to store MC particle indices for the VTXIB detector hits
-        std::vector <float> ListHitMC_VTXIB; 
-        for (const auto input_sim_hit : inputHits_VTXIB_sim) {
-            auto MC_particle = input_sim_hit.getParticle(); // Retrieve the associated MC particle
-            auto object_id_MC = MC_particle.getObjectID();  // Get the object ID of the MC particle
-            auto index_MC = object_id_MC.index;             // Extract the index from the object ID
-            ListHitMC_VTXIB.push_back(index_MC);            // Store the index in the vector
-        }
-
-        // Vector to store MC particle indices for the VTXOB detector hits
-        std::vector <float> ListHitMC_VTXOB; 
-        for (const auto input_sim_hit : inputHits_VTXOB_sim) {
-            auto MC_particle = input_sim_hit.getParticle(); // Retrieve the associated MC particle
-            auto object_id_MC = MC_particle.getObjectID();  // Get the object ID of the MC particle
-            auto index_MC = object_id_MC.index;             // Extract the index from the object ID
-            ListHitMC_VTXOB.push_back(index_MC);            // Store the index in the vector
-        }
-
-        // Vector to store MC particle indices for the CDC detector hits
-        std::vector <float> ListHitMC_CDC; 
-        for (const auto input_sim_hit : inputHits_CDC_sim) {
-            auto MC_particle = input_sim_hit.getParticle(); // Retrieve the associated MC particle
-            auto object_id_MC = MC_particle.getObjectID();  // Get the object ID of the MC particle
-            auto index_MC = object_id_MC.index;             // Extract the index from the object ID
-            ListHitMC_CDC.push_back(index_MC);              // Store the index in the vector
-        }
 
         // Vector to store the global input values for all hits.
         // This will contain position and other hit-specific data to be used as input for the model.
@@ -391,26 +262,26 @@ struct GGTF_tracking_dbscan final :
         // Convert ListHitType_VTXOB to a Torch tensor for use in PyTorch models.
         torch::Tensor ListHitType_VTXOB_tensor = torch::from_blob(ListHitType_VTXOB.data(), {it_2}, torch::kFloat32);
 
-        /// Processing hits from the CDC (Central Drift Chamber).
+        // /// Processing hits from the CDC (Central Drift Chamber).
         std::vector<float> ListHitType_CDC; // Vector to store hit indices for CDC.
         int it_3 = 0;  // Iterator to keep track of the number of CDC hits.
-        for (const auto input_hit : inputHits_CDC) {
-            // Add the 3D position of the left hit to the global input list.
-            ListGlobalInputs.push_back(input_hit.getLeftPosition().x);
-            ListGlobalInputs.push_back(input_hit.getLeftPosition().y);
-            ListGlobalInputs.push_back(input_hit.getLeftPosition().z);
+        // for (const auto input_hit : inputHits_CDC) {
+        //     // Add the 3D position of the left hit to the global input list.
+        //     ListGlobalInputs.push_back(input_hit.getLeftPosition().x);
+        //     ListGlobalInputs.push_back(input_hit.getLeftPosition().y);
+        //     ListGlobalInputs.push_back(input_hit.getLeftPosition().z);
             
-            // Add the difference between the right and left hit positions to the global input list.
-            ListGlobalInputs.push_back(0.0); 
-            ListGlobalInputs.push_back(input_hit.getRightPosition().x - input_hit.getLeftPosition().x);
-            ListGlobalInputs.push_back(input_hit.getRightPosition().y - input_hit.getLeftPosition().y);
-            ListGlobalInputs.push_back(input_hit.getRightPosition().z - input_hit.getLeftPosition().z); 
+        //     // Add the difference between the right and left hit positions to the global input list.
+        //     ListGlobalInputs.push_back(0.0); 
+        //     ListGlobalInputs.push_back(input_hit.getRightPosition().x - input_hit.getLeftPosition().x);
+        //     ListGlobalInputs.push_back(input_hit.getRightPosition().y - input_hit.getLeftPosition().y);
+        //     ListGlobalInputs.push_back(input_hit.getRightPosition().z - input_hit.getLeftPosition().z); 
             
-            // Store the current index in ListHitType_CDC and increment the global iterator.
-            ListHitType_CDC.push_back(it);
-            it += 1;    
-            it_3 += 1;                     
-        }
+        //     // Store the current index in ListHitType_CDC and increment the global iterator.
+        //     ListHitType_CDC.push_back(it);
+        //     it += 1;    
+        //     it_3 += 1;                     
+        // }
 
         // Convert ListHitType_CDC to a Torch tensor for use in PyTorch models.
         torch::Tensor ListHitType_CDC_tensor = torch::from_blob(ListHitType_CDC.data(), {it_3}, torch::kFloat32);
@@ -419,9 +290,9 @@ struct GGTF_tracking_dbscan final :
         ////////// ML STEP //////////
         /////////////////////////////
 
-        // Create a new TrackCollection and TrackerHit3DCollection for storing the output tracks and hits
-        extension::TrackCollection* output_tracks = new extension::TrackCollection();
-        extension::TrackerHit3DCollection* output_hits = new extension::TrackerHit3DCollection();
+         // Create a new TrackCollection and TrackerHit3DCollection for storing the output tracks and hits
+        TrackColl* output_tracks = new TrackColl;
+        std::vector<int> labels(it, -1);
         if (it > 0 && it < 20000)
         {
             // Calculate the total size of the input tensor, based on the number of hits (it) and the 
@@ -450,12 +321,12 @@ struct GGTF_tracking_dbscan final :
             
             // Extract the raw output data from the first output tensor returned by the model.
             // This data is stored as a float array.
-            float* floatarr = output_model_tensors.front().GetTensorMutableData<float>();
+            double* floatarr = output_model_tensors.front().GetTensorMutableData<double>();
 
             // Convert the raw output data into a std::vector of floats for easier handling.
             // The size of the vector is determined by the number of hits (it) and the number of 
             // output features per hit (3 coordinates and charge).
-            std::vector<float> output_model_vector(floatarr, floatarr + it * 4);
+            std::vector<double> output_model_vector(floatarr, floatarr + it * 4);
 
             /////////////////////////////////////
             ////////// CLUSTERING STEP //////////
@@ -467,21 +338,21 @@ struct GGTF_tracking_dbscan final :
             // Initialize a vector to store the 3D points with an associated weight
             std::vector<point3w> points;
             for (int i = 0; i < output_model_tensor.size(0); ++i) {
-                auto x = output_model_tensor[i][0].item<float>();
-                auto y = output_model_tensor[i][1].item<float>();
-                auto z = output_model_tensor[i][2].item<float>();
-                auto weight = output_model_tensor[i][3].item<float>();
+                auto x = output_model_tensor[i][0].item<double>();
+                auto y = output_model_tensor[i][1].item<double>();
+                auto z = output_model_tensor[i][2].item<double>();
+                auto weight = output_model_tensor[i][3].item<double>();
                 
                 // Store the point in the points vector
                 points.push_back({x, y, z, weight});
             }
+
 
             // Apply the DBSCAN clustering algorithm to the points with the given step size and minimum points per cluster
             // NOTE: dbscan doesn't take into account the weights, so the fourth entry of each point will be ignored.
             auto clusters = dbscan(points, step_size, min_points);
 
             // Initialize a vector to store the cluster labels, with default label -1 (indicating noise or unclustered points)
-            std::vector<int> labels(points.size(), -1);
             // Assign cluster labels to the corresponding points
             for (size_t cluster_idx = 0; cluster_idx < clusters.size(); ++cluster_idx) {
                 for (auto point_idx : clusters[cluster_idx]) {
@@ -491,7 +362,7 @@ struct GGTF_tracking_dbscan final :
 
             // Convert the vector of cluster labels back to a Torch tensor
             auto clustering = torch::from_blob(labels.data(), {static_cast<long>(labels.size())}, torch::kInt32).clone();
-            
+
             // Find unique cluster labels and the corresponding indices that map the original points to these unique labels
             torch::Tensor unique_tensor;
             torch::Tensor inverse_indices;
@@ -513,6 +384,8 @@ struct GGTF_tracking_dbscan final :
                 // Create a new track in the output collection and set its type to the current track ID
                 auto output_track = output_tracks->create();
                 output_track.setType(id_of_track.item<int>());
+
+                // std::cout << typeid(output_track).name() << std::endl;
 
                 // Create a mask to select all hits belonging to the current track
                 torch::Tensor mask = (clustering == id_of_track);
@@ -536,65 +409,33 @@ struct GGTF_tracking_dbscan final :
                     // If the hit belongs to the VTXD detector
                     if ((torch::sum(mask_VTXD) > 0).item<bool>()) {
 
-                        // Retrieve the corresponding hit from the VTXD input hits collection
                         auto hit = inputHits_VTXD.at(index_id.item<int>());
-                        
-                        // Create a new hit in the output hits collection
-                        auto hit_extension = output_hits->create();
-                        
-                        // Set the hit's attributes: CellID, type (corresponding to the MC particle index that the hit is associated with) and position
-                        hit_extension.setCellID(hit.getCellID());
-                        hit_extension.setType(ListHitMC_VTXD[index_id.item<int>()]);
-                        hit_extension.setPosition(hit.getPosition());
-
-                        // Associate the hit with the current track
-                        output_track.addToTrackerHits(hit_extension);
+                        output_track.addToTrackerHits(hit);
 
                     } 
+
                     // If the hit belongs to the VTXIB detector
                     else if ((torch::sum(mask_VTXIB) > 0).item<bool>()) {
                         index_id = index_id - it_0;
 
-                        // Set the hit's attributes: CellID, type (corresponding to the MC particle index that the hit is associated with) and position
                         auto hit = inputHits_VTXIB.at(index_id.item<int>());
-                        auto hit_extension = output_hits->create();
-                        hit_extension.setCellID(hit.getCellID());
-                        hit_extension.setType(ListHitMC_VTXIB[index_id.item<int>()]);
-                        hit_extension.setPosition(hit.getPosition());
-
-                        // Associate the hit with the current track
-                        output_track.addToTrackerHits(hit_extension);
+                        output_track.addToTrackerHits(hit);
 
                     } 
                     // If the hit belongs to the VTOB detector
                     else if ((torch::sum(mask_VTOB) > 0).item<bool>()) {
                         index_id = index_id - (it_1 + it_0);
 
-                        // Set the hit's attributes: CellID, type (corresponding to the MC particle index that the hit is associated with) and position
                         auto hit = inputHits_VTXOB.at(index_id.item<int>());
-                        auto hit_extension = output_hits->create();
-                        hit_extension.setCellID(hit.getCellID());
-                        hit_extension.setType(ListHitMC_VTXOB[index_id.item<int>()]);
-                        hit_extension.setPosition(hit.getPosition());
+                        output_track.addToTrackerHits(hit);
 
-                        // Associate the hit with the current track
-                        output_track.addToTrackerHits(hit_extension);
-
-                    } 
+                    }
                     // If the hit belongs to the CDC detector
                     else if ((torch::sum(mask_CDC) > 0).item<bool>()) {
                         index_id = index_id - (it_1 + it_2 + it_0);
 
-                        // Set the hit's attributes: CellID, type (corresponding to the MC particle index that the hit is associated with), 
-                        // and position (only the left position)
                         auto hit = inputHits_CDC.at(index_id.item<int>());
-                        auto hit_extension = output_hits->create();
-                        hit_extension.setCellID(hit.getCellID());
-                        hit_extension.setType(ListHitMC_CDC[index_id.item<int>()]);
-                        hit_extension.setPosition(hit.getLeftPosition());
-
-                        // Associate the hit with the current track
-                        output_track.addToTrackerHits(hit_extension);
+                        output_track.addToTrackerHits(hit);
                     }
                 }
             }
@@ -620,8 +461,7 @@ struct GGTF_tracking_dbscan final :
         std::vector<float>().swap(ListHitType_CDC);
 
         // Return the output collections as a tuple
-        return std::make_tuple(std::move(*output_tracks), std::move(*output_hits));
-
+        return std::make_tuple(std::move(*output_tracks));
 
     } 
 
@@ -664,8 +504,7 @@ struct GGTF_tracking_dbscan final :
         /// Property to configure the minimum number of points required to form a cluster in the DBSCAN algorithm.
         /// This parameter defines the density threshold for identifying clusters.
         Gaudi::Property<int> min_points{this, "min_points", 10, "min_points"};
-
-
+        
 
 };
 

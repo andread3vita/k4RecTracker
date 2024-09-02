@@ -2,7 +2,6 @@
 
 // GAUDI
 #include "Gaudi/Property.h"
-// #include "GaudiAlg/GaudiAlgorithm.h"
 #include "Gaudi/Algorithm.h"
 #include "GaudiKernel/IRndmGenSvc.h"
 #include "GaudiKernel/RndmGenerators.h"
