@@ -409,7 +409,7 @@ struct GGTF_tracking_dbscan_noSim final :
                     if ((torch::sum(mask_VTXD) > 0).item<bool>()) {
 
                         auto hit = inputHits_VTXD.at(index_id.item<int>());
-                        std::cout << hit.getType() << std::endl;
+                        // std::cout << hit.getType() << std::endl;
                         output_track.addToTrackerHits(hit);
 
                     } 
@@ -419,7 +419,7 @@ struct GGTF_tracking_dbscan_noSim final :
                         index_id = index_id - it_0;
 
                         auto hit = inputHits_VTXIB.at(index_id.item<int>());
-                        std::cout << hit.getType() << std::endl;
+                        // std::cout << hit.getType() << std::endl;
                         output_track.addToTrackerHits(hit);
 
                     } 
@@ -428,7 +428,7 @@ struct GGTF_tracking_dbscan_noSim final :
                         index_id = index_id - (it_1 + it_0);
 
                         auto hit = inputHits_VTXOB.at(index_id.item<int>());
-                        std::cout << hit.getType() << std::endl;
+                        // std::cout << hit.getType() << std::endl;
                         output_track.addToTrackerHits(hit);
 
                     }
@@ -437,10 +437,18 @@ struct GGTF_tracking_dbscan_noSim final :
                         index_id = index_id - (it_1 + it_2 + it_0);
 
                         extension::DriftChamberDigi hit = inputHits_CDC.at(index_id.item<int>());
-                        std::cout << hit.getType() << std::endl;
+                        // std::cout << hit.getType() << std::endl;
                         output_track.addToTrackerHits(hit);
                     }
+
                 }
+
+                auto hitColl = output_track.getTrackerHits();
+                for (auto& hit : hitColl)
+                {
+                    std::cout << hit.getType() << std::endl;
+                }
+
             }
 
             inverse_indices.reset();
