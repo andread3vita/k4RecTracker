@@ -29,7 +29,7 @@ git clone THIS REPO
 source setup.sh
 mkdir build install
 cd build
-cmake .. -DCMAKE_INSTALL_PREFIX=../install
+cmake .. -DCMAKE_INSTALL_PREFIX=../install -DCMAKE_CXX_STANDARD=20
 make install -j 8
 cd ../../
 k4_local_repo
