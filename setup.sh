@@ -5,8 +5,8 @@
 #
 #
 
-#source /cvmfs/sw-nightlies.hsf.org/key4hep/setup.sh
-source /cvmfs/sw-nightlies.hsf.org/key4hep/setup.sh -r 2024-08-20
+source /cvmfs/sw-nightlies.hsf.org/key4hep/setup.sh
+# source /cvmfs/sw-nightlies.hsf.org/key4hep/setup.sh -r 2024-08-20
 
 TORCH_PATH=$(dirname $(python -c 'import torch; print(f"{torch.__file__}")'))
 

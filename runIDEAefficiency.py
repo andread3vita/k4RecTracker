@@ -10,17 +10,17 @@ import os
 evtslots = 10
 threads = 12
 
-# whiteboard = HiveWhiteBoard(
-#     "EventDataSvc",
-#     EventSlots=evtslots,
-#     ForceLeaves=True,
-# )
+whiteboard = HiveWhiteBoard(
+    "EventDataSvc",
+    EventSlots=evtslots,
+    ForceLeaves=True,
+)
 
-# slimeventloopmgr = HiveSlimEventLoopMgr(
-#     "HiveSlimEventLoopMgr", SchedulerName="AvalancheSchedulerSvc", OutputLevel=WARNING
-# )
+slimeventloopmgr = HiveSlimEventLoopMgr(
+    "HiveSlimEventLoopMgr", SchedulerName="AvalancheSchedulerSvc", OutputLevel=WARNING
+)
 
-# scheduler = AvalancheSchedulerSvc(ThreadPoolSize=threads, ShowDataFlow=True, OutputLevel=WARNING)
+scheduler = AvalancheSchedulerSvc(ThreadPoolSize=threads, ShowDataFlow=True, OutputLevel=WARNING)
 
 ################ parser
 
@@ -71,23 +71,15 @@ chra = ChronoAuditor()
 audsvc = AuditorSvc()
 audsvc.Auditors = [chra]
 
-# ApplicationMgr(
-#     TopAlg=[trackin_eff],
-#     EvtSel="NONE",
-#     StopOnSignal=True,
-#     EvtMax=-1,
-#     ExtSvc=[whiteboard],
-#     EventLoop=slimeventloopmgr,
-#     MessageSvcType="InertMessageSvc",
-#     OutputLevel=INFO,
-# )
-
 ApplicationMgr(
     TopAlg=[trackin_eff],
     EvtSel="NONE",
-    ExtSvc=[EventDataSvc("EventDataSvc"), audsvc],
     StopOnSignal=True,
     EvtMax=-1,
+    ExtSvc=[whiteboard],
+    EventLoop=slimeventloopmgr,
+    MessageSvcType="InertMessageSvc",
     OutputLevel=INFO,
 )
+
 

@@ -67,10 +67,15 @@ using VTX_links = edm4hep::TrackerHitSimTrackerHitLinkCollection;
 
 /** @struct GGTF_efficiency
  *
- *  Gaudi MultiTransformer...
+ *  Gaudi MultiTransformer that generates a table of properties by analyzing the tracks from GGTF. This properties are analyzed to
+ *  estimate the tracking efficiency. 
+ *
+ *  Tracking efficiency is defined as the ratio bewteen the number of reconstructable and assigned particles and the number of reconstructable particles.
+ *  A particle is defined reconstrustable if it satisfies a set of conditions on its properties (such as pt and the number of unique hits), while it is assigned to
+ *  a track if the corresponding values of purity and efficiency are greater than user defined thresholds.
  *
  *  input: 
-*
+ *
  *
  *  output:
  *
@@ -98,7 +103,6 @@ struct GGTF_efficiency final :
                 KeyValues("InputCollectionTracks", {"inputTracks"}),
                 KeyValues("InputCollectionParticles", {"inputMCparticles"}),
                 KeyValues("Input_dc_links", {"Input_dc_links"}),
-                // KeyValues("inputHits_CDC_sim", {"inputHits_CDC_sim"}),
                 KeyValues("inputHits_VTXIB_sim", {"inputHits_VTXIB_sim"}),
                 KeyValues("inputHits_VTXD_sim", {"inputHits_VTXD_sim"}),
                 KeyValues("inputHits_VTXOB_sim", {"inputHits_VTXOB_sim"})
@@ -133,26 +137,30 @@ struct GGTF_efficiency final :
                                                                                                                                                 const VertexColl_sim& inputHits_VTXOB_sim) const override 
     {
 
-        DoubleColl costheta_mc = {};
-        DoubleColl pt_mc = {};
-        DoubleColl phi_mc = {};
-        IntColl  pdg_mc = {};
-        DoubleColl vertex_mc = {};
-        IntColl genStatus_mc = {};
-        
+        // Initialize containers to store various properties of MC particles
+        DoubleColl costheta_mc = {};   // Cosine of the polar angle for MC particles
+        DoubleColl pt_mc = {};         // Transverse momentum for MC particles
+        DoubleColl phi_mc = {};        // Azimuthal angle for MC particles
+        IntColl pdg_mc = {};           // Particle Data Group (PDG) codes for MC particles
+        DoubleColl vertex_mc = {};     // Distance from the origin to the vertex of MC particles
+        IntColl genStatus_mc = {};     // Generator status for MC particles
+
+        // Iterate over MC particles to compute and store their properties
         for (const auto MC_par : inputMCparticles) {
 
-            // define a lorentz vector and compute theta and pt
-            double         px     = MC_par.getMomentum().x;
-            double         py     = MC_par.getMomentum().y;
-            double         pz     = MC_par.getMomentum().z;
+            // Retrieve momentum components and compute theta, pt, and phi
+            double px = MC_par.getMomentum().x;
+            double py = MC_par.getMomentum().y;
+            double pz = MC_par.getMomentum().z;
             std::vector<double> info = computeCosThetaPtAndPhi(px, py, pz);
 
+            // Compute the distance from the origin to the vertex
             auto vertex_vec = MC_par.getVertex();
-            double R = sqrt(pow(vertex_vec[0],2)+pow(vertex_vec[1],2)+pow(vertex_vec[2],2));
+            double R = sqrt(pow(vertex_vec[0], 2) + pow(vertex_vec[1], 2) + pow(vertex_vec[2], 2));
             
+            // Store computed values and other properties in the respective containers
             double costheta = info[0];
-            double pt       = info[1];
+            double pt = info[1];
             double phi = info[2];
             int pdg = MC_par.getPDG();
             int genStatus = MC_par.getGeneratorStatus();
@@ -163,30 +171,30 @@ struct GGTF_efficiency final :
             phi_mc.push_back(phi);
             vertex_mc.push_back(R);
             genStatus_mc.push_back(genStatus);
-
         }
 
-        /// compute the number of hits for each particle
-        std::vector<int> particle_hits(phi_mc.size(), 0);
-        std::vector<int> particle_hits_cd(phi_mc.size(), 0);
-        for (const auto hit : inputHits_VTXD_sim) {
+        // Initialize containers for hit counts and tracking
+        std::vector<int> particle_hits(phi_mc.size(), 0);      // Hit counts for each particle
+        std::vector<int> particle_hits_cd(phi_mc.size(), 0);   // Hit counts for each particle in specific detector regions
 
+        // Count hits for particles from different hit collections
+        for (const auto hit : inputHits_VTXD_sim) {
             int part_index = hit.getParticle().getObjectID().index;
-            particle_hits[part_index] +=1;
+            particle_hits[part_index] += 1;
         }
 
         for (const auto hit : inputHits_VTXIB_sim) {
-        int part_index = hit.getParticle().getObjectID().index;
-        particle_hits[part_index] += 1;
+            int part_index = hit.getParticle().getObjectID().index;
+            particle_hits[part_index] += 1;
         }
 
         for (const auto hit : inputHits_VTXOB_sim) {
-        int part_index = hit.getParticle().getObjectID().index;
-        particle_hits[part_index] += 1;
+            int part_index = hit.getParticle().getObjectID().index;
+            particle_hits[part_index] += 1;
         }
 
+        // Count hits for particles from the DC links
         for (const auto link : Input_dc_links) {
-
             auto sim_hit = link.getSim();
             int part_index = sim_hit.getParticle().getObjectID().index;
             particle_hits[part_index] += 1;
@@ -195,15 +203,16 @@ struct GGTF_efficiency final :
 
         size_t numPart = particle_hits.size();
 
-        /// Purity
+        // Initialize containers for purity and efficiency calculations
         int total_hits = 0;
-        std::vector<std::map<int, double>> purity_tracks;
-        std::vector<std::map<int, int>>    hits_Tracks;
+        std::vector<std::map<int, double>> purity_tracks;   // Purity of tracks with respect to MC particles
+        std::vector<std::map<int, int>> hits_Tracks;       // Hits count for each track
 
-        std::vector<int> hits_num;
-        std::vector<int> track_labels;
+        std::vector<int> hits_num;   // Number of hits in each track
+        std::vector<int> track_labels;   // Labels for each track
+
+        // Iterate over tracks to compute hit statistics
         for (const auto track : inputTracks) {
-            
             int label = track.getType();
             track_labels.push_back(label);
 
@@ -214,69 +223,69 @@ struct GGTF_efficiency final :
             std::vector<int> hit_idx;
             hit_idx.reserve(numHits_track);
             for (auto hit : hits_in_track) {
-
                 int idx = hit.getType();
                 hit_idx.push_back(idx);
                 total_hits += 1;
             }
 
+            // Count hits for each hit type in the track
             std::map<int, int> counter;
             for (int idx : hit_idx) {
                 counter[idx]++;
             }
 
+            // Compute purity for each particle
             std::map<int, double> PUR;
-            std::map<int, int>    hitsPart;
+            std::map<int, int> hitsPart;
             for (size_t value = 0; value < numPart; ++value) {
-                
-                PUR[value]      = counter[value] / static_cast<double>(numHits_track); // number of hits that belong to MC (inside the track) / total number of hits inside the track
+                PUR[value] = counter[value] / static_cast<double>(numHits_track); // Purity: hits in track that belong to MC / total hits in track
                 hitsPart[value] = counter[value];
-            
             }
 
             purity_tracks.push_back(PUR);
             hits_Tracks.push_back(hitsPart);
-
         }
-       
-        /// Efficiency
-        std::vector<std::map<int, double>> eff_particles;
+
+        // Initialize containers for efficiency calculations
+        std::vector<std::map<int, double>> eff_particles;   // Efficiency of each particle
+
         int part_idx = 0;
         for (const auto part : inputMCparticles) {
-
             int numHitsTracker = particle_hits[part_idx];
-            numHitsTracker = (numHitsTracker > 0) ? numHitsTracker : 1;
+            numHitsTracker = (numHitsTracker > 0) ? numHitsTracker : 1; // Avoid division by zero
 
             std::map<int, double> EFF;
             for (size_t value = 0; value < hits_Tracks.size(); ++value) {
-                
-                auto it       = hits_Tracks[value].find(part_idx);
-                int  hitCount = (it != hits_Tracks[value].end()) ? it->second : 0;
-                EFF[value]    = static_cast<double>(hitCount) / numHitsTracker; // number of hits inside track that belong to MC / total number of hits that belong to MC
+                auto it = hits_Tracks[value].find(part_idx);
+                int hitCount = (it != hits_Tracks[value].end()) ? it->second : 0;
+                EFF[value] = static_cast<double>(hitCount) / numHitsTracker; // Efficiency: hits in track that belong to MC / total hits for MC
             }
 
             part_idx += 1;
             eff_particles.push_back(EFF);
         }
 
+        // Initialize containers for final results
         DoubleColl efficiency_mc;
         DoubleColl purity_mc;
         IntColl assigned_track_mc;
         IntColl isReconstructable;
         IntColl isAssigned;
         IntColl isRecoAndAssigned;
-        for (size_t i = 0; i < eff_particles.size(); ++i) {
 
+        // Compute purity, efficiency, and assignment status for each particle
+        for (size_t i = 0; i < eff_particles.size(); ++i) {
             double pur;
             double eff;
             double assigned_eff;
             double assigned_pur;
             int assigned_track;
 
-            int RECO;
+            int RECONSTRUSTABLE;
             int ASSIGNED;
+
+            // Determine if the particle is assigned to a track based on purity and efficiency thresholds
             for (size_t s = 0; s < purity_tracks.size(); ++s) {
-                
                 auto pur_it = purity_tracks[s].find(i);
                 if (pur_it != purity_tracks[s].end()) {
                     pur = pur_it->second;
@@ -285,62 +294,53 @@ struct GGTF_efficiency final :
                 auto eff_it = eff_particles[i].find(s);
                 if (eff_it != eff_particles[i].end()) {
                     eff = eff_it->second;
-
                 }
-                
-                if (pur > pur_thr__ && eff > eff_thr__)
-                {   
 
+                if (pur > pur_thr__ && eff > eff_thr__) {   // Check against thresholds
                     assigned_track = track_labels[s];
                     assigned_eff = eff;
                     assigned_pur = pur;
                     ASSIGNED = 1;
-
                     break;
-                    
-                }
-                else
-                {   
+                } else {
                     assigned_track = 0;
                     assigned_eff = -1.0;
                     assigned_pur = -1.0;
                     ASSIGNED = 0;
                 }
-                
-            
             }
 
-            RECO = int( (pt_mc[i]> pt_thr) &&
-                        (costheta_mc[i] < cos_thr) && 
-                        (particle_hits[i] > hits_thr) && 
-                        (particle_hits_cd[i] > cd_hits_thr) &&
-                        (genStatus_mc[i] == 1) &&
-                        (vertex_mc[i] < vertex_thr)
-                      );
+            // Determine if the particle is reconstructable based on various criteria
+            RECONSTRUSTABLE = int((pt_mc[i] > pt_thr) &&
+                    (costheta_mc[i] < cos_thr) &&
+                    (particle_hits[i] > hits_thr) &&
+                    (particle_hits_cd[i] > cd_hits_thr) &&
+                    (genStatus_mc[i] == 1) &&
+                    (vertex_mc[i] < vertex_thr));
 
-            isReconstructable.push_back(RECO);
+            isReconstructable.push_back(RECONSTRUSTABLE);
             isAssigned.push_back(ASSIGNED);
-            isRecoAndAssigned.push_back(RECO && ASSIGNED);
+            isRecoAndAssigned.push_back(RECONSTRUSTABLE && ASSIGNED);
 
             assigned_track_mc.push_back(assigned_track);
             purity_mc.push_back(assigned_pur);
             efficiency_mc.push_back(assigned_eff);
-
         }
 
-        std::set<int> unique_tracks;    
-        for (int num : assigned_track_mc) 
-        {        
-            if (num != 0) 
-            {            
-                unique_tracks.insert(num);        
-            }   
+        // Compute the number of unique tracks and the number of fake tracks
+        std::set<int> unique_tracks;
+        for (int num : assigned_track_mc) {
+            if (num != 0) {
+                unique_tracks.insert(num);
+            }
         }
 
-        int numberOfFakes = inputTracks.size()-unique_tracks.size();
+        int numberOfFakes = inputTracks.size() - unique_tracks.size();
 
+        // Store the number of fake tracks
         IntColl numberFakes;
         numberFakes.push_back(numberOfFakes);
+
 
         return std::make_tuple( std::move(costheta_mc), 
                                 std::move(pt_mc), 
