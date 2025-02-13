@@ -289,7 +289,136 @@ struct GGTF_tracking_dbscan_IDEAv3 final :
 
         // Create a new TrackCollection and TrackerHit3DCollection for storing the output tracks and hits
         extension::TrackCollection* output_tracks = new extension::TrackCollection();
-        
+        if (it > 0 && it < 20000)
+        {
+            // Calculate the total size of the input tensor, based on the number of hits (it) and the 
+            // number of features per hit (7: x, y, z, and four placeholders).
+            size_t total_size = it * 7;
+            std::vector<int64_t> tensor_shape = {it, 7};
+
+            // Create a vector to store the input tensors that will be fed into the ONNX model.
+            std::vector<Ort::Value> input_tensors;
+            input_tensors.emplace_back(Ort::Value::CreateTensor<float>(fInfo, ListGlobalInputs.data(), total_size, tensor_shape.data(), tensor_shape.size()));
+            
+            // Run the ONNX inference session with the provided input tensor.
+            auto output_model_tensors = fSession->Run(Ort::RunOptions{nullptr}, fInames.data(), input_tensors.data(), fInames.size(), fOnames.data(), fOnames.size());
+            float* floatarr = output_model_tensors.front().GetTensorMutableData<float>();
+            std::vector<float> output_model_vector(floatarr, floatarr + it * 4);
+
+            /////////////////////////////////////
+            ////////// CLUSTERING STEP //////////
+            /////////////////////////////////////
+
+            // Convert the output vector from the model to a Torch tensor, specifying the shape and data type
+            torch::Tensor output_model_tensor = torch::from_blob(output_model_vector.data(), {it, 4}, torch::kFloat32).clone();    
+
+            // Initialize a vector to store the 3D points with an associated weight
+            std::vector<point3> points;
+            for (int i = 0; i < output_model_tensor.size(0); ++i) {
+                auto x = output_model_tensor[i][0].item<float>();
+                auto y = output_model_tensor[i][1].item<float>();
+                auto z = output_model_tensor[i][2].item<float>();
+
+                // Store the point in the points vector
+                points.push_back({x, y, z});
+            }
+
+            // Apply the DBSCAN clustering algorithm to the points with the given step size and minimum points per cluster
+            auto clusters = dbscan(points, step_size, min_points);
+
+            // Initialize a vector to store the cluster labels, with default label -1 (indicating noise or unclustered points)
+            std::vector<int> labels(points.size(), 0);
+            for (size_t cluster_idx = 0; cluster_idx < clusters.size(); ++cluster_idx) {
+
+                for (auto point_idx : clusters[cluster_idx]) {
+
+                    labels[point_idx] = static_cast<int>(cluster_idx)+1;
+                }
+            }
+
+            auto clustering = torch::from_blob(labels.data(), {static_cast<long>(labels.size())}, torch::kInt32).clone();
+            torch::Tensor unique_tensor;
+            torch::Tensor inverse_indices;
+            std::tie(unique_tensor, inverse_indices) = at::_unique(clustering, true, true);
+
+            /////////////////////////////////
+            ////////// OUTPUT STEP //////////
+            /////////////////////////////////
+
+            // Get the total number of unique tracks based on the unique_tensor size
+            int64_t number_of_tracks = unique_tensor.numel(); 
+            
+            bool has_zero = (unique_tensor == 0).any().item<bool>();
+            if (!has_zero)
+            {
+                auto output_track = output_tracks->create();
+                output_track.setType(0);
+            }
+
+            // Loop through each unique track ID
+            for (int i = 0; i < number_of_tracks; ++i) {
+
+                // Retrieve the current track ID
+                auto id_of_track = unique_tensor.index({i});
+
+
+                
+                // Create a new track in the output collection and set its type to the current track ID
+                auto output_track = output_tracks->create();
+                output_track.setType(id_of_track.item<int>());
+
+                // Create a mask to select all hits belonging to the current track
+                torch::Tensor mask = (clustering == id_of_track);
+                
+                // Find the indices of the hits that belong to the current track
+                torch::Tensor indices = torch::nonzero(mask);
+                int64_t number_of_hits = indices.numel();
+
+                // Loop through each hit index for the current track
+                for (int j = 0; j < number_of_hits; ++j) {
+
+                    // Get the current hit index
+                    auto index_id = indices.index({j});
+                    
+                    // Check which detector the hit belongs to (VTXD, VTXIB, VTOB, CDC)
+                    torch::Tensor mask_VTXD = (ListHitType_VTXD_tensor == index_id);
+                    torch::Tensor mask_VTXB = (ListHitType_VTXB_tensor == index_id);
+                    torch::Tensor mask_CDC = (ListHitType_CDC_tensor == index_id);
+
+                    // If the hit belongs to the VTXD detector
+                    if ((torch::sum(mask_VTXD) > 0).item<bool>()) {
+
+                        auto hit = inputHits_VTXD.at(index_id.item<int>());
+                        output_track.addToTrackerHits(hit);
+
+                    } 
+                    // If the hit belongs to the VTOB detector
+                    else if ((torch::sum(mask_VTXB) > 0).item<bool>()) {
+                        index_id = index_id - (it_1 + it_0);
+
+                        auto hit = inputHits_VTXB.at(index_id.item<int>());
+                        output_track.addToTrackerHits(hit);
+
+                    } 
+                    // If the hit belongs to the CDC detector
+                    else if ((torch::sum(mask_CDC) > 0).item<bool>()) {
+                        index_id = index_id - (it_1 + it_2 + it_0);
+
+                        auto hit = inputHits_CDC.at(index_id.item<int>());
+                        output_track.addToTrackerHits(hit);
+                    }
+                }
+            }
+
+            inverse_indices.reset();
+            unique_tensor.reset();
+            clustering.reset();
+            
+            input_tensors.clear();
+            output_model_tensors.clear();
+            
+            
+        }
 
         ListHitType_VTXB_tensor.reset();
         ListHitType_VTXD_tensor.reset();
