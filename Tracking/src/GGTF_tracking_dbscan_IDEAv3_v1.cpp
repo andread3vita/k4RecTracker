@@ -114,7 +114,7 @@ struct GGTF_tracking_dbscan_IDEAv3 final :
             {   
                  
                 KeyValues("inputHits_CDC", {"inputHits_CDC"}),
-                KeyValues("inputHits_VTXIB", {"inputHits_VTXB"}),
+                KeyValues("inputHits_VTXB", {"inputHits_VTXB"}),
                 KeyValues("inputHits_VTXD", {"inputHits_VTXD"})
             },
             {   
@@ -252,9 +252,30 @@ struct GGTF_tracking_dbscan_IDEAv3 final :
         int it_2 = 0;
         for (const auto input_hit : inputHits_CDC) {
 
+            edm4hep::Vector3d wirePos = input_hit.getPosition();
+            float distanceToWire = input_hit.getDistanceToWire();
 
+            float left_x_pos = wirePos.x - distanceToWire;
+            float left_y_pos = wirePos.y;
+            float left_z_pos = wirePos.z;
 
+            float right_x_pos = wirePos.x + distanceToWire;
+            float right_y_pos = wirePos.y;
+            float right_z_pos = wirePos.z;
 
+            // Add the 3D position of the left hit to the global input list.
+            ListGlobalInputs.push_back(left_x_pos);
+            ListGlobalInputs.push_back(left_y_pos);
+            ListGlobalInputs.push_back(left_z_pos);
+            
+            // Add the difference between the right and left hit positions to the global input list.
+            ListGlobalInputs.push_back(0.0); 
+            ListGlobalInputs.push_back(right_x_pos-left_x_pos);
+            ListGlobalInputs.push_back(right_y_pos-left_y_pos);
+            ListGlobalInputs.push_back(right_z_pos-left_z_pos);
+            
+            // Store the current index in ListHitType_CDC and increment the global iterator.
+            ListHitType_CDC.push_back(it);
             it += 1; 
             it_2 += 1;                      
         }
