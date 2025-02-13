@@ -341,81 +341,81 @@ struct GGTF_tracking_dbscan_IDEAv3 final :
             torch::Tensor inverse_indices;
             std::tie(unique_tensor, inverse_indices) = at::_unique(clustering, true, true);
 
-            /////////////////////////////////
-            ////////// OUTPUT STEP //////////
-            /////////////////////////////////
+        //     /////////////////////////////////
+        //     ////////// OUTPUT STEP //////////
+        //     /////////////////////////////////
 
-            // Get the total number of unique tracks based on the unique_tensor size
-            int64_t number_of_tracks = unique_tensor.numel(); 
+        //     // Get the total number of unique tracks based on the unique_tensor size
+        //     int64_t number_of_tracks = unique_tensor.numel(); 
             
-            bool has_zero = (unique_tensor == 0).any().item<bool>();
-            if (!has_zero)
-            {
-                auto output_track = output_tracks->create();
-                output_track.setType(0);
-            }
+        //     bool has_zero = (unique_tensor == 0).any().item<bool>();
+        //     if (!has_zero)
+        //     {
+        //         auto output_track = output_tracks->create();
+        //         output_track.setType(0);
+        //     }
 
-            // Loop through each unique track ID
-            for (int i = 0; i < number_of_tracks; ++i) {
+        //     // Loop through each unique track ID
+        //     for (int i = 0; i < number_of_tracks; ++i) {
 
-                // Retrieve the current track ID
-                auto id_of_track = unique_tensor.index({i});
+        //         // Retrieve the current track ID
+        //         auto id_of_track = unique_tensor.index({i});
 
 
                 
-                // Create a new track in the output collection and set its type to the current track ID
-                auto output_track = output_tracks->create();
-                output_track.setType(id_of_track.item<int>());
+        //         // Create a new track in the output collection and set its type to the current track ID
+        //         auto output_track = output_tracks->create();
+        //         output_track.setType(id_of_track.item<int>());
 
-                // Create a mask to select all hits belonging to the current track
-                torch::Tensor mask = (clustering == id_of_track);
+        //         // Create a mask to select all hits belonging to the current track
+        //         torch::Tensor mask = (clustering == id_of_track);
                 
-                // Find the indices of the hits that belong to the current track
-                torch::Tensor indices = torch::nonzero(mask);
-                int64_t number_of_hits = indices.numel();
+        //         // Find the indices of the hits that belong to the current track
+        //         torch::Tensor indices = torch::nonzero(mask);
+        //         int64_t number_of_hits = indices.numel();
 
-                // Loop through each hit index for the current track
-                for (int j = 0; j < number_of_hits; ++j) {
+        //         // Loop through each hit index for the current track
+        //         for (int j = 0; j < number_of_hits; ++j) {
 
-                    // Get the current hit index
-                    auto index_id = indices.index({j});
+        //             // Get the current hit index
+        //             auto index_id = indices.index({j});
                     
-                    // Check which detector the hit belongs to (VTXD, VTXIB, VTOB, CDC)
-                    torch::Tensor mask_VTXD = (ListHitType_VTXD_tensor == index_id);
-                    torch::Tensor mask_VTXB = (ListHitType_VTXB_tensor == index_id);
-                    torch::Tensor mask_CDC = (ListHitType_CDC_tensor == index_id);
+        //             // Check which detector the hit belongs to (VTXD, VTXIB, VTOB, CDC)
+        //             torch::Tensor mask_VTXD = (ListHitType_VTXD_tensor == index_id);
+        //             torch::Tensor mask_VTXB = (ListHitType_VTXB_tensor == index_id);
+        //             torch::Tensor mask_CDC = (ListHitType_CDC_tensor == index_id);
 
-                    // If the hit belongs to the VTXD detector
-                    if ((torch::sum(mask_VTXD) > 0).item<bool>()) {
+        //             // If the hit belongs to the VTXD detector
+        //             if ((torch::sum(mask_VTXD) > 0).item<bool>()) {
 
-                        auto hit = inputHits_VTXD.at(index_id.item<int>());
-                        output_track.addToTrackerHits(hit);
+        //                 auto hit = inputHits_VTXD.at(index_id.item<int>());
+        //                 output_track.addToTrackerHits(hit);
 
-                    } 
-                    // If the hit belongs to the VTOB detector
-                    else if ((torch::sum(mask_VTXB) > 0).item<bool>()) {
-                        index_id = index_id - (it_1 + it_0);
+        //             } 
+        //             // If the hit belongs to the VTOB detector
+        //             else if ((torch::sum(mask_VTXB) > 0).item<bool>()) {
+        //                 index_id = index_id - (it_1 + it_0);
 
-                        auto hit = inputHits_VTXB.at(index_id.item<int>());
-                        output_track.addToTrackerHits(hit);
+        //                 auto hit = inputHits_VTXB.at(index_id.item<int>());
+        //                 output_track.addToTrackerHits(hit);
 
-                    } 
-                    // If the hit belongs to the CDC detector
-                    else if ((torch::sum(mask_CDC) > 0).item<bool>()) {
-                        index_id = index_id - (it_1 + it_2 + it_0);
+        //             } 
+        //             // If the hit belongs to the CDC detector
+        //             else if ((torch::sum(mask_CDC) > 0).item<bool>()) {
+        //                 index_id = index_id - (it_1 + it_2 + it_0);
 
-                        auto hit = inputHits_CDC.at(index_id.item<int>());
-                        output_track.addToTrackerHits(hit);
-                    }
-                }
-            }
+        //                 auto hit = inputHits_CDC.at(index_id.item<int>());
+        //                 output_track.addToTrackerHits(hit);
+        //             }
+        //         }
+        //     }
 
-            inverse_indices.reset();
-            unique_tensor.reset();
-            clustering.reset();
+        //     inverse_indices.reset();
+        //     unique_tensor.reset();
+        //     clustering.reset();
             
-            input_tensors.clear();
-            output_model_tensors.clear();
+        //     input_tensors.clear();
+        //     output_model_tensors.clear();
             
             
         }
