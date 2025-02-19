@@ -90,6 +90,8 @@ using TrackHit = extension::TrackerHit;
 #include "k4Interface/IUniqueIDGenSvc.h"
 #include <filesystem>  // For std::filesystem::path
 
+#include <Track.h>
+
 /** @struct GGTF_tracking_dbscan_IDEAv3
  *
  *  Gaudi MultiTransformer that generates a Track collection by analyzing the digitalized hits through the GGTF_tracking. 
@@ -112,7 +114,7 @@ using TrackHit = extension::TrackerHit;
  *
  */
 
-struct GGTF_tracking_dbscan_IDEAv3 final : 
+struct GGTF_fitter final : 
         k4FWCore::MultiTransformer< std::tuple<TrackColl>( 
                                                                     
                                                                     const DCHitsColl&, 
@@ -121,7 +123,7 @@ struct GGTF_tracking_dbscan_IDEAv3 final :
             
                                                                                             
 {
-    GGTF_tracking_dbscan_IDEAv3(const std::string& name, ISvcLocator* svcLoc) : 
+    GGTF_fitter(const std::string& name, ISvcLocator* svcLoc) : 
         MultiTransformer ( name, svcLoc,
             {   
                  
@@ -136,42 +138,6 @@ struct GGTF_tracking_dbscan_IDEAv3 final :
     
     StatusCode initialize() {
 
-        // Initialize the ONNX memory info object for CPU memory allocation.
-        // This specifies that the memory will be allocated using the Arena Allocator on the CPU.
-        fInfo = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
-
-        // Create and initialize the ONNX environment with a logging level set to WARNING.
-        // This environment handles logging and runtime configuration for the ONNX session.
-        auto envLocal = std::make_unique<Ort::Env>(ORT_LOGGING_LEVEL_WARNING, "ONNX_Runtime");
-        fEnv          = std::move(envLocal);
-
-        // Set the session options to configure the ONNX inference session.
-        // Set the number of threads used for intra-op parallelism to 1 (single-threaded execution).
-        fSessionOptions.SetIntraOpNumThreads(1);
-
-        // Disable all graph optimizations to keep the model execution as close to the original as possible.
-        fSessionOptions.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_DISABLE_ALL);
-        // fSessionOptions.DisableMemPattern();
-
-        // Create an ONNX inference session using the configured environment and session options.
-        // The session is used to load the model specified by the `modelPath`.
-        auto sessionLocal = std::make_unique<Ort::Session>(*fEnv, modelPath.value().c_str(), fSessionOptions);
-        fSession          = std::move(sessionLocal);
-
-        // Create an ONNX allocator with default options to manage memory allocations during runtime.
-        Ort::AllocatorWithDefaultOptions allocator;
-
-        // Get the name of the first input node (index i) from the ONNX model and store it.
-        // This retrieves the name from the model and releases the memory after storing it in fInames.
-        // Get the name of the first output node (index i) from the ONNX model and store it.
-        // This retrieves the name from the model and releases the memory after storing it in fOnames.
-        std::size_t i = 0;
-        const auto input_name = fSession->GetInputNameAllocated(i, allocator).release();
-        const auto output_names = fSession->GetOutputNameAllocated(i, allocator).release();
-
-        // Store the retrieved input and output names in the respective vectors.
-        fInames.push_back(input_name);
-        fOnames.push_back(output_names);
 
         return StatusCode::SUCCESS;
 
@@ -327,151 +293,7 @@ struct GGTF_tracking_dbscan_IDEAv3 final :
 
         // Create a new TrackCollection and TrackerHit3DCollection for storing the output tracks and hits
         extension::TrackCollection* output_tracks = new extension::TrackCollection();
-        if (it > 0 && it < 20000)
-        {
-            // Calculate the total size of the input tensor, based on the number of hits (it) and the 
-            // number of features per hit (7: x, y, z, and four placeholders).
-            size_t total_size = it * 7;
-            std::vector<int64_t> tensor_shape = {it, 7};
-
-            // Create a vector to store the input tensors that will be fed into the ONNX model.
-            std::vector<Ort::Value> input_tensors;
-            input_tensors.emplace_back(Ort::Value::CreateTensor<float>(fInfo, ListGlobalInputs.data(), total_size, tensor_shape.data(), tensor_shape.size()));
-            
-            // Run the ONNX inference session with the provided input tensor.
-            auto output_model_tensors = fSession->Run(Ort::RunOptions{nullptr}, fInames.data(), input_tensors.data(), fInames.size(), fOnames.data(), fOnames.size());
-            float* floatarr = output_model_tensors.front().GetTensorMutableData<float>();
-            std::vector<float> output_model_vector(floatarr, floatarr + it * 4);
-
-            /////////////////////////////////////
-            ////////// CLUSTERING STEP //////////
-            /////////////////////////////////////
-
-            // auto clustering = get_clustering(output_model_vector, it,0.6,0.05);
-            
-            // torch::Tensor unique_tensor;
-            // torch::Tensor inverse_indices;
-            // std::tie(unique_tensor, inverse_indices) = at::_unique(clustering, true, true);
-          
-
-            //Convert the output vector from the model to a Torch tensor, specifying the shape and data type
-            torch::Tensor output_model_tensor = torch::from_blob(output_model_vector.data(), {it, 4}, torch::kFloat32).clone();  
-
-            // Initialize a vector to store the 3D points with an associated weight
-            std::vector<point3> points;
-            for (int i = 0; i < output_model_tensor.size(0); ++i) {
-                auto x = output_model_tensor[i][0].item<float>();
-                auto y = output_model_tensor[i][1].item<float>();
-                auto z = output_model_tensor[i][2].item<float>();
-
-                // Store the point in the points vector
-                points.push_back({x, y, z});
-            }
-
-            // Apply the DBSCAN clustering algorithm to the points with the given step size and minimum points per cluster
-            auto clusters = dbscan(points, step_size, min_points);
-
-            // Initialize a vector to store the cluster labels, with default label 0 (indicating noise or unclustered points)
-            std::vector<int> labels(points.size(), 0);
-            for (size_t cluster_idx = 0; cluster_idx < clusters.size(); ++cluster_idx) {
-
-                for (auto point_idx : clusters[cluster_idx]) {
-
-                    labels[point_idx] = static_cast<int>(cluster_idx)+1;
-                }
-            }
-
-            auto clustering = torch::from_blob(labels.data(), {static_cast<long>(labels.size())}, torch::kInt32).clone();
-            torch::Tensor unique_tensor;
-            torch::Tensor inverse_indices;
-            std::tie(unique_tensor, inverse_indices) = at::_unique(clustering, true, true);
-
-            /////////////////////////////////
-            ////////// OUTPUT STEP //////////
-            /////////////////////////////////
-
-            // Get the total number of unique tracks based on the unique_tensor size
-            int64_t number_of_tracks = unique_tensor.numel(); 
-            
-            bool has_zero = (unique_tensor == 0).any().item<bool>();
-            if (!has_zero)
-            {
-                auto output_track = output_tracks->create();
-                output_track.setType(0);
-            }
-
-            // Loop through each unique track ID
-            for (int i = 0; i < number_of_tracks; ++i) {
-
-                // Retrieve the current track ID
-                auto id_of_track = unique_tensor.index({i});
-
-
-                // Create a new track in the output collection and set its type to the current track ID
-                auto output_track = output_tracks->create();
-                output_track.setType(id_of_track.item<int>());
-
-                // Create a mask to select all hits belonging to the current track
-                torch::Tensor mask = (clustering == id_of_track);
-                
-                // Find the indices of the hits that belong to the current track
-                torch::Tensor indices = torch::nonzero(mask);
-                int64_t number_of_hits = indices.numel();
-
-                // Loop through each hit index for the current track
-                for (int j = 0; j < number_of_hits; ++j) {
-
-                    // Get the current hit index
-                    auto index_id = indices.index({j});
-                    
-                    // Check which detector the hit belongs to (VTXD, VTXB, CDC)
-                    torch::Tensor mask_VTXD = (ListHitType_VTXD_tensor == index_id);
-                    torch::Tensor mask_VTXB = (ListHitType_VTXB_tensor == index_id);
-                    torch::Tensor mask_CDC = (ListHitType_CDC_tensor == index_id);
-
-                    // If the hit belongs to the VTXD detector
-                    if ((torch::sum(mask_VTXD) > 0).item<bool>()) {
-
-                        auto hit = inputHits_VTXD.at(index_id.item<int>());
-                        output_track.addToTrackerHits(hit);
-
-                    } 
-                    // If the hit belongs to the VTOB detector
-                    else if ((torch::sum(mask_VTXB) > 0).item<bool>()) {
-                        index_id = index_id - (it_0);
-
-                        auto hit = inputHits_VTXB.at(index_id.item<int>());
-                        output_track.addToTrackerHits(hit);
-
-                    } 
-                    // If the hit belongs to the CDC detector
-                    else if ((torch::sum(mask_CDC) > 0).item<bool>()) {
-                        index_id = index_id - (it_1 + it_0);
-
-                        auto hit = inputHits_CDC.at(index_id.item<int>());
-                        output_track.addToTrackerHits(hit);
-                    }
-
-                }
-            }
-
-            inverse_indices.reset();
-            unique_tensor.reset();
-            clustering.reset();
-            
-            input_tensors.clear();
-            output_model_tensors.clear();
-            
-            
-        }
-
-        ListHitType_VTXB_tensor.reset();
-        ListHitType_VTXD_tensor.reset();
-        ListHitType_CDC_tensor.reset();
-
-        std::vector<float>().swap(ListHitType_VTXD);
-        std::vector<float>().swap(ListHitType_VTXB);
-        std::vector<float>().swap(ListHitType_CDC);
+        genfit::Track track;
 
         // Return the output collections as a tuple
         return std::make_tuple(std::move(*output_tracks));
@@ -480,43 +302,9 @@ struct GGTF_tracking_dbscan_IDEAv3 final :
 
     private:
 
-        /// Pointer to the ONNX environment.
-        /// This object manages the global state of the ONNX runtime, such as logging and threading.
-        std::unique_ptr<Ort::Env> fEnv;
-
-        /// Pointer to the ONNX inference session.
-        /// This session is used to execute the model for inference.
-        std::unique_ptr<Ort::Session> fSession;
-
-        /// ONNX session options.
-        /// These settings control the behavior of the inference session, such as optimization level, 
-        /// execution providers, and other configuration parameters.
-        Ort::SessionOptions fSessionOptions;
-
-        /// ONNX memory info.
-        /// This object provides information about memory allocation and is used during the creation of 
-        /// ONNX tensors. It specifies the memory type and device (e.g., CPU, GPU).
-        const OrtMemoryInfo* fInfo;
-        struct MemoryInfo;
-
-        /// Stores the input and output names for the ONNX model.
-        /// These vectors contain the names of the inputs (fInames) and outputs (fOnames) that the model expects.
-        std::vector<const char*> fInames;
-        std::vector<const char*> fOnames;
-
-        /// Property to specify the path to the ONNX model file.
-        /// This is a configurable property that defines the location of the ONNX model file on the filesystem.
-        Gaudi::Property<std::string> modelPath{this, "modelPath", "/afs/cern.ch/user/a/adevita/public/workDir/k4RecTracker/Tracking/model_multivector_1_input.onnx", "modelPath"};
-
-        /// Property to configure the step size for the DBSCAN clustering algorithm.
-        /// This parameter controls the maximum distance between points in a cluster.
-        Gaudi::Property<double> step_size{this, "step_size", 0.5, "step_size"};
-
-        /// Property to configure the minimum number of points required to form a cluster in the DBSCAN algorithm.
-        /// This parameter defines the density threshold for identifying clusters.
-        Gaudi::Property<int> min_points{this, "min_points", 10, "min_points"};
+        
         
 
 };
 
-DECLARE_COMPONENT(GGTF_tracking_dbscan_IDEAv3)
+DECLARE_COMPONENT(GGTF_fitter)

@@ -2,9 +2,8 @@ set(PackageName Tracking)
 
 project(${PackageName})
 
-#find_package(GenFit)
-
-#if (GenFit_FOUND)
+# Trova GenFit
+find_package(GenFit REQUIRED)
 
 file(GLOB sources
     ${PROJECT_SOURCE_DIR}/src/*.cpp
@@ -13,6 +12,8 @@ file(GLOB sources
 file(GLOB headers
   ${PROJECT_SOURCE_DIR}/include/*.h
 )
+
+set(CMAKE_REQUIRED_LIBRARIES DD4hep::DDRec)
 
 gaudi_add_module(${PackageName}
   SOURCES ${sources}
@@ -23,11 +24,18 @@ gaudi_add_module(${PackageName}
   extensionDict
   OnnxRuntime
   torch
+  GenFit::genfit2
+  DD4hep::DDRec
+  DD4hep::DDCore
 )
+
+# Usa il target importato
+target_link_libraries(${PackageName} PRIVATE GenFit::genfit2)
 
 target_include_directories(${PackageName} PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
+  ${GENFIT_INCLUDE_DIR}
 )
 
 set_target_properties(${PackageName} PROPERTIES PUBLIC_HEADER "${headers}")
@@ -46,8 +54,3 @@ install(TARGETS ${PackageName}
 )
 
 install(FILES ${scripts} DESTINATION test)
-#endif()
-
-# SET(test_name "test_tracking")
-# ADD_TEST(NAME ${test_name} COMMAND k4run test/runGenFitTrackingOnSimplifiedDriftChamber.py)
-# set_test_env(${test_name})
