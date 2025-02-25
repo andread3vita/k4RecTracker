@@ -45,6 +45,7 @@
 
 #include "dbscan.hpp"
 #include "utils.hpp"
+#include "measurement/DC_measurement.hpp"
 
 #include "Gaudi/Property.h"
 #include "k4FWCore/Transformer.h"
@@ -90,7 +91,28 @@ using TrackHit = extension::TrackerHit;
 #include "k4Interface/IUniqueIDGenSvc.h"
 #include <filesystem>  // For std::filesystem::path
 
+
+//genfit
+#include <ConstField.h>
+#include <Exception.h>
+#include <FieldManager.h>
+#include <KalmanFitterRefTrack.h>
+#include <StateOnPlane.h>
 #include <Track.h>
+#include <TrackPoint.h>
+
+#include <MaterialEffects.h>
+#include <RKTrackRep.h>
+#include <TGeoMaterialInterface.h>
+
+#include <EventDisplay.h>
+
+#include <PlanarMeasurement.h>
+
+#include <TEveManager.h>
+#include <TGeoManager.h>
+#include <TVector3.h>
+#include <vector>
 
 /** @struct GGTF_tracking_dbscan_IDEAv3
  *
@@ -115,11 +137,9 @@ using TrackHit = extension::TrackerHit;
  */
 
 struct GGTF_fitter final : 
-        k4FWCore::MultiTransformer< std::tuple<TrackColl>( 
+        k4FWCore::MultiTransformer< std::tuple<IntColl>( 
                                                                     
-                                                                    const DCHitsColl&, 
-                                                                    const VertexHitsColl&,
-                                                                    const VertexHitsColl&)> 
+                                                                    const DCHitsColl&)> 
             
                                                                                             
 {
@@ -127,12 +147,10 @@ struct GGTF_fitter final :
         MultiTransformer ( name, svcLoc,
             {   
                  
-                KeyValues("inputHits_CDC", {"inputHits_CDC"}),
-                KeyValues("inputHits_VTXB", {"inputHits_VTXB"}),
-                KeyValues("inputHits_VTXD", {"inputHits_VTXD"})
+                KeyValues("inputHits_CDC", {"inputHits_CDC"})
             },
             {   
-                KeyValues("outputTracks", {"outputTracks"})      
+                KeyValues("test", {"test"})      
             
             }) {}
     
@@ -144,159 +162,186 @@ struct GGTF_fitter final :
     }
 
     
-    std::tuple<TrackColl> operator()(   const DCHitsColl& inputHits_CDC, 
-                                                const VertexHitsColl& inputHits_VTXB,
-                                                const VertexHitsColl& inputHits_VTXD) const override 
+    std::tuple<IntColl> operator()(   const DCHitsColl& inputHits_CDC) const override 
     {
 
-        ////////////////////////////////////////
-        ////////// DATA PREPROCESSING //////////
-        ////////////////////////////////////////
+        // init geometry and mag. field
+        new TGeoManager("Geometry", "IDEA geometry");
+        TGeoManager::Import("/eos/user/a/adevita/workDir/k4RecTracker/Tracking/TGeo_IDEA.root");
+        genfit::MaterialEffects::getInstance()->init(new genfit::TGeoMaterialInterface());
+        genfit::FieldManager::getInstance()->init(new genfit::ConstField(0. ,0., 20.)); // 2 T
+
+        // init fitter
+        genfit::AbsKalmanFitter* fitter = new genfit::KalmanFitterRefTrack();
+
+
+        // particle pdg code; pion hypothesis
+        const int pdg = 211;
+
+        // start values for the fit, e.g. from pattern recognition
+        TVector3 pos(0, 0, 0);
+        TVector3 mom(0, 0, 3);
+
+        // trackrep
+        genfit::AbsTrackRep* rep = new genfit::RKTrackRep(pdg);
+
+        // create track
+        genfit::Track fitTrack(rep, pos, mom);
         
-        // Although there is a link between digi hits and MC hits, we cannot use it because the output tracks 
-        // do not contain the original hits, but rather copies. This step is necessary because it is not possible 
-        // to use hits from both the drift chamber and the vertex in the same collection. Therefore, for each hit, 
-        // a MutableTrackerHit3D is created, and its properties are defined based on the original hit.
-        //
-        // These for loops are used to store the index of the MC particle for each hit. For now, this information 
-        // will be saved in the EDep of the hit stored in each track.
 
-        std::cout << "Input Hit collection size VTXD: " << inputHits_VTXD.size() << std::endl;
-        std::cout << "Input Hit collection size VTXB: " << inputHits_VTXB.size() << std::endl;
-        std::cout << "Input Hit collection size CDC: " << inputHits_CDC.size() << std::endl;
-        std::cout << "______________________________________________________" << std::endl;
-        std::cout << "Tot hits: " << inputHits_CDC.size() + inputHits_VTXB.size() + inputHits_VTXD.size() << std::endl;
-        std::cout << "  " << std::endl;
+        int dc_idx = 0;
+        for (const auto hit : inputHits_CDC)
+        {   
 
-        // Vector to store the global input values for all hits.
-        // This will contain position and other hit-specific data to be used as input for the model.
-        std::vector<float> ListGlobalInputs; 
-        int it = 0;
+            float wireStereoAngle = hit.getWireStereoAngle();
+            float wireAzimuthalAngle = hit.getWireAzimuthalAngle();
+            edm4hep::Vector3d position = hit.getPosition();
+            double positionAlongWireError = hit.getPositionAlongWireError();
+            float distanceToWire = hit.getDistanceToWire();
+            float distanceToWireError = hit.getDistanceToWireError();
 
-        /// Processing hits from the VTXD (Vertex Disk).
-        std::vector<float> ListHitType_VTXD;
-        int it_0 = 0; 
-        for (const auto input_hit : inputHits_VTXD) {
-            // Add the 3D position of the hit to the global input list.
-            ListGlobalInputs.push_back(input_hit.getPosition().x);
-            ListGlobalInputs.push_back(input_hit.getPosition().y);
-            ListGlobalInputs.push_back(input_hit.getPosition().z);
-            
-            // Add placeholder values for additional input dimensions.
-            ListGlobalInputs.push_back(1.0); 
-            ListGlobalInputs.push_back(0.0);
-            ListGlobalInputs.push_back(0.0);
-            ListGlobalInputs.push_back(0.0); 
-            
-            // Store the current index in ListHitType_VTXD and increment the global iterator.
-            ListHitType_VTXD.push_back(it);
-            it += 1;  
-            it_0 += 1;                        
-        }
-        // Convert ListHitType_VTXD to a Torch tensor for use in PyTorch models.
-        torch::Tensor ListHitType_VTXD_tensor = torch::from_blob(ListHitType_VTXD.data(), {it_0}, torch::kFloat32);
-
-
-
-        /// Processing hits from the VTXB (Vertex Barrel).
-        std::vector<float> ListHitType_VTXB; 
-        int it_1 = 0; 
-        for (const auto input_hit : inputHits_VTXB) {
-            // Add the 3D position of the hit to the global input list.
-            ListGlobalInputs.push_back(input_hit.getPosition().x);
-            ListGlobalInputs.push_back(input_hit.getPosition().y);
-            ListGlobalInputs.push_back(input_hit.getPosition().z);
-            
-            // Add placeholder values for additional input dimensions.
-            ListGlobalInputs.push_back(1.0);
-            ListGlobalInputs.push_back(0.0);
-            ListGlobalInputs.push_back(0.0);
-            ListGlobalInputs.push_back(0.0); 
-            
-            // Store the current index in ListHitType_VTXIB and increment the global iterator.
-            ListHitType_VTXB.push_back(it);
-            it += 1; 
-            it_1 += 1;                      
-        }
-        // Convert ListHitType_VTXD to a Torch tensor for use in PyTorch models.
-        torch::Tensor ListHitType_VTXB_tensor = torch::from_blob(ListHitType_VTXB.data(), {it_1}, torch::kFloat32);
-    
-
-        /// Processing hits from the VTXB (Vertex Barrel).
-        std::vector<float> ListHitType_CDC;
-        int it_2 = 0;
-        for (const auto input_hit : inputHits_CDC) {
-
-            
-            edm4hep::Vector3d wirePos = input_hit.getPosition();    // position along the wire
-            std::vector<float> wire_pos = {static_cast<float>(wirePos.x),static_cast<float>(wirePos.y),static_cast<float>(wirePos.z)};
-
-            double distanceToWire = input_hit.getDistanceToWire();   // drift distance
-            double wire_azimuthal_angle = input_hit.getWireAzimuthalAngle();  
-            double wire_stereo_angle = input_hit.getWireStereoAngle();  
 
             // Wire direction
-            float d_x = std::sin(wire_stereo_angle) * std::cos(wire_azimuthal_angle);
-            float d_y = std::sin(wire_stereo_angle) * std::sin(wire_azimuthal_angle);
-            float d_z = std::cos(wire_stereo_angle);
+            float d_x = std::sin(wireStereoAngle) * std::cos(wireAzimuthalAngle);
+            float d_y = std::sin(wireStereoAngle) * std::sin(wireAzimuthalAngle);
+            float d_z = std::cos(wireStereoAngle);
 
-            // z_prime
-            std::vector<float> z_prime = {d_x, d_y, d_z};
-            
-            // x_prime
-            std::vector<float> x_prime = {d_z, 0.0f, -d_z};
-            float norm_x_prime = std::sqrt(x_prime[0] * x_prime[0] + x_prime[1] * x_prime[1] + x_prime[2] * x_prime[2]);
-            x_prime[0] /= norm_x_prime;
-            x_prime[1] /= norm_x_prime;
-            x_prime[2] /= norm_x_prime;
-            
-            // y_prime
-            std::vector<float> y_prime(3);
-            y_prime[0] = z_prime[1] * x_prime[2] - z_prime[2] * x_prime[1]; 
-            y_prime[1] = z_prime[2] * x_prime[0] - z_prime[0] * x_prime[2]; 
-            y_prime[2] = z_prime[0] * x_prime[1] - z_prime[1] * x_prime[0];
-            float norm_y_prime = std::sqrt(y_prime[0] * y_prime[0] + y_prime[1] * y_prime[1] + y_prime[2] * y_prime[2]);
-            y_prime[0] /= norm_y_prime;
-            y_prime[1] /= norm_y_prime;
-            y_prime[2] /= norm_y_prime;
-            
-            // Conversion from local to global
-            std::vector<float> leftHitLocalPosition = {-float(distanceToWire), 0.0f, 0.0f};
-            std::vector<float> rightHitLocalPosition = {float(distanceToWire), 0.0f, 0.0f};
-            
-            std::vector<float> leftHitGlobalPosition = local_to_global(leftHitLocalPosition,x_prime,y_prime,z_prime,wire_pos);
-            std::vector<float> rightHitGlobalPosition = local_to_global(rightHitLocalPosition,x_prime,y_prime,z_prime,wire_pos); 
+            // wire extremities (   e.g. w1_x = x_0 + [(w1_z - z_0)/d_z]*d_x   )
+            float w1_z = -2000.;
+            float w1_x = position.x +(w1_z-position.z)/d_z*d_x;
+            float w1_y = position.y +(w1_z-position.z)/d_z*d_y;
+            float w2_z = 2000.;
+            float w2_x = position.x +(w2_z-position.z)/d_z*d_x;
+            float w2_y = position.y +(w2_z-position.z)/d_z*d_y;
 
-            // Add the 3D position of the left hit to the global input list.
-            ListGlobalInputs.push_back(leftHitGlobalPosition[0]);
-            ListGlobalInputs.push_back(leftHitGlobalPosition[1]);
-            ListGlobalInputs.push_back(leftHitGlobalPosition[2]);
+            //Rdrift
+            double Rdrift = distanceToWire;
+
+            // wire position in local coordinates z_reco = d(left wire extremity , wire_pos)
+            float zreco = std::sqrt(std::pow(w1_x-position.x,2)+std::pow(w1_y-position.y,2)+std::pow(w1_z-position.z,2));
+
+            // genfit::WirePointMeasurement
+            TVectorD rawHitCoords(8);
+            rawHitCoords(0) = w1_x;             // wire1 X
+            rawHitCoords(1) = w1_y;             // wire1 Y
+            rawHitCoords(2) = w1_z;             // wire1 Z
+            rawHitCoords(3) = w2_x;             // wire2 X
+            rawHitCoords(4) = w2_y;             // wire2 Y
+            rawHitCoords(5) = w2_z;             // wire2 Z
+            rawHitCoords(6) = Rdrift;           // Rdrift
+            rawHitCoords(7) = zreco;            // zreco
+
+            // Covariance matrix
+            double w1_z_sigma = 0.;
+            double w1_x_sigma = 0.;
+            double w1_y_sigma = 0.;
+            double w2_z_sigma = 0.;
+            double w2_x_sigma = 0.;
+            double w2_y_sigma = 0.;
+
+            double Rdrift_sigma = distanceToWireError;
+           
+
+            double dz_dx = (w1_x - position.x) / zreco;
+            double dz_dy = (w1_y - position.y) / zreco;
+            double dz_dz = (w1_z - position.z) / zreco;
+
+            double zreco_sigma = std::sqrt(
+                std::pow(dz_dx*positionAlongWireError, 2) +
+                std::pow(dz_dy*positionAlongWireError, 2) +
+                std::pow(dz_dz*positionAlongWireError, 2)
+            );
+
+            std::cout << Rdrift_sigma << std::endl;
+            std::cout << positionAlongWireError <<"  " <<zreco_sigma << std::endl;
+
+            TMatrixDSym rawHitCov(8);
+
+            rawHitCov(0, 0) = w1_x_sigma * w1_x_sigma;          // Variance for w1_x
+            rawHitCov(1, 1) = w1_y_sigma * w1_y_sigma;          // Variance for w1_y
+            rawHitCov(2, 2) = w1_z_sigma * w1_z_sigma;          // Variance for w1_z
+            rawHitCov(3, 3) = w2_x_sigma * w2_x_sigma;          // Variance for w2_x
+            rawHitCov(4, 4) = w2_y_sigma * w2_y_sigma;          // Variance for w2_y
+            rawHitCov(5, 5) = w2_z_sigma * w2_z_sigma;          // Variance for w2_z
+            rawHitCov(6, 6) = Rdrift_sigma * Rdrift_sigma;      // Variance for Rdrift
+            rawHitCov(7, 7) = zreco_sigma * zreco_sigma;        // Variance for zreco
+
+            rawHitCov(0, 1) = 0;                                // Covariance between w1_x and w1_y
+            rawHitCov(0, 2) = 0;                                // Covariance between w1_x and w1_z
+            rawHitCov(0, 3) = 0;                                // Covariance between w1_x and w2_x
+            rawHitCov(0, 4) = 0;                                // Covariance between w1_x and w2_y
+            rawHitCov(0, 5) = 0;                                // Covariance between w1_x and w2_z
+            rawHitCov(0, 6) = 0;                                // Covariance between w1_x and Rdrift
+            rawHitCov(0, 7) = 0;                                // Covariance between w1_x and zreco
+
+            rawHitCov(1, 2) = 0;                                // Covariance between w1_y and w1_z
+            rawHitCov(1, 3) = 0;                                // Covariance between w1_y and w2_x
+            rawHitCov(1, 4) = 0;                                // Covariance between w1_y and w2_y
+            rawHitCov(1, 5) = 0;                                // Covariance between w1_y and w2_z
+            rawHitCov(1, 6) = 0;                                // Covariance between w1_y and Rdrift
+            rawHitCov(1, 7) = 0;                                // Covariance between w1_y and zreco
+
+            rawHitCov(2, 3) = 0;                                // Covariance between w1_z and w2_x
+            rawHitCov(2, 4) = 0;                                // Covariance between w1_z and w2_y
+            rawHitCov(2, 5) = 0;                                // Covariance between w1_z and w2_z
+            rawHitCov(2, 6) = 0;                                // Covariance between w1_z and Rdrift
+            rawHitCov(2, 7) = 0;                                // Covariance between w1_z and zreco
+
+            rawHitCov(3, 4) = 0;                                // Covariance between w2_x and w2_y
+            rawHitCov(3, 5) = 0;                                // Covariance between w2_x and w2_z
+            rawHitCov(3, 6) = 0;                                // Covariance between w2_x and Rdrift
+            rawHitCov(3, 7) = 0;                                // Covariance between w2_x and zreco
+
+            rawHitCov(4, 5) = 0;                                // Covariance between w2_y and w2_z
+            rawHitCov(4, 6) = 0;                                // Covariance between w2_y and Rdrift
+            rawHitCov(4, 7) = 0;                                // Covariance between w2_y and zreco
+
+            rawHitCov(5, 6) = 0;                                // Covariance between w2_z and Rdrift
+            rawHitCov(5, 7) = 0;                                // Covariance between w2_z and zreco
+
+            rawHitCov(6, 7) = 0;                                // Covariance between Rdrift and zreco
+
+            rawHitCov(1, 0) = rawHitCov(0, 1);
+            rawHitCov(2, 0) = rawHitCov(0, 2);
+            rawHitCov(3, 0) = rawHitCov(0, 3);
+            rawHitCov(4, 0) = rawHitCov(0, 4);
+            rawHitCov(5, 0) = rawHitCov(0, 5);
+            rawHitCov(6, 0) = rawHitCov(0, 6);
+            rawHitCov(7, 0) = rawHitCov(0, 7);
+
+            rawHitCov(2, 1) = rawHitCov(1, 2);
+            rawHitCov(3, 2) = rawHitCov(2, 3);
+            rawHitCov(4, 3) = rawHitCov(3, 4);
+            rawHitCov(5, 4) = rawHitCov(4, 5);
+            rawHitCov(6, 5) = rawHitCov(5, 6);
+            rawHitCov(7, 6) = rawHitCov(6, 7);
             
-            // Add the difference between the right and left hit positions to the global input list.
-            ListGlobalInputs.push_back(0.0); 
-            ListGlobalInputs.push_back(rightHitGlobalPosition[0]-leftHitGlobalPosition[0]);
-            ListGlobalInputs.push_back(rightHitGlobalPosition[1]-leftHitGlobalPosition[1]);
-            ListGlobalInputs.push_back(rightHitGlobalPosition[2]-leftHitGlobalPosition[2]);
-            
-            // Store the current index in ListHitType_CDC and increment the global iterator.
-            ListHitType_CDC.push_back(it);
-            it += 1; 
-            it_2 += 1;                      
+            // rawHitCov.Print();
+
+            int detID = 1;
+            int hitID = dc_idx;
+
+            IDEAtracking::DC_measurement dc_hit = IDEAtracking::DC_measurement(hit,detID,hitID);
+            dc_idx += 1;
+
+            auto measurement = dc_hit.getGenFit();
+            fitTrack.insertPoint(new genfit::TrackPoint(measurement, &fitTrack));
+
         }
-        // Convert ListHitType_CDC to a Torch tensor for use in PyTorch models.
-        torch::Tensor ListHitType_CDC_tensor = torch::from_blob(ListHitType_CDC.data(), {it_2}, torch::kFloat32);
 
+        //check
+        fitTrack.checkConsistency();
 
-        /////////////////////////////
-        ////////// ML STEP //////////
-        /////////////////////////////
+        // // do the fit
+        // fitter->processTrack(&fitTrack);
 
-        // Create a new TrackCollection and TrackerHit3DCollection for storing the output tracks and hits
-        extension::TrackCollection* output_tracks = new extension::TrackCollection();
-        genfit::Track track;
+        // fitTrack.checkConsistency();
+
+        delete fitter;
 
         // Return the output collections as a tuple
-        return std::make_tuple(std::move(*output_tracks));
+        IntColl test;
+        return std::make_tuple(std::move(test));
 
     } 
 

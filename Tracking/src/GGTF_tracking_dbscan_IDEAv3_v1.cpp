@@ -90,6 +90,67 @@ using TrackHit = extension::TrackerHit;
 #include "k4Interface/IUniqueIDGenSvc.h"
 #include <filesystem>  // For std::filesystem::path
 
+// Gaudi Transformer baseclass headers
+#include "Gaudi/Property.h"
+#include "k4FWCore/Transformer.h"
+
+// Gaudi services
+#include "k4Interface/IGeoSvc.h"
+#include "k4Interface/IUniqueIDGenSvc.h"
+
+// EDM4HEP
+#include "edm4hep/EventHeaderCollection.h"
+#include "edm4hep/ParticleIDData.h"
+#include "edm4hep/SimTrackerHitCollection.h"
+
+// EDM4HEP extension
+#include "extension/SenseWireHitCollection.h"
+#include "extension/SenseWireHitSimTrackerHitLinkCollection.h"
+
+// DD4hep
+#include "DD4hep/Detector.h"  // for dd4hep::VolumeManager
+#include "DDSegmentation/BitFieldCoder.h"
+
+// STL
+#include <random>
+#include <string>
+
+// data extension for detector DCH_v2
+#include "DDRec/DCH_info.h"
+
+// ROOT headers
+#include "TFile.h"
+#include "TH1D.h"
+#include "TRandom3.h"
+#include "TVector3.h"
+
+// GAUDI
+#include "Gaudi/Property.h"
+#include "Gaudi/Algorithm.h"
+#include "GaudiKernel/IRndmGenSvc.h"
+#include "GaudiKernel/RndmGenerators.h"
+
+// K4FWCORE
+#include "k4FWCore/DataHandle.h"
+#include "k4Interface/IGeoSvc.h"
+
+// EDM4HEP & PODIO
+#include "edm4hep/SimTrackerHitCollection.h"
+#include "podio/UserDataCollection.h"
+
+// EDM4HEP extension
+#include "extension/DriftChamberDigiCollection.h"
+#include "extension/DriftChamberDigiLocalCollection.h"
+#include "extension/MCRecoDriftChamberDigiAssociationCollection.h"
+
+// DD4HEP
+#include "DD4hep/Detector.h"  // for dd4hep::VolumeManager
+#include "DDSegmentation/BitFieldCoder.h"
+
+#include <iostream>
+#include "TGeoMatrix.h"
+// #include "TGeoCombiTrans.h"
+
 /** @struct GGTF_tracking_dbscan_IDEAv3
  *
  *  Gaudi MultiTransformer that generates a Track collection by analyzing the digitalized hits through the GGTF_tracking. 
@@ -132,7 +193,7 @@ struct GGTF_tracking_dbscan_IDEAv3 final :
             {   
                 KeyValues("outputTracks", {"outputTracks"})      
             
-            }) {}
+            }) {m_geoSvc = serviceLocator()->service(m_geoSvcName);}
     
     StatusCode initialize() {
 
@@ -172,6 +233,19 @@ struct GGTF_tracking_dbscan_IDEAv3 final :
         // Store the retrieved input and output names in the respective vectors.
         fInames.push_back(input_name);
         fOnames.push_back(output_names);
+
+        std::string DCH_name(m_DCH_name.value());
+        DCH_DE = m_geoSvc->getDetector()->detectors().at(DCH_name);
+
+        ///////////////////////////////////////////////////////////////////////////////////
+        ///////////////////////////  retrieve data extension     //////////////////////////
+        ///////////////////////////////////////////////////////////////////////////////////
+        dch_data = DCH_DE.extension<dd4hep::rec::DCH_info>();
+
+        dd4hep::SensitiveDetector dch_sd = m_geoSvc->getDetector()->sensitiveDetector(DCH_name);
+        dd4hep::Readout dch_readout = dch_sd.readout();
+        // set the cellID decoder
+        m_decoder = dch_readout.idSpec().decoder();
 
         return StatusCode::SUCCESS;
 
@@ -255,12 +329,11 @@ struct GGTF_tracking_dbscan_IDEAv3 final :
         // Convert ListHitType_VTXD to a Torch tensor for use in PyTorch models.
         torch::Tensor ListHitType_VTXB_tensor = torch::from_blob(ListHitType_VTXB.data(), {it_1}, torch::kFloat32);
     
+    
 
-        /// Processing hits from the VTXB (Vertex Barrel).
         std::vector<float> ListHitType_CDC;
         int it_2 = 0;
         for (const auto input_hit : inputHits_CDC) {
-
             
             edm4hep::Vector3d wirePos = input_hit.getPosition();    // position along the wire
             std::vector<float> wire_pos = {static_cast<float>(wirePos.x),static_cast<float>(wirePos.y),static_cast<float>(wirePos.z)};
@@ -269,6 +342,30 @@ struct GGTF_tracking_dbscan_IDEAv3 final :
             double wire_azimuthal_angle = input_hit.getWireAzimuthalAngle();  
             double wire_stereo_angle = input_hit.getWireStereoAngle();  
 
+            dd4hep::DDSegmentation::CellID cellid = input_hit.getCellID();
+            int                            ilayer = dch_data->CalculateILayerFromCellIDFields( m_decoder->get(cellid, "layer"), m_decoder->get(cellid, "superlayer") );
+            int                            nphi   = m_decoder->get(cellid, "nphi");
+            
+            std::string layer_name = m_DCH_name.value()+"_layer"+std::to_string(ilayer);
+            std::string cell_name = layer_name+"_cell"+std::to_string(nphi)+"DE";
+
+            auto layer_de = DCH_DE.child(layer_name+"DE");
+            auto cell_de = layer_de.child(cell_name);
+            auto cell_pv = cell_de.placement();
+            TGeoCombiTrans cell_matrix = cell_pv.matrix();
+            TGeoCombiTrans wire_matrix = cell_pv.daughter(0).matrix();
+
+            auto local_to_global_matrix = cell_matrix*wire_matrix;
+
+            cell_matrix.Print();
+            wire_matrix.Print();
+            local_to_global_matrix.Print();
+
+            Double_t local_pos[3] = {distanceToWire, 0.,wire_pos[2] };
+            Double_t global_pos[3]; 
+            
+            local_to_global_matrix.LocalToMaster(local_pos, global_pos); 
+            std::cout << global_pos << std::endl;
             // Wire direction
             float d_x = std::sin(wire_stereo_angle) * std::cos(wire_azimuthal_angle);
             float d_y = std::sin(wire_stereo_angle) * std::sin(wire_azimuthal_angle);
@@ -276,9 +373,13 @@ struct GGTF_tracking_dbscan_IDEAv3 final :
 
             // z_prime
             std::vector<float> z_prime = {d_x, d_y, d_z};
-            
+            float norm_z_prime = std::sqrt(z_prime[0] * z_prime[0] + z_prime[1] * z_prime[1] + z_prime[2] * z_prime[2]);
+            z_prime[0] /= norm_z_prime;
+            z_prime[1] /= norm_z_prime;
+            z_prime[2] /= norm_z_prime;
+
             // x_prime
-            std::vector<float> x_prime = {d_z, 0.0f, -d_z};
+            std::vector<float> x_prime = {1.f, 0.0f, -d_x/d_z};
             float norm_x_prime = std::sqrt(x_prime[0] * x_prime[0] + x_prime[1] * x_prime[1] + x_prime[2] * x_prime[2]);
             x_prime[0] /= norm_x_prime;
             x_prime[1] /= norm_x_prime;
@@ -300,22 +401,24 @@ struct GGTF_tracking_dbscan_IDEAv3 final :
             
             std::vector<float> leftHitGlobalPosition = local_to_global(leftHitLocalPosition,x_prime,y_prime,z_prime,wire_pos);
             std::vector<float> rightHitGlobalPosition = local_to_global(rightHitLocalPosition,x_prime,y_prime,z_prime,wire_pos); 
-
-            // Add the 3D position of the left hit to the global input list.
-            ListGlobalInputs.push_back(leftHitGlobalPosition[0]);
-            ListGlobalInputs.push_back(leftHitGlobalPosition[1]);
-            ListGlobalInputs.push_back(leftHitGlobalPosition[2]);
             
-            // Add the difference between the right and left hit positions to the global input list.
-            ListGlobalInputs.push_back(0.0); 
-            ListGlobalInputs.push_back(rightHitGlobalPosition[0]-leftHitGlobalPosition[0]);
-            ListGlobalInputs.push_back(rightHitGlobalPosition[1]-leftHitGlobalPosition[1]);
-            ListGlobalInputs.push_back(rightHitGlobalPosition[2]-leftHitGlobalPosition[2]);
+            //std::cout << global_pos[0] << "  " << global_pos[1] << "  "  <<  global_pos[2] << " || " << rightHitGlobalPosition[0] << "  " << rightHitGlobalPosition[1] << "  "  <<  rightHitGlobalPosition[2] <<std::endl;
             
-            // Store the current index in ListHitType_CDC and increment the global iterator.
-            ListHitType_CDC.push_back(it);
-            it += 1; 
-            it_2 += 1;                      
+            // // Add the 3D position of the left hit to the global input list.
+            // ListGlobalInputs.push_back(leftHitGlobalPosition[0]);
+            // ListGlobalInputs.push_back(leftHitGlobalPosition[1]);
+            // ListGlobalInputs.push_back(leftHitGlobalPosition[2]);
+            
+            // // Add the difference between the right and left hit positions to the global input list.
+            // ListGlobalInputs.push_back(0.0); 
+            // ListGlobalInputs.push_back(rightHitGlobalPosition[0]-leftHitGlobalPosition[0]);
+            // ListGlobalInputs.push_back(rightHitGlobalPosition[1]-leftHitGlobalPosition[1]);
+            // ListGlobalInputs.push_back(rightHitGlobalPosition[2]-leftHitGlobalPosition[2]);
+            
+            // // Store the current index in ListHitType_CDC and increment the global iterator.
+            // ListHitType_CDC.push_back(it);
+            // it += 1; 
+            // it_2 += 1;                      
         }
         // Convert ListHitType_CDC to a Torch tensor for use in PyTorch models.
         torch::Tensor ListHitType_CDC_tensor = torch::from_blob(ListHitType_CDC.data(), {it_2}, torch::kFloat32);
@@ -515,6 +618,27 @@ struct GGTF_tracking_dbscan_IDEAv3 final :
         /// Property to configure the minimum number of points required to form a cluster in the DBSCAN algorithm.
         /// This parameter defines the density threshold for identifying clusters.
         Gaudi::Property<int> min_points{this, "min_points", 10, "min_points"};
+
+
+        //------------------------------------------------------------------
+        //          machinery for geometry
+
+        /// Geometry service name
+        Gaudi::Property<std::string> m_geoSvcName{this, "GeoSvcName", "GeoSvc", "The name of the GeoSvc instance"};
+        Gaudi::Property<std::string> m_uidSvcName{this, "uidSvcName", "uidSvc", "The name of the UniqueIDGenSvc instance"};
+
+        /// Detector name
+        Gaudi::Property<std::string> m_DCH_name{this, "DCH_name", "DCH_v2", "Name of the Drift Chamber detector"};
+
+        /// Pointer to the geometry service
+        SmartIF<IGeoSvc> m_geoSvc;
+
+        /// Decoder for the cellID
+        dd4hep::DDSegmentation::BitFieldCoder* m_decoder;
+
+        dd4hep::DetElement DCH_DE;
+        /// Pointer to drift chamber data extension
+        dd4hep::rec::DCH_info* dch_data = {nullptr};
         
 
 };
