@@ -7,13 +7,13 @@ find_package(GenFit REQUIRED)
 # Collect source files
 file(GLOB sources
     ${PROJECT_SOURCE_DIR}/src/*.cpp
-    ${PROJECT_SOURCE_DIR}/src/measurement/*.cpp
+    ${PROJECT_SOURCE_DIR}/src/genfit_interfaces/*.cpp
 )
 
 # Collect header files
 file(GLOB headers
     ${PROJECT_SOURCE_DIR}/include/*.hpp
-    ${PROJECT_SOURCE_DIR}/include/measurement/*.hpp
+    ${PROJECT_SOURCE_DIR}/include/genfit_interfaces/*.hpp
 )
 
 set(CMAKE_REQUIRED_LIBRARIES DD4hep::DDRec)
@@ -35,7 +35,7 @@ gaudi_add_module(${PackageName}
 # Ensure proper linking
 target_include_directories(${PackageName} PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include/measurement>
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include/genfit_interfaces>
   $<INSTALL_INTERFACE:include>
   ${GENFIT_INCLUDE_DIR}
 )

@@ -342,30 +342,31 @@ struct GGTF_tracking_dbscan_IDEAv3 final :
             double wire_azimuthal_angle = input_hit.getWireAzimuthalAngle();  
             double wire_stereo_angle = input_hit.getWireStereoAngle();  
 
-            dd4hep::DDSegmentation::CellID cellid = input_hit.getCellID();
-            int                            ilayer = dch_data->CalculateILayerFromCellIDFields( m_decoder->get(cellid, "layer"), m_decoder->get(cellid, "superlayer") );
-            int                            nphi   = m_decoder->get(cellid, "nphi");
+            // dd4hep::DDSegmentation::CellID cellid = input_hit.getCellID();
+            // int                            ilayer = dch_data->CalculateILayerFromCellIDFields( m_decoder->get(cellid, "layer"), m_decoder->get(cellid, "superlayer") );
+            // int                            nphi   = m_decoder->get(cellid, "nphi");
             
-            std::string layer_name = m_DCH_name.value()+"_layer"+std::to_string(ilayer);
-            std::string cell_name = layer_name+"_cell"+std::to_string(nphi)+"DE";
+            // std::string layer_name = m_DCH_name.value()+"_layer"+std::to_string(ilayer);
+            // std::string cell_name = layer_name+"_cell"+std::to_string(nphi)+"DE";
 
-            auto layer_de = DCH_DE.child(layer_name+"DE");
-            auto cell_de = layer_de.child(cell_name);
-            auto cell_pv = cell_de.placement();
-            TGeoCombiTrans cell_matrix = cell_pv.matrix();
-            TGeoCombiTrans wire_matrix = cell_pv.daughter(0).matrix();
+            // auto layer_de = DCH_DE.child(layer_name+"DE");
+            // auto cell_de = layer_de.child(cell_name);
+            // auto cell_pv = cell_de.placement();
+            // TGeoCombiTrans cell_matrix = cell_pv.matrix();
+            // TGeoCombiTrans wire_matrix = cell_pv.daughter(0).matrix();
 
-            auto local_to_global_matrix = cell_matrix*wire_matrix;
+            // auto local_to_global_matrix = cell_matrix*wire_matrix;
 
-            cell_matrix.Print();
-            wire_matrix.Print();
-            local_to_global_matrix.Print();
+            // cell_matrix.Print();
+            // wire_matrix.Print();
+            // local_to_global_matrix.Print();
 
-            Double_t local_pos[3] = {distanceToWire, 0.,wire_pos[2] };
-            Double_t global_pos[3]; 
+            // Double_t local_pos[3] = {distanceToWire, 0.,wire_pos[2] };
+            // Double_t global_pos[3]; 
             
-            local_to_global_matrix.LocalToMaster(local_pos, global_pos); 
-            std::cout << global_pos << std::endl;
+            // local_to_global_matrix.LocalToMaster(local_pos, global_pos); 
+     
+        
             // Wire direction
             float d_x = std::sin(wire_stereo_angle) * std::cos(wire_azimuthal_angle);
             float d_y = std::sin(wire_stereo_angle) * std::sin(wire_azimuthal_angle);
@@ -402,23 +403,21 @@ struct GGTF_tracking_dbscan_IDEAv3 final :
             std::vector<float> leftHitGlobalPosition = local_to_global(leftHitLocalPosition,x_prime,y_prime,z_prime,wire_pos);
             std::vector<float> rightHitGlobalPosition = local_to_global(rightHitLocalPosition,x_prime,y_prime,z_prime,wire_pos); 
             
-            //std::cout << global_pos[0] << "  " << global_pos[1] << "  "  <<  global_pos[2] << " || " << rightHitGlobalPosition[0] << "  " << rightHitGlobalPosition[1] << "  "  <<  rightHitGlobalPosition[2] <<std::endl;
+            // Add the 3D position of the left hit to the global input list.
+            ListGlobalInputs.push_back(leftHitGlobalPosition[0]);
+            ListGlobalInputs.push_back(leftHitGlobalPosition[1]);
+            ListGlobalInputs.push_back(leftHitGlobalPosition[2]);
             
-            // // Add the 3D position of the left hit to the global input list.
-            // ListGlobalInputs.push_back(leftHitGlobalPosition[0]);
-            // ListGlobalInputs.push_back(leftHitGlobalPosition[1]);
-            // ListGlobalInputs.push_back(leftHitGlobalPosition[2]);
+            // Add the difference between the right and left hit positions to the global input list.
+            ListGlobalInputs.push_back(0.0); 
+            ListGlobalInputs.push_back(rightHitGlobalPosition[0]-leftHitGlobalPosition[0]);
+            ListGlobalInputs.push_back(rightHitGlobalPosition[1]-leftHitGlobalPosition[1]);
+            ListGlobalInputs.push_back(rightHitGlobalPosition[2]-leftHitGlobalPosition[2]);
             
-            // // Add the difference between the right and left hit positions to the global input list.
-            // ListGlobalInputs.push_back(0.0); 
-            // ListGlobalInputs.push_back(rightHitGlobalPosition[0]-leftHitGlobalPosition[0]);
-            // ListGlobalInputs.push_back(rightHitGlobalPosition[1]-leftHitGlobalPosition[1]);
-            // ListGlobalInputs.push_back(rightHitGlobalPosition[2]-leftHitGlobalPosition[2]);
-            
-            // // Store the current index in ListHitType_CDC and increment the global iterator.
-            // ListHitType_CDC.push_back(it);
-            // it += 1; 
-            // it_2 += 1;                      
+            // Store the current index in ListHitType_CDC and increment the global iterator.
+            ListHitType_CDC.push_back(it);
+            it += 1; 
+            it_2 += 1;                      
         }
         // Convert ListHitType_CDC to a Torch tensor for use in PyTorch models.
         torch::Tensor ListHitType_CDC_tensor = torch::from_blob(ListHitType_CDC.data(), {it_2}, torch::kFloat32);

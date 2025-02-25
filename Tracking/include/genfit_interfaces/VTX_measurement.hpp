@@ -1,5 +1,5 @@
-ifndef IDEATRACKING_H
-#define IDEATRACKING_H
+#ifndef VTX_MEASUREMENT_H
+#define VTX_MEASUREMENT_H
 
 #include <PlanarMeasurement.h>
 #include <StateOnPlane.h>
@@ -16,7 +16,7 @@ class VTX_measurement {
 public:
 
     // Constructor: takes a SenseWireHit and creates a WirePointMeasurement
-    VTX_measurement(const edm4hep::TrackerHit3D& hit, const int det_idx, const int plane_idx, const int hit_idx);
+    VTX_measurement(const edm4hep::TrackerHit3D& hit, const int det_idx, const int hit_idx);
 
     // Getter for genfit::WirePointMeasurement
     genfit::PlanarMeasurement* getGenFit() const;
@@ -27,4 +27,4 @@ private:
 
 } 
 
-#endif // IDETRACKING_H
+#endif // VTX_MEASUREMENT_H

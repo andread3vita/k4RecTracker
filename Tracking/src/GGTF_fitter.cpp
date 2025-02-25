@@ -46,6 +46,7 @@
 #include "dbscan.hpp"
 #include "utils.hpp"
 #include "DC_measurement.hpp"
+#include "VTX_measurement.hpp"
 
 #include "Gaudi/Property.h"
 #include "k4FWCore/Transformer.h"
@@ -114,32 +115,18 @@ using TrackHit = extension::TrackerHit;
 #include <TVector3.h>
 #include <vector>
 
-/** @struct GGTF_tracking_dbscan_IDEAv3
+
+#include "IDEAtrackFitter.hpp"
+
+/** @struct GGTF_fitter
  *
- *  Gaudi MultiTransformer that generates a Track collection by analyzing the digitalized hits through the GGTF_tracking. 
- *  The first step takes the raw hits and it returns a collection of 4-dimensional points inside an embedding space.
- *  Eeach 4-dim point has 3 geometric coordinates and 1 charge, the meaning of which can be described intuitively by a potential, 
- *  which attracts hits belonging to the same cluster and drives away those that do not.
- *  This collection of 4-dim points is analysed by a clustering step, which groups together hits belonging to the same track.
- *
- *  input: 
- *    - digitalized hits from DC (global coordinates) : DCHitsColl 
- *    - digitalized hits from vertex (global coordinates) : VertexHitsColl
- *
- *  output:
- *    - Track collection : TrackColl
- *
- *
- *
- *  @author Andrea De Vita, Maria Dolores Garcia, Brieuc Francois
- *  @date   2025-02
  *
  */
 
 struct GGTF_fitter final : 
         k4FWCore::MultiTransformer< std::tuple<IntColl>( 
                                                                     
-                                                                    const DCHitsColl&)> 
+                                                                    const TrackColl&)> 
             
                                                                                             
 {
@@ -147,7 +134,7 @@ struct GGTF_fitter final :
         MultiTransformer ( name, svcLoc,
             {   
                  
-                KeyValues("inputHits_CDC", {"inputHits_CDC"})
+                KeyValues("input_tracks", {"input_tracks"})
             },
             {   
                 KeyValues("test", {"test"})      
@@ -162,7 +149,7 @@ struct GGTF_fitter final :
     }
 
     
-    std::tuple<IntColl> operator()(   const DCHitsColl& inputHits_CDC) const override 
+    std::tuple<IntColl> operator()(   const TrackColl& GGTF_tracks) const override 
     {
 
         // init geometry and mag. field
@@ -171,50 +158,55 @@ struct GGTF_fitter final :
         genfit::MaterialEffects::getInstance()->init(new genfit::TGeoMaterialInterface());
         genfit::FieldManager::getInstance()->init(new genfit::ConstField(0. ,0., 20.)); // 2 T
 
-        // init fitter
-        genfit::AbsKalmanFitter* fitter = new genfit::KalmanFitterRefTrack();
-
-
-        // particle pdg code; pion hypothesis
-        const int pdg = 211;
-
-        // start values for the fit, e.g. from pattern recognition
-        TVector3 pos(0, 0, 0);
-        TVector3 mom(0, 0, 3);
-
-        // trackrep
-        genfit::AbsTrackRep* rep = new genfit::RKTrackRep(pdg);
-
-        // create track
-        genfit::Track fitTrack(rep, pos, mom);
         
+        for (auto track : GGTF_tracks)
+        {
+            // particle pdg code; pion hypothesis
+            const int pdg = 211;
 
-        int dc_idx = 0;
-        for (const auto hit : inputHits_CDC)
-        {   
+            // start values for the fit, e.g. from pattern recognition
+            TVector3 pos(0, 0, 0);
+            TVector3 mom(0, 0, 3);
+
+            IDEAtracking::IDEAtrackFitter fitter_framework(pos,mom,pdg);
             
-            int detID = 1;
-            int hitID = dc_idx;
+            auto hits_in_track = track.getTrackerHits();
 
-            IDEAtracking::DC_measurement dc_hit = IDEAtracking::DC_measurement(hit,detID,hitID);
-            dc_idx += 1;
+            int vtx_idx = 0;
+            int dc_idx = 0;
+            for (auto hit : hits_in_track)
+            {   
+                if (hit.isA<edm4hep::TrackerHit3D>())
+                {
+                    int detID = 0;
+                    int hitID = vtx_idx;
+                    const auto vtx_hit =  hit.as<edm4hep::TrackerHit3D>();
+                    IDEAtracking::VTX_measurement vtx_measure = IDEAtracking::VTX_measurement(vtx_hit,detID,hitID);
+                    vtx_idx += 1;
 
-            auto measurement = dc_hit.getGenFit();
-            fitTrack.insertPoint(new genfit::TrackPoint(measurement, &fitTrack));
+                    auto measurement = vtx_measure.getGenFit();
+                    fitter_framework.insertPoint(measurement);
+
+           
+                }
+                else if (hit.isA<extension::SenseWireHit>())
+                {
+                    int detID = 1;
+                    int hitID = dc_idx;
+                    const auto dc_hit =  hit.as<extension::SenseWireHit>();
+                    IDEAtracking::DC_measurement dc_measure = IDEAtracking::DC_measurement(dc_hit,detID,hitID);
+                    dc_idx += 1;
+
+                    auto measurement = dc_measure.getGenFit();
+                    fitter_framework.insertPoint(measurement);
+                }
+
+
+            }
 
         }
 
-        //check
-        fitTrack.checkConsistency();
-
-        // // do the fit
-        // fitter->processTrack(&fitTrack);
-
-        // fitTrack.checkConsistency();
-
-        delete fitter;
-
-        // Return the output collections as a tuple
+       
         IntColl test;
         return std::make_tuple(std::move(test));
 

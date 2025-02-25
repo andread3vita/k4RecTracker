@@ -1,5 +1,5 @@
-#ifndef IDEATRACKING_H
-#define IDEATRACKING_H
+#ifndef DC_MEASUREMENT_H
+#define DC_MEASUREMENT_H
 
 #include <WirePointMeasurement.h> 
 #include "extension/SenseWireHitCollection.h"
