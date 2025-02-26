@@ -174,7 +174,7 @@ using TrackHit = extension::TrackerHit;
  */
 
 struct GGTF_tracking_dbscan_IDEAv3 final : 
-        k4FWCore::MultiTransformer< std::tuple<TrackColl>( 
+        k4FWCore::MultiTransformer< std::tuple<FloatColl,TrackColl>( 
                                                                     
                                                                     const DCHitsColl&, 
                                                                     const VertexHitsColl&,
@@ -191,6 +191,7 @@ struct GGTF_tracking_dbscan_IDEAv3 final :
                 KeyValues("inputHits_VTXD", {"inputHits_VTXD"})
             },
             {   
+                KeyValues("clusteringSpace", {"clusteringSpace"}),     
                 KeyValues("outputTracks", {"outputTracks"})      
             
             }) {m_geoSvc = serviceLocator()->service(m_geoSvcName);}
@@ -252,7 +253,7 @@ struct GGTF_tracking_dbscan_IDEAv3 final :
     }
 
     
-    std::tuple<TrackColl> operator()(   const DCHitsColl& inputHits_CDC, 
+    std::tuple<FloatColl,TrackColl> operator()(   const DCHitsColl& inputHits_CDC, 
                                                 const VertexHitsColl& inputHits_VTXB,
                                                 const VertexHitsColl& inputHits_VTXD) const override 
     {
@@ -429,6 +430,7 @@ struct GGTF_tracking_dbscan_IDEAv3 final :
 
         // Create a new TrackCollection and TrackerHit3DCollection for storing the output tracks and hits
         extension::TrackCollection* output_tracks = new extension::TrackCollection();
+        FloatColl clusteringSpace;
         if (it > 0 && it < 20000)
         {
             // Calculate the total size of the input tensor, based on the number of hits (it) and the 
@@ -465,9 +467,15 @@ struct GGTF_tracking_dbscan_IDEAv3 final :
                 auto x = output_model_tensor[i][0].item<float>();
                 auto y = output_model_tensor[i][1].item<float>();
                 auto z = output_model_tensor[i][2].item<float>();
+                auto beta = output_model_tensor[i][3].item<float>();
 
                 // Store the point in the points vector
                 points.push_back({x, y, z});
+
+                clusteringSpace.push_back(x);
+                clusteringSpace.push_back(y);
+                clusteringSpace.push_back(z);
+                clusteringSpace.push_back(beta);
             }
 
             // Apply the DBSCAN clustering algorithm to the points with the given step size and minimum points per cluster
@@ -576,7 +584,7 @@ struct GGTF_tracking_dbscan_IDEAv3 final :
         std::vector<float>().swap(ListHitType_CDC);
 
         // Return the output collections as a tuple
-        return std::make_tuple(std::move(*output_tracks));
+        return std::make_tuple(std::move(clusteringSpace),std::move(*output_tracks));
 
     } 
 
