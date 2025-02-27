@@ -143,6 +143,16 @@ struct GGTF_fitter final :
     
     StatusCode initialize() {
 
+        geoManager = new TGeoManager("Geometry", "IDEA geometry");
+
+        std::string geoPath = geoPath_m.value();
+        geoManager->Import(geoPath.c_str());
+
+        materialEffects = genfit::MaterialEffects::getInstance();
+        materialEffects->init(new genfit::TGeoMaterialInterface());
+
+        fieldManager = genfit::FieldManager::getInstance();
+        fieldManager->init(new genfit::ConstField(0., 0., 20.)); // 2 T
 
         return StatusCode::SUCCESS;
 
@@ -152,11 +162,11 @@ struct GGTF_fitter final :
     std::tuple<IntColl> operator()(   const TrackColl& GGTF_tracks) const override 
     {
 
-        // init geometry and mag. field
-        new TGeoManager("Geometry", "IDEA geometry");
-        TGeoManager::Import("/eos/user/a/adevita/workDir/k4RecTracker/Tracking/TGeo_IDEA.root");
-        genfit::MaterialEffects::getInstance()->init(new genfit::TGeoMaterialInterface());
-        genfit::FieldManager::getInstance()->init(new genfit::ConstField(0. ,0., 20.)); // 2 T
+        // // init geometry and mag. field
+        // new TGeoManager("Geometry", "IDEA geometry");
+        // TGeoManager::Import("/eos/user/a/adevita/workDir/k4RecTracker/Tracking/TGeo_IDEA.root");
+        // genfit::MaterialEffects::getInstance()->init(new genfit::TGeoMaterialInterface());
+        // genfit::FieldManager::getInstance()->init(new genfit::ConstField(0. ,0., 20.)); // 2 T
 
         
         for (auto track : GGTF_tracks)
@@ -213,6 +223,13 @@ struct GGTF_fitter final :
     } 
 
     private:
+
+        TGeoManager* geoManager;
+        genfit::MaterialEffects* materialEffects;
+        genfit::FieldManager* fieldManager;
+
+        Gaudi::Property<std::string> geoPath_m{this, "geoPath_m", "/eos/user/a/adevita/workDir/k4RecTracker/Tracking/TGeo_IDEA.root", "geoPath_m"};
+
 
         
         

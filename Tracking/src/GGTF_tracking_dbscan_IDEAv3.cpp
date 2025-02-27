@@ -149,6 +149,7 @@ using TrackHit = extension::TrackerHit;
 
 #include <iostream>
 #include "TGeoMatrix.h"
+
 // #include "TGeoCombiTrans.h"
 
 /** @struct GGTF_tracking_dbscan_IDEAv3
@@ -174,7 +175,7 @@ using TrackHit = extension::TrackerHit;
  */
 
 struct GGTF_tracking_dbscan_IDEAv3 final : 
-        k4FWCore::MultiTransformer< std::tuple<FloatColl,TrackColl>( 
+        k4FWCore::MultiTransformer< std::tuple<FloatColl,FloatColl,TrackColl>( 
                                                                     
                                                                     const DCHitsColl&, 
                                                                     const VertexHitsColl&,
@@ -191,8 +192,10 @@ struct GGTF_tracking_dbscan_IDEAv3 final :
                 KeyValues("inputHits_VTXD", {"inputHits_VTXD"})
             },
             {   
-                KeyValues("clusteringSpace", {"clusteringSpace"}),     
-                KeyValues("outputTracks", {"outputTracks"})      
+               
+               KeyValues("ML_inputs", {"ML_inputs"}),
+               KeyValues("clusteringSpace", {"clusteringSpace"}),     
+               KeyValues("outputTracks", {"outputTracks"})      
             
             }) {m_geoSvc = serviceLocator()->service(m_geoSvcName);}
     
@@ -250,26 +253,18 @@ struct GGTF_tracking_dbscan_IDEAv3 final :
 
         return StatusCode::SUCCESS;
 
-    }
+   }
 
     
-    std::tuple<FloatColl,TrackColl> operator()(   const DCHitsColl& inputHits_CDC, 
-                                                const VertexHitsColl& inputHits_VTXB,
-                                                const VertexHitsColl& inputHits_VTXD) const override 
+    std::tuple<FloatColl,FloatColl,TrackColl> operator()(      const DCHitsColl& inputHits_CDC, 
+                                                               const VertexHitsColl& inputHits_VTXB,
+                                                               const VertexHitsColl& inputHits_VTXD) const override 
     {
 
         ////////////////////////////////////////
         ////////// DATA PREPROCESSING //////////
         ////////////////////////////////////////
-        
-        // Although there is a link between digi hits and MC hits, we cannot use it because the output tracks 
-        // do not contain the original hits, but rather copies. This step is necessary because it is not possible 
-        // to use hits from both the drift chamber and the vertex in the same collection. Therefore, for each hit, 
-        // a MutableTrackerHit3D is created, and its properties are defined based on the original hit.
-        //
-        // These for loops are used to store the index of the MC particle for each hit. For now, this information 
-        // will be saved in the EDep of the hit stored in each track.
-
+    
         std::cout << "Input Hit collection size VTXD: " << inputHits_VTXD.size() << std::endl;
         std::cout << "Input Hit collection size VTXB: " << inputHits_VTXB.size() << std::endl;
         std::cout << "Input Hit collection size CDC: " << inputHits_CDC.size() << std::endl;
@@ -286,6 +281,7 @@ struct GGTF_tracking_dbscan_IDEAv3 final :
         std::vector<float> ListHitType_VTXD;
         int it_0 = 0; 
         for (const auto input_hit : inputHits_VTXD) {
+
             // Add the 3D position of the hit to the global input list.
             ListGlobalInputs.push_back(input_hit.getPosition().x);
             ListGlobalInputs.push_back(input_hit.getPosition().y);
@@ -311,6 +307,7 @@ struct GGTF_tracking_dbscan_IDEAv3 final :
         std::vector<float> ListHitType_VTXB; 
         int it_1 = 0; 
         for (const auto input_hit : inputHits_VTXB) {
+
             // Add the 3D position of the hit to the global input list.
             ListGlobalInputs.push_back(input_hit.getPosition().x);
             ListGlobalInputs.push_back(input_hit.getPosition().y);
@@ -336,10 +333,11 @@ struct GGTF_tracking_dbscan_IDEAv3 final :
         int it_2 = 0;
         for (const auto input_hit : inputHits_CDC) {
             
-            edm4hep::Vector3d wirePos = input_hit.getPosition();    // position along the wire
+            // position along the wire, wire direction and drift distance
+            edm4hep::Vector3d wirePos = input_hit.getPosition();   
             std::vector<float> wire_pos = {static_cast<float>(wirePos.x),static_cast<float>(wirePos.y),static_cast<float>(wirePos.z)};
 
-            double distanceToWire = input_hit.getDistanceToWire();   // drift distance
+            double distanceToWire = input_hit.getDistanceToWire(); 
             double wire_azimuthal_angle = input_hit.getWireAzimuthalAngle();  
             double wire_stereo_angle = input_hit.getWireStereoAngle();  
 
@@ -368,7 +366,6 @@ struct GGTF_tracking_dbscan_IDEAv3 final :
             // local_to_global_matrix.LocalToMaster(local_pos, global_pos); 
      
         
-            // Wire direction
             float d_x = std::sin(wire_stereo_angle) * std::cos(wire_azimuthal_angle);
             float d_y = std::sin(wire_stereo_angle) * std::sin(wire_azimuthal_angle);
             float d_z = std::cos(wire_stereo_angle);
@@ -584,7 +581,7 @@ struct GGTF_tracking_dbscan_IDEAv3 final :
         std::vector<float>().swap(ListHitType_CDC);
 
         // Return the output collections as a tuple
-        return std::make_tuple(std::move(clusteringSpace),std::move(*output_tracks));
+        return std::make_tuple(std::move(ListGlobalInputs),std::move(clusteringSpace),std::move(*output_tracks));
 
     } 
 
