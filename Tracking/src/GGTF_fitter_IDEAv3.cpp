@@ -118,19 +118,19 @@ using TrackHit = extension::TrackerHit;
 
 #include "IDEAtrackFitter.hpp"
 
-/** @struct GGTF_fitter
+/** @struct GGTF_fitter_IDEAv3
  *
  *
  */
 
-struct GGTF_fitter final : 
+struct GGTF_fitter_IDEAv3 final : 
         k4FWCore::MultiTransformer< std::tuple<IntColl>( 
                                                                     
                                                                     const TrackColl&)> 
             
                                                                                             
 {
-    GGTF_fitter(const std::string& name, ISvcLocator* svcLoc) : 
+    GGTF_fitter_IDEAv3(const std::string& name, ISvcLocator* svcLoc) : 
         MultiTransformer ( name, svcLoc,
             {   
                  
@@ -236,4 +236,4 @@ struct GGTF_fitter final :
 
 };
 
-DECLARE_COMPONENT(GGTF_fitter)
+DECLARE_COMPONENT(GGTF_fitter_IDEAv3)

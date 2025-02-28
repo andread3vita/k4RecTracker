@@ -152,7 +152,7 @@ using TrackHit = extension::TrackerHit;
 
 // #include "TGeoCombiTrans.h"
 
-/** @struct GGTF_tracking_dbscan_IDEAv3
+/** @struct GGTF_tracking_OC_IDEAv3
  *
  *  Gaudi MultiTransformer that generates a Track collection by analyzing the digitalized hits through the GGTF_tracking. 
  *  The first step takes the raw hits and it returns a collection of 4-dimensional points inside an embedding space.
@@ -174,8 +174,8 @@ using TrackHit = extension::TrackerHit;
  *
  */
 
-struct GGTF_tracking_dbscan_IDEAv3 final : 
-        k4FWCore::MultiTransformer< std::tuple<FloatColl,FloatColl,TrackColl>( 
+struct GGTF_tracking_OC_IDEAv3 final : 
+        k4FWCore::MultiTransformer< std::tuple<FloatColl,FloatColl,IntColl,TrackColl>( 
                                                                     
                                                                     const DCHitsColl&, 
                                                                     const VertexHitsColl&,
@@ -183,7 +183,7 @@ struct GGTF_tracking_dbscan_IDEAv3 final :
             
                                                                                             
 {
-    GGTF_tracking_dbscan_IDEAv3(const std::string& name, ISvcLocator* svcLoc) : 
+    GGTF_tracking_OC_IDEAv3(const std::string& name, ISvcLocator* svcLoc) : 
         MultiTransformer ( name, svcLoc,
             {   
                  
@@ -194,7 +194,9 @@ struct GGTF_tracking_dbscan_IDEAv3 final :
             {   
                
                KeyValues("ML_inputs", {"ML_inputs"}),
-               KeyValues("clusteringSpace", {"clusteringSpace"}),     
+               KeyValues("clusteringSpace", {"clusteringSpace"}),   
+               KeyValues("trackAssignations", {"trackAssignations"}),   
+
                KeyValues("outputTracks", {"outputTracks"})      
             
             }) {m_geoSvc = serviceLocator()->service(m_geoSvcName);}
@@ -256,9 +258,9 @@ struct GGTF_tracking_dbscan_IDEAv3 final :
    }
 
     
-    std::tuple<FloatColl,FloatColl,TrackColl> operator()(      const DCHitsColl& inputHits_CDC, 
-                                                               const VertexHitsColl& inputHits_VTXB,
-                                                               const VertexHitsColl& inputHits_VTXD) const override 
+    std::tuple<FloatColl,FloatColl,IntColl,TrackColl> operator()(      const DCHitsColl& inputHits_CDC, 
+                                                                        const VertexHitsColl& inputHits_VTXB,
+                                                                        const VertexHitsColl& inputHits_VTXD) const override 
     {
 
         ////////////////////////////////////////
@@ -428,6 +430,7 @@ struct GGTF_tracking_dbscan_IDEAv3 final :
         // Create a new TrackCollection and TrackerHit3DCollection for storing the output tracks and hits
         extension::TrackCollection* output_tracks = new extension::TrackCollection();
         FloatColl clusteringSpace;
+        IntColl trackAssignations;
         if (it > 0 && it < 20000)
         {
             // Calculate the total size of the input tensor, based on the number of hits (it) and the 
@@ -443,17 +446,6 @@ struct GGTF_tracking_dbscan_IDEAv3 final :
             auto output_model_tensors = fSession->Run(Ort::RunOptions{nullptr}, fInames.data(), input_tensors.data(), fInames.size(), fOnames.data(), fOnames.size());
             float* floatarr = output_model_tensors.front().GetTensorMutableData<float>();
             std::vector<float> output_model_vector(floatarr, floatarr + it * 4);
-
-            /////////////////////////////////////
-            ////////// CLUSTERING STEP //////////
-            /////////////////////////////////////
-
-            // auto clustering = get_clustering(output_model_vector, it,0.6,0.05);
-            
-            // torch::Tensor unique_tensor;
-            // torch::Tensor inverse_indices;
-            // std::tie(unique_tensor, inverse_indices) = at::_unique(clustering, true, true);
-          
 
             //Convert the output vector from the model to a Torch tensor, specifying the shape and data type
             torch::Tensor output_model_tensor = torch::from_blob(output_model_vector.data(), {it, 4}, torch::kFloat32).clone();  
@@ -475,23 +467,37 @@ struct GGTF_tracking_dbscan_IDEAv3 final :
                 clusteringSpace.push_back(beta);
             }
 
-            // Apply the DBSCAN clustering algorithm to the points with the given step size and minimum points per cluster
-            auto clusters = dbscan(points, step_size, min_points);
+            /////////////////////////////////////
+            ////////// CLUSTERING STEP //////////
+            /////////////////////////////////////
 
-            // Initialize a vector to store the cluster labels, with default label 0 (indicating noise or unclustered points)
-            std::vector<int> labels(points.size(), 0);
-            for (size_t cluster_idx = 0; cluster_idx < clusters.size(); ++cluster_idx) {
-
-                for (auto point_idx : clusters[cluster_idx]) {
-
-                    labels[point_idx] = static_cast<int>(cluster_idx)+1;
-                }
+            auto clustering = get_clustering(output_model_vector, it,0.6,0.3);
+            for (int i = 0; i < clustering.size(0); i++) {
+                trackAssignations.push_back(clustering[i].item<int>());
             }
-
-            auto clustering = torch::from_blob(labels.data(), {static_cast<long>(labels.size())}, torch::kInt32).clone();
+            
             torch::Tensor unique_tensor;
             torch::Tensor inverse_indices;
             std::tie(unique_tensor, inverse_indices) = at::_unique(clustering, true, true);
+          
+
+            // // Apply the DBSCAN clustering algorithm to the points with the given step size and minimum points per cluster
+            // auto clusters = dbscan(points, step_size, min_points);
+
+            // // Initialize a vector to store the cluster labels, with default label 0 (indicating noise or unclustered points)
+            // std::vector<int> labels(points.size(), 0);
+            // for (size_t cluster_idx = 0; cluster_idx < clusters.size(); ++cluster_idx) {
+
+            //     for (auto point_idx : clusters[cluster_idx]) {
+
+            //         labels[point_idx] = static_cast<int>(cluster_idx)+1;
+            //     }
+            // }
+
+            // auto clustering = torch::from_blob(labels.data(), {static_cast<long>(labels.size())}, torch::kInt32).clone();
+            // torch::Tensor unique_tensor;
+            // torch::Tensor inverse_indices;
+            // std::tie(unique_tensor, inverse_indices) = at::_unique(clustering, true, true);
 
             /////////////////////////////////
             ////////// OUTPUT STEP //////////
@@ -581,7 +587,7 @@ struct GGTF_tracking_dbscan_IDEAv3 final :
         std::vector<float>().swap(ListHitType_CDC);
 
         // Return the output collections as a tuple
-        return std::make_tuple(std::move(ListGlobalInputs),std::move(clusteringSpace),std::move(*output_tracks));
+        return std::make_tuple(std::move(ListGlobalInputs),std::move(clusteringSpace),std::move(trackAssignations),std::move(*output_tracks));
 
     } 
 
@@ -647,4 +653,4 @@ struct GGTF_tracking_dbscan_IDEAv3 final :
 
 };
 
-DECLARE_COMPONENT(GGTF_tracking_dbscan_IDEAv3)
+DECLARE_COMPONENT(GGTF_tracking_OC_IDEAv3)
