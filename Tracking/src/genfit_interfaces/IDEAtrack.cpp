@@ -1,12 +1,13 @@
 
-#include "IDEAtrackFitter.hpp"
+#include "IDEAtrack.hpp"
 
 namespace IDEAtracking {
 
 
-    IDEAtrackFitter::IDEAtrackFitter(TVector3 pos, TVector3 mom, int pdg)
+    IDEAtrack::IDEAtrack(extension::Track track, TVector3 pos, TVector3 mom, int pdg)
     {
 
+        extensionTrack_ = &track;
         genfitTrackRep_ = new genfit::RKTrackRep(pdg);
         genfitTrack_ = new genfit::Track(genfitTrackRep_, pos, mom);
 
@@ -14,7 +15,7 @@ namespace IDEAtracking {
     }
 
 
-    void IDEAtrackFitter::insertPoint(genfit::AbsMeasurement* measurement) {
+    void IDEAtrack::insertPoint(genfit::AbsMeasurement* measurement) {
         if (!genfitTrack_) {
             throw std::runtime_error("genfitTrack_ is null in insertPoint()");
         }
@@ -27,15 +28,15 @@ namespace IDEAtracking {
     }
     
 
-    extension::Track* IDEAtrackFitter::getTrack_edm4hep() const {
-        return extensionTrack_;
-    }
-
-    genfit::Track* IDEAtrackFitter::getTrack_genfit() const {
+    genfit::Track* IDEAtrack::getTrack_genfit() const {
         return genfitTrack_;
     }
 
-    void IDEAtrackFitter::processTrack()
+    extension::Track* IDEAtrack::getTrack_edm4hep() const {
+        return extensionTrack_;
+    }
+
+    void IDEAtrack::processTrack()
     {
         genfitTrack_->checkConsistency();
         genfitFitter_ = new genfit::KalmanFitterRefTrack();

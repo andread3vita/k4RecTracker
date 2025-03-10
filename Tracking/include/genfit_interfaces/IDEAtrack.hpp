@@ -21,24 +21,26 @@
 
 namespace IDEAtracking {
 
-class IDEAtrackFitter {
+class IDEAtrack {
 public:
 
-    IDEAtrackFitter(TVector3 pos, TVector3 mom, int pdg);
+    IDEAtrack(extension::Track track, TVector3 pos, TVector3 mom, int pdg);
 
 
     void insertPoint(genfit::AbsMeasurement* measurement);
     void processTrack();
+
     genfit::Track* getTrack_genfit() const;
     extension::Track* getTrack_edm4hep() const;
 
 private:
    
     genfit::AbsKalmanFitter* genfitFitter_;      
-    genfit::AbsTrackRep* genfitTrackRep_;        
+    genfit::AbsTrackRep* genfitTrackRep_;  
+          
     genfit::Track* genfitTrack_;  
-    
-    extension::Track* extensionTrack_;
+    extension::Track* extensionTrack_;  
+
 
 };
 

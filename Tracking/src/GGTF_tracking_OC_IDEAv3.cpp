@@ -61,10 +61,9 @@ using ParticleColl = edm4hep::MCParticleCollection;
 #include "edm4hep/SimTrackerHitCollection.h"
 using SimHits = edm4hep::SimTrackerHitCollection;
 
-#include "edm4hep/TrackerHit3DCollection.h"
-#include "edm4hep/TrackerHitSimTrackerHitLinkCollection.h"
-using VertexHitsColl = edm4hep::TrackerHit3DCollection;
-using VTX_links = edm4hep::TrackerHitSimTrackerHitLinkCollection;
+#include "edm4hep/TrackerHitPlaneCollection.h"
+using VertexHitsColl = edm4hep::TrackerHitPlaneCollection;
+
 
 #include "extension/SenseWireHitCollection.h"
 #include "extension/SenseWireHitSimTrackerHitLinkCollection.h"

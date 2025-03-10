@@ -41,23 +41,17 @@ DC_measurement::DC_measurement(const extension::SenseWireHit& hit, const int det
     rawHitCoords(3) = w2_x;             // wire2 X
     rawHitCoords(4) = w2_y;             // wire2 Y
     rawHitCoords(5) = w2_z;             // wire2 Z
-    rawHitCoords(6) = Rdrift;   // Rdrift
+    rawHitCoords(6) = Rdrift;           // Rdrift
     rawHitCoords(7) = zreco;            // zreco
 
     // Covariance matrix
-    // double w1_z_sigma = 0.;
-    // double w1_x_sigma = std::sqrt(std::pow(positionAlongWireError,2)+std::pow(positionAlongWireError/d_z*d_x,2));
-    // double w1_y_sigma = std::sqrt(std::pow(positionAlongWireError,2)+std::pow(positionAlongWireError/d_z*d_y,2));
-    // double w2_z_sigma = 0.;
-    // double w2_x_sigma = std::sqrt(std::pow(positionAlongWireError,2)+std::pow(positionAlongWireError/d_z*d_x,2));
-    // double w2_y_sigma = std::sqrt(std::pow(positionAlongWireError,2)+std::pow(positionAlongWireError/d_z*d_y,2));
-
-    double w1_z_sigma = 0.;
-    double w1_x_sigma = 0.;
-    double w1_y_sigma = 0.;
-    double w2_z_sigma = 0.;
-    double w2_x_sigma = 0.;
-    double w2_y_sigma = 0.;
+    double sigma_wire = 0; // 0 because they are fixed positions
+    double w1_z_sigma = sigma_wire;
+    double w1_x_sigma = sigma_wire;
+    double w1_y_sigma = sigma_wire;
+    double w2_z_sigma = sigma_wire;
+    double w2_x_sigma = sigma_wire;
+    double w2_y_sigma = sigma_wire;
 
     double Rdrift_sigma = distanceToWireError;
 
@@ -72,7 +66,6 @@ DC_measurement::DC_measurement(const extension::SenseWireHit& hit, const int det
     );
 
     TMatrixDSym rawHitCov(8);
-
     rawHitCov(0, 0) = w1_x_sigma * w1_x_sigma;          // Variance for w1_x
     rawHitCov(1, 1) = w1_y_sigma * w1_y_sigma;          // Variance for w1_y
     rawHitCov(2, 2) = w1_z_sigma * w1_z_sigma;          // Variance for w1_z
@@ -116,21 +109,6 @@ DC_measurement::DC_measurement(const extension::SenseWireHit& hit, const int det
     rawHitCov(5, 7) = 0;                                // Covariance between w2_z and zreco
 
     rawHitCov(6, 7) = 0;                                // Covariance between Rdrift and zreco
-
-    rawHitCov(1, 0) = rawHitCov(0, 1);
-    rawHitCov(2, 0) = rawHitCov(0, 2);
-    rawHitCov(3, 0) = rawHitCov(0, 3);
-    rawHitCov(4, 0) = rawHitCov(0, 4);
-    rawHitCov(5, 0) = rawHitCov(0, 5);
-    rawHitCov(6, 0) = rawHitCov(0, 6);
-    rawHitCov(7, 0) = rawHitCov(0, 7);
-
-    rawHitCov(2, 1) = rawHitCov(1, 2);
-    rawHitCov(3, 2) = rawHitCov(2, 3);
-    rawHitCov(4, 3) = rawHitCov(3, 4);
-    rawHitCov(5, 4) = rawHitCov(4, 5);
-    rawHitCov(6, 5) = rawHitCov(5, 6);
-    rawHitCov(7, 6) = rawHitCov(6, 7);
     
 
     genfit::TrackPoint* trackPoint = new genfit::TrackPoint(nullptr);

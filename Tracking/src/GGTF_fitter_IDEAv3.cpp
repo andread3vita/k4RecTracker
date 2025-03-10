@@ -63,10 +63,8 @@ using ParticleColl = edm4hep::MCParticleCollection;
 #include "edm4hep/SimTrackerHitCollection.h"
 using SimHits = edm4hep::SimTrackerHitCollection;
 
-#include "edm4hep/TrackerHit3DCollection.h"
-#include "edm4hep/TrackerHitSimTrackerHitLinkCollection.h"
-using VertexHitsColl = edm4hep::TrackerHit3DCollection;
-using VTX_links = edm4hep::TrackerHitSimTrackerHitLinkCollection;
+#include "edm4hep/TrackerHitPlaneCollection.h"
+using VertexHitsColl = edm4hep::TrackerHitPlaneCollection;
 
 #include "extension/SenseWireHitCollection.h"
 #include "extension/SenseWireHitSimTrackerHitLinkCollection.h"
@@ -98,6 +96,7 @@ using TrackHit = extension::TrackerHit;
 #include <Exception.h>
 #include <FieldManager.h>
 #include <KalmanFitterRefTrack.h>
+#include <DAF.h>
 #include <StateOnPlane.h>
 #include <Track.h>
 #include <TrackPoint.h>
@@ -116,17 +115,18 @@ using TrackHit = extension::TrackerHit;
 #include <vector>
 
 
-#include "IDEAtrackFitter.hpp"
+
+
+#include "IDEAtrack.hpp"
 
 /** @struct GGTF_fitter_IDEAv3
  *
  *
  */
+ 
 
 struct GGTF_fitter_IDEAv3 final : 
-        k4FWCore::MultiTransformer< std::tuple<IntColl>( 
-                                                                    
-                                                                    const TrackColl&)> 
+        k4FWCore::MultiTransformer< std::tuple<IntColl>(const VertexHitsColl&,const VertexHitsColl&)> 
             
                                                                                             
 {
@@ -134,12 +134,13 @@ struct GGTF_fitter_IDEAv3 final :
         MultiTransformer ( name, svcLoc,
             {   
                  
-                KeyValues("input_tracks", {"input_tracks"})
+                KeyValues("vtx_barrel", {"vtx_barrel"}),
+                KeyValues("vtx_endcap", {"vtx_endcap"})
             },
             {   
                 KeyValues("test", {"test"})      
             
-            }) {}
+            }) {m_geoSvc = serviceLocator()->service(m_geoSvcName);}
     
     StatusCode initialize() {
 
@@ -154,69 +155,146 @@ struct GGTF_fitter_IDEAv3 final :
         fieldManager = genfit::FieldManager::getInstance();
         fieldManager->init(new genfit::ConstField(0., 0., 20.)); // 2 T
 
+        const auto detector = m_geoSvc->getDetector();
+        const auto surfMan = detector->extension<dd4hep::rec::SurfaceManager>();
+        surfaceMap = surfMan->map(m_subDetName.value());
+
+
         return StatusCode::SUCCESS;
 
     }
 
     
-    std::tuple<IntColl> operator()(   const TrackColl& GGTF_tracks) const override 
+    std::tuple<IntColl> operator()( const VertexHitsColl& vtx_barrel, const VertexHitsColl& vtx_endcap) const override 
     {
-
-        // // init geometry and mag. field
-        // new TGeoManager("Geometry", "IDEA geometry");
-        // TGeoManager::Import("/eos/user/a/adevita/workDir/k4RecTracker/Tracking/TGeo_IDEA.root");
-        // genfit::MaterialEffects::getInstance()->init(new genfit::TGeoMaterialInterface());
-        // genfit::FieldManager::getInstance()->init(new genfit::ConstField(0. ,0., 20.)); // 2 T
-
         
-        for (auto track : GGTF_tracks)
+   
+        genfit::AbsKalmanFitter* fitter = new genfit::KalmanFitterRefTrack();
+        // genfit::AbsKalmanFitter* fitter = new genfit::DAF();
+
+        // particle pdg code; pion hypothesis
+        const int pdg = 211;
+
+        // start values for the fit, e.g. from pattern recognition
+        TVector3 pos(0, 0, 0);
+        TVector3 mom(0.,0.,80);
+
+        // trackrep and create track
+        genfit::RKTrackRep* rep = new genfit::RKTrackRep(pdg);
+        genfit::Track fitTrack(rep, pos, mom);
+
+        int vtx_idx(0);
+        for (auto hit : vtx_barrel)
         {
-            // particle pdg code; pion hypothesis
-            const int pdg = 211;
 
-            // start values for the fit, e.g. from pattern recognition
-            TVector3 pos(0, 0, 0);
-            TVector3 mom(0, 0, 3);
+            int detID = 1;
+            auto vtx_struct = IDEAtracking::VTX_measurement(hit,surfaceMap,detID,++vtx_idx);
 
-            IDEAtracking::IDEAtrackFitter fitter_framework(pos,mom,pdg);
-            
-            auto hits_in_track = track.getTrackerHits();
-
-            int vtx_idx = 0;
-            int dc_idx = 0;
-            for (auto hit : hits_in_track)
-            {   
-                if (hit.isA<edm4hep::TrackerHit3D>())
-                {
-                    int detID = 0;
-                    int hitID = vtx_idx;
-                    const auto vtx_hit =  hit.as<edm4hep::TrackerHit3D>();
-                    IDEAtracking::VTX_measurement vtx_measure = IDEAtracking::VTX_measurement(vtx_hit,detID,hitID);
-                    vtx_idx += 1;
-
-                    auto measurement = vtx_measure.getGenFit();
-                    fitter_framework.insertPoint(measurement);
-
-           
-                }
-                else if (hit.isA<extension::SenseWireHit>())
-                {
-                    int detID = 1;
-                    int hitID = dc_idx;
-                    const auto dc_hit =  hit.as<extension::SenseWireHit>();
-                    IDEAtracking::DC_measurement dc_measure = IDEAtracking::DC_measurement(dc_hit,detID,hitID);
-                    dc_idx += 1;
-
-                    auto measurement = dc_measure.getGenFit();
-                    fitter_framework.insertPoint(measurement);
-                }
-
-
-            }
+        }
+        vtx_idx = 0;
+        for (auto hit : vtx_endcap)
+        {
+            int detID = 2;
+            auto vtx_struct = IDEAtracking::VTX_measurement(hit,surfaceMap,detID,++vtx_idx);
 
         }
 
-       
+        // int track_idx = 0;
+        // for (auto track : GGTF_tracks)
+        // {   
+        //     if (track_idx > 0)
+        //     {
+        //         auto hits_in_track = track.getTrackerHits();
+        //         std::vector<float> mom_estimation;
+        //         for (auto hit : hits_in_track)
+        //         {
+                    
+        //             int mom_idx = 0;      
+        //             if (hit.isA<edm4hep::TrackerHitPlane>())
+        //             {
+        //                 auto vtx_hit =  hit.as<edm4hep::TrackerHitPlane>();
+        //                 auto pos = vtx_hit.getPosition();
+
+        //                 if (mom_idx == 0 || mom_idx == 1)
+        //                 {
+        //                     mom_estimation.push_back(pos[0]);
+        //                     mom_estimation.push_back(pos[1]);
+        //                     mom_estimation.push_back(pos[2]);
+        //                 }
+
+        //                 mom_idx+=1;
+        //             }    
+        //         }
+
+        //         std::vector<float> mom_dir;
+        //         mom_dir.push_back(mom_estimation[3]-mom_estimation[0]);
+        //         mom_dir.push_back(mom_estimation[4]-mom_estimation[1]);
+        //         mom_dir.push_back(mom_estimation[5]-mom_estimation[2]);
+
+        //         // init fitter
+        //         genfit::AbsKalmanFitter* fitter = new genfit::KalmanFitterRefTrack();
+        //         // genfit::AbsKalmanFitter* fitter = new genfit::DAF();
+
+        //         // particle pdg code; pion hypothesis
+        //         const int pdg = 211;
+
+        //         // start values for the fit, e.g. from pattern recognition
+        //         TVector3 pos(0, 0, 0);
+        //         TVector3 mom(mom_dir[0]*10, mom_dir[1]*10, mom_dir[2]*10);
+
+        //         // trackrep and create track
+        //         genfit::RKTrackRep* rep = new genfit::RKTrackRep(pdg);
+        //         genfit::Track fitTrack(rep, pos, mom);
+
+
+        //         int dc_idx = 0;
+        //         for (auto hit : hits_in_track)
+        //         {
+                    
+        //             int vtx_idx(0);
+        //             if (hit.isA<edm4hep::TrackerHitPlane>())
+        //             {   
+        //                 std::cout << vtx_idx << std::endl;
+        //                 auto vtx_hit =  hit.as<edm4hep::TrackerHitPlane>();
+        //                 int detID = 0; //TODO: set 0 for barrel and 1 for edncap and 2 for dc
+        //                 auto vtx_struct = IDEAtracking::VTX_measurement(vtx_hit,surfaceMap,detID,++vtx_idx);
+                        
+                        
+        //                 auto measurement = vtx_struct.getGenFit();
+        //                 fitTrack.insertPoint(new genfit::TrackPoint(measurement, &fitTrack));
+                        
+        //             }
+
+                    
+        //             if (hit.isA<extension::SenseWireHit>())
+        //             {   
+        //                 auto dc_hit =  hit.as<extension::SenseWireHit>();
+        //                 int detID = 2; //TODO: set 0 for barrel and 1 for edncap and 2 for dc
+        //                 auto dc_struct = IDEAtracking::DC_measurement(dc_hit,detID,vtx_idx);
+
+        //                 auto measurement = dc_struct.getGenFit();
+        //                 // fitTrack.insertPoint(new genfit::TrackPoint(measurement, &fitTrack));
+
+        //                 dc_idx+=1;
+        //             }
+
+
+        //         }
+
+        //         for (int k=0; k< dc_idx; k++)
+        //         {
+        //             auto point = fitTrack.getPoint(k);
+        //             point->Print();
+        //         }
+
+        //         fitTrack.checkConsistency();
+        //         fitter->processTrack(&fitTrack);
+        //         fitTrack.checkConsistency();
+
+        //     }
+        // }
+
+
         IntColl test;
         return std::make_tuple(std::move(test));
 
@@ -229,7 +307,12 @@ struct GGTF_fitter_IDEAv3 final :
         genfit::FieldManager* fieldManager;
 
         Gaudi::Property<std::string> geoPath_m{this, "geoPath_m", "/eos/user/a/adevita/workDir/k4RecTracker/Tracking/TGeo_IDEA.root", "geoPath_m"};
+        Gaudi::Property<std::string> m_geoSvcName{this, "GeoSvcName", "GeoSvc", "The name of the GeoSvc instance"};
 
+        Gaudi::Property<std::string>  m_subDetName{this, "SubDetectorName", "VXD", "Name of the subdetector"};
+        SmartIF<IGeoSvc> m_geoSvc;
+
+        const dd4hep::rec::SurfaceMap* surfaceMap;
 
         
         
