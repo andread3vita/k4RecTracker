@@ -134,8 +134,8 @@ struct GGTF_fitter_IDEAv3 final :
         MultiTransformer ( name, svcLoc,
             {   
                  
-                KeyValues("vtx_barrel", {"vtx_barrel"}),
-                KeyValues("vtx_endcap", {"vtx_endcap"})
+                KeyValues("vtx_barrel", {"VertexBarrelCollection_digi"}),
+                KeyValues("vtx_endcap", {"VertexEndcapCollection_digi"})
             },
             {   
                 KeyValues("test", {"test"})      
@@ -153,7 +153,7 @@ struct GGTF_fitter_IDEAv3 final :
         materialEffects->init(new genfit::TGeoMaterialInterface());
 
         fieldManager = genfit::FieldManager::getInstance();
-        fieldManager->init(new genfit::ConstField(0., 0., 20.)); // 2 T
+        fieldManager->init(new genfit::ConstField(0., 0., 20.)); // 20 kGauss
 
         const auto detector = m_geoSvc->getDetector();
         const auto surfMan = detector->extension<dd4hep::rec::SurfaceManager>();
@@ -169,35 +169,232 @@ struct GGTF_fitter_IDEAv3 final :
     {
         
    
+        // genfit::AbsKalmanFitter* fitter = new genfit::KalmanFitterRefTrack();
+
+        // // particle pdg code; muon hypothesis
+        // const int pdg = 211;
+
+        // // start values for the fit, e.g. from pattern recognition
+        // TVector3 pos(0, 0, 0);
+        // TVector3 mom(2.,0.,0.);
+
+        // // trackrep and create track
+        // genfit::RKTrackRep* rep = new genfit::RKTrackRep(pdg);
+        // genfit::Track fitTrack(rep, pos, mom);
+
+        // // int vtxb_idx(0);
+        // int vtx_idx(0);
+        // for (auto hit : vtx_barrel)
+        // {
+
+        //     int detID = 1;
+        //     auto cellID0 = hit.getCellID();
+        //     dd4hep::rec::SurfaceMap::const_iterator sI = surfaceMap->find(cellID0);
+        //     const dd4hep::rec::ISurface* surf  = sI->second;
+        //     dd4hep::rec::Vector3D u = surf->u();
+        //     dd4hep::rec::Vector3D v = surf->v();
+        //     dd4hep::rec::Vector3D origin = surf->origin();
+            
+        //     // convert 3D global position to 2D local position
+        //     auto pos_hit = hit.getPosition();
+        //     dd4hep::rec::Vector3D global_pos(pos_hit.x,pos_hit.y,pos_hit.z);
+        //     dd4hep::rec::Vector2D local_pos = surf->globalToLocal(dd4hep::mm * global_pos);
+            
+        //     TVectorD rawHitCoords(2);
+        //     rawHitCoords[0] = local_pos[0]/10;
+        //     rawHitCoords[1] = local_pos[1]/10;
+
+        //     TMatrixDSym rawHitCov(2);
+        //     rawHitCov(0,0) = 3e-4;
+        //     rawHitCov(0,1) = 0;
+        //     rawHitCov(1,0) = 0;
+        //     rawHitCov(1,1) = 3e-4;
+
+
+        //     // create measurement 
+        //     genfit::PlanarMeasurement* measurement = new genfit::PlanarMeasurement(rawHitCoords, rawHitCov, detID, ++vtx_idx, nullptr);
+
+        //     // add plane
+        //     TVector3 o(origin[0]/10,origin[1]/10,origin[2]/10);
+        //     TVector3 u_(u[0]/10,u[1]/10,u[2]/10);
+        //     TVector3 v_(v[0]/10,v[1]/10,v[2]/10);
+            
+        //     measurement->setPlane(genfit::SharedPlanePtr(new genfit::DetPlane(o,u_,v_)), cellID0);
+        //     fitTrack.insertPoint(new genfit::TrackPoint(measurement, &fitTrack));
+
+        //     o.Print();
+        //     u_.Print();
+        //     v_.Print();
+
+        //     rawHitCov.Print();
+        //     rawHitCoords.Print();
+
+        //     std::cout << "Plane:" << cellID0 << " hit: " << vtx_idx-1 << " Det: " << detID << std::endl;
+
+
+        // }
+
+        
+
+        // // int vtxd_idx(0);
+        // for (auto hit : vtx_endcap)
+        // {
+        //     int detID = 2;
+        //     auto cellID0 = hit.getCellID();
+        //     dd4hep::rec::SurfaceMap::const_iterator sI = surfaceMap->find(cellID0);
+        //     const dd4hep::rec::ISurface* surf  = sI->second;
+        //     dd4hep::rec::Vector3D u = surf->u();
+        //     dd4hep::rec::Vector3D v = surf->v();
+        //     dd4hep::rec::Vector3D origin = surf->origin();
+            
+        //     // convert 3D global position to 2D local position
+        //     auto pos_hit = hit.getPosition();
+        //     dd4hep::rec::Vector3D global_pos(pos_hit.x,pos_hit.y,pos_hit.z);
+        //     dd4hep::rec::Vector2D local_pos = surf->globalToLocal(dd4hep::mm * global_pos);
+            
+        //     TVectorD rawHitCoords(2);
+        //     rawHitCoords[0] = local_pos[0]/10; //cm
+        //     rawHitCoords[1] = local_pos[1]/10; //cm
+
+        //     TMatrixDSym rawHitCov(2);
+        //     rawHitCov(0,0) = 5e-4;
+        //     rawHitCov(0,1) = 0;
+        //     rawHitCov(1,0) = 0;
+        //     rawHitCov(1,1) = 5e-4;
+
+
+        //     // create measurement 
+        //     genfit::PlanarMeasurement* measurement = new genfit::PlanarMeasurement(rawHitCoords, rawHitCov, detID, ++vtx_idx, nullptr);
+
+        //     // add plane
+        //     TVector3 o(origin[0]/10,origin[1]/10,origin[2]/10);
+        //     TVector3 u_(u[0]/10,u[1]/10,u[2]/10);
+        //     TVector3 v_(v[0]/10,v[1]/10,v[2]/10);
+            
+        //     measurement->setPlane(genfit::SharedPlanePtr(new genfit::DetPlane(o,u_,v_)), cellID0);
+        //     fitTrack.insertPoint(new genfit::TrackPoint(measurement, &fitTrack));
+
+        //     o.Print();
+        //     u_.Print();
+        //     v_.Print();
+
+        //     rawHitCov.Print();
+        //     rawHitCoords.Print();
+
+        //     std::cout << "Plane:" << cellID0 << " hit: " << vtx_idx-1 << " Det: " << detID << std::endl;
+
+        // }
+
+        // std::cout << "-------------" << std::endl;
+        // std::cout << "-------------" << std::endl;
+        
+        
+        // fitter->processTrack(&fitTrack);
+        // fitTrack.getFittedState().Print();
+
+        // init geometry and mag. field
+        new TGeoManager("Geometry", "Geane geometry");
+        TGeoManager::Import("/afs/cern.ch/user/a/adevita/public/workDir/k4RecTracker/Tracking/TGeo_IDEA.root");
+        genfit::MaterialEffects::getInstance()->init(new genfit::TGeoMaterialInterface());
+        genfit::FieldManager::getInstance()->init(new genfit::ConstField(0., 0., 20.)); // 1 T
+
+        // init fitter
         genfit::AbsKalmanFitter* fitter = new genfit::KalmanFitterRefTrack();
-        // genfit::AbsKalmanFitter* fitter = new genfit::DAF();
+
 
         // particle pdg code; pion hypothesis
         const int pdg = 211;
 
         // start values for the fit, e.g. from pattern recognition
         TVector3 pos(0, 0, 0);
-        TVector3 mom(0.,0.,80);
+        TVector3 mom(2, 0, 0);
 
-        // trackrep and create track
-        genfit::RKTrackRep* rep = new genfit::RKTrackRep(pdg);
+
+        // trackrep
+        genfit::AbsTrackRep* rep = new genfit::RKTrackRep(pdg);
+
+        // create track
         genfit::Track fitTrack(rep, pos, mom);
 
-        int vtx_idx(0);
-        for (auto hit : vtx_barrel)
-        {
 
-            int detID = 1;
-            auto vtx_struct = IDEAtracking::VTX_measurement(hit,surfaceMap,detID,++vtx_idx);
+        const int detId(0); // detector ID
+        int planeId(0); // detector plane ID
+        int hitId(0); // hit ID
 
-        }
-        vtx_idx = 0;
-        for (auto hit : vtx_endcap)
-        {
-            int detID = 2;
-            auto vtx_struct = IDEAtracking::VTX_measurement(hit,surfaceMap,detID,++vtx_idx);
+        double detectorResolution(0.0003); // resolution of planar detectors
+        TMatrixDSym hitCov(2);
+        hitCov.UnitMatrix();
+        hitCov *= detectorResolution*detectorResolution;
 
-        }
+
+        // add some planar hits to track with coordinates I just made up
+        TVectorD hitCoords(2);
+        hitCoords[0] = -0.0167596;
+        hitCoords[1] = 0.0887516;
+        genfit::PlanarMeasurement* measurement = new genfit::PlanarMeasurement(hitCoords, hitCov, 1, ++hitId, nullptr);
+        measurement->setPlane(genfit::SharedPlanePtr(new genfit::DetPlane(TVector3(-0.044801,0.132617,0.161000), TVector3(-0.086603,-0.050000,0), TVector3(0,0,0.1))), 33793);
+        fitTrack.insertPoint(new genfit::TrackPoint(measurement, &fitTrack));
+
+        hitCoords[0] = 0.00579293;
+        hitCoords[1] = -0.0806017;
+        measurement = new genfit::PlanarMeasurement(hitCoords, hitCov, 1, ++hitId, nullptr);
+        measurement->setPlane(genfit::SharedPlanePtr(new genfit::DetPlane(TVector3(-0.042550,0.227250,0.483000), TVector3(-0.1,0.,0), TVector3(0,0,0.1))), 159873);
+        fitTrack.insertPoint(new genfit::TrackPoint(measurement, &fitTrack));
+
+
+        hitCoords[0] = 0.000799129;
+        hitCoords[1] = 0.106645;
+        measurement = new genfit::PlanarMeasurement(hitCoords, hitCov, 1, ++hitId, nullptr);
+        measurement->setPlane(genfit::SharedPlanePtr(new genfit::DetPlane(TVector3(-0.068932,0.333344,0.483000), TVector3(-0.098481,-0.017365,0.000000), TVector3(0,0,0.1))), 511233);
+        fitTrack.insertPoint(new genfit::TrackPoint(measurement, &fitTrack));
+
+        hitCoords[0] = -0.0356035;
+        hitCoords[1] = -0.0721381;
+        measurement = new genfit::PlanarMeasurement(hitCoords, hitCov, 2, ++hitId, nullptr);
+        measurement->setPlane(genfit::SharedPlanePtr(new genfit::DetPlane(TVector3(-0.376000,1.849610,3.310360), TVector3(-0.000000,-0.100000,0.000000), TVector3(-0.100000,0.000000,0.000000))), 201437218);
+        fitTrack.insertPoint(new genfit::TrackPoint(measurement, &fitTrack));
+
+        //check
+        fitTrack.checkConsistency();
+
+        // do the fit
+        fitter->processTrack(&fitTrack);
+
+        // print fit result
+        fitTrack.getFittedState().Print();
+
+        //check
+        fitTrack.checkConsistency();
+
+
+        IntColl test;
+        return std::make_tuple(std::move(test));
+
+    } 
+
+    private:
+
+        TGeoManager* geoManager;
+        genfit::MaterialEffects* materialEffects;
+        genfit::FieldManager* fieldManager;
+
+        Gaudi::Property<std::string> geoPath_m{this, "geoPath_m", "/eos/user/a/adevita/workDir/k4RecTracker/Tracking/TGeo_IDEA.root", "geoPath_m"};
+        Gaudi::Property<std::string> m_geoSvcName{this, "GeoSvcName", "GeoSvc", "The name of the GeoSvc instance"};
+
+        Gaudi::Property<std::string>  m_subDetName{this, "SubDetectorName", "Vertex", "Name of the subdetector"};
+        SmartIF<IGeoSvc> m_geoSvc;
+
+        const dd4hep::rec::SurfaceMap* surfaceMap;
+
+        
+        
+
+};
+
+DECLARE_COMPONENT(GGTF_fitter_IDEAv3)
+
+
+
 
         // int track_idx = 0;
         // for (auto track : GGTF_tracks)
@@ -293,30 +490,3 @@ struct GGTF_fitter_IDEAv3 final :
 
         //     }
         // }
-
-
-        IntColl test;
-        return std::make_tuple(std::move(test));
-
-    } 
-
-    private:
-
-        TGeoManager* geoManager;
-        genfit::MaterialEffects* materialEffects;
-        genfit::FieldManager* fieldManager;
-
-        Gaudi::Property<std::string> geoPath_m{this, "geoPath_m", "/eos/user/a/adevita/workDir/k4RecTracker/Tracking/TGeo_IDEA.root", "geoPath_m"};
-        Gaudi::Property<std::string> m_geoSvcName{this, "GeoSvcName", "GeoSvc", "The name of the GeoSvc instance"};
-
-        Gaudi::Property<std::string>  m_subDetName{this, "SubDetectorName", "VXD", "Name of the subdetector"};
-        SmartIF<IGeoSvc> m_geoSvc;
-
-        const dd4hep::rec::SurfaceMap* surfaceMap;
-
-        
-        
-
-};
-
-DECLARE_COMPONENT(GGTF_fitter_IDEAv3)
