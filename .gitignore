@@ -13,7 +13,6 @@ build.*.log
 Makefile
 NMake
 install.*.history
-setup.*
 cleanup.*
 version.cmt
 genConf/
@@ -57,5 +56,3 @@ CTestTestfile.cmake
 CPackSourceConfig.cmake
 CPackConfig.cmake
 cmake_install.cmake
-
-setup.sh

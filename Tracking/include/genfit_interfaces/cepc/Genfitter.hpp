@@ -1,0 +1,134 @@
+//////////////////////////////////////////////////////////////////
+///
+/// This is an interface of to call genfit fitter
+///
+/// In this file, including:
+///   a genfit fitter class
+///   Fitter type is fixed after creation
+///   Magnetic field and geometry for material effect are singletons in genfit.
+///   They will be set before fitting and before each time call track rep.
+///
+/// Authors:
+///   Andrea De Vita
+///
+//////////////////////////////////////////////////////////////////
+
+#ifndef RECGENFITALG_GENFITFITTER_H
+#define RECGENFITALG_GENFITFITTER_H
+
+#include "AbsKalmanFitter.h"
+#include <string>
+#include "MaterialEffects.h"
+
+#include "GenfitTrack.hpp" //TODO
+
+/// The GenfitTrack class
+class GenfitFitter{
+    public:
+        /// Type of fitters are :DAFRef,DAF,KalmanFitter,KalmanFitterRefTrack
+        GenfitFitter(const char* type="DAFRef");
+        virtual ~GenfitFitter();
+
+        /// Main fitting function
+        int processTrack(GenfitTrack* track, bool resort=true);
+        int processTrack(genfit::Track* track, bool resort=true);
+
+        /// fitting with rep
+        int processTrackWithRep(GenfitTrack* track,int repID=0,
+                bool resort=true);
+
+        /// setters of fitter properties
+        void setFitterType(const char* val);
+        void setMinIterations(unsigned int val);
+        void setMaxIterations(unsigned int val);
+        void setMaxIterationsBetas(double bStart,double bFinal,unsigned int val);
+        void setDeltaPval(double val);
+        void setRelChi2Change(double val);
+        void setBlowUpFactor(double val);
+        void setResetOffDiagonals(bool val);
+        void setBlowUpMaxVal(double val);
+        void setMultipleMeasurementHandling(genfit::eMultipleMeasurementHandling val);
+        void setMaxFailedHits(int val);
+        void setConvergenceDeltaWeight(double val);
+        void setAnnealingScheme(double bStart,double bFinal,unsigned int nSteps);
+
+        //TODO chi2cut?
+        void setNoEffects(bool val);
+        void setEnergyLossBetheBloch(bool val);
+        void setNoiseBetheBloch(bool val);
+        void setNoiseCoulomb(bool val);
+        void setEnergyLossBrems(bool val);
+        void setNoiseBrems(bool val);
+        void setIgnoreBoundariesBetweenEqualMaterials(bool val);
+        void setMscModelName(std::string val);
+
+
+        /// getters of fitter properties
+        std::string getFitterType() const {return m_fitterType;}
+
+        unsigned int getMinIterations() const { return m_minIterations; }
+        unsigned int getMaxIterations() const { return m_maxIterations; }
+        double getDeltaPval() const { return m_deltaPval; }
+        double getRelChi2Change() const { return m_relChi2Change; }
+        double getBlowUpFactor() const { return m_blowUpFactor; }
+        double getBlowUpMaxVal() const { return m_blowUpMaxVal; }
+        bool getResetOffDiagonals() const { return m_resetOffDiagonals; }
+        genfit::eMultipleMeasurementHandling getMultipleMeasurementHandling() const { return m_multipleMeasurementHandling; }
+        int getMaxFailedHits() const { return m_maxFailedHits; }
+        double getConvergenceDeltaWeight() const { return m_deltaWeight; }
+        float getAnnealingBetaStart() const {return m_annealingBetaStart;}
+        float getAnnealingBetaStop() const {return m_annealingBetaStop;}
+        bool getNoEffects(){return m_noEffects;}
+        bool getEnergyLossBetheBloch(){return m_energyLossBetheBloch;}
+        bool getNoiseBetheBloch(){return m_noiseBetheBloch;}
+        bool getNoiseCoulomb(){return m_noiseCoulomb;}
+        bool getEnergyLossBrems(){return m_energyLossBrems;}
+        bool getNoiseBrems(){return m_noiseBrems;}
+        bool getIgnoreBoundariesBetweenEqualMaterials(){return m_ignoreBoundariesBetweenEqualMaterials;}
+        std::string getMscModelName(){return m_mscModelName;}
+        void SetRunEvent(int event);
+
+    private:
+        GenfitFitter(const GenfitFitter&){};
+        GenfitFitter& operator=(const GenfitFitter&);
+
+        /// Initialze fitter and setting fitter parameter
+        int init(bool deleteOldFitter=false);
+
+        /// Get DAF fitter
+        genfit::DAF* getDAF();
+        /// Get KalmanFitterRefTrack
+        genfit::KalmanFitterRefTrack* getKalRef();
+
+        genfit::AbsKalmanFitter* m_absKalman;/// kalman fitter object
+
+        ///fitting method: DAFRef,DAF,KalmanFitter,KalmanFitterRefTrack
+        std::string m_fitterType;
+
+        /// control parameters of fitter
+        unsigned int m_minIterations;     /// minimum number of iterations
+        unsigned int m_maxIterations;     /// maximum number of iterations
+        double       m_deltaPval;         /// delta pVal that converged
+        double       m_relChi2Change;     ///
+        double       m_blowUpFactor;      ///
+        bool         m_resetOffDiagonals; ///
+        double       m_blowUpMaxVal;      ///
+        genfit::eMultipleMeasurementHandling m_multipleMeasurementHandling;///
+        int          m_maxFailedHits;     ///
+        double       m_deltaWeight;       /// delta weight that converged
+        double       m_annealingBetaStart;/// start beta for annealing
+        double       m_annealingBetaStop; /// stop beta for annealing
+        unsigned int m_annealingNSteps;   /// n steps
+
+        /// control parAmeters of material effects
+        bool         m_noEffects;
+        bool         m_energyLossBetheBloch;
+        bool         m_noiseBetheBloch;
+        bool         m_noiseCoulomb;
+        bool         m_energyLossBrems;
+        bool         m_noiseBrems;
+        bool         m_ignoreBoundariesBetweenEqualMaterials;
+        std::string  m_mscModelName;
+};
+
+#endif

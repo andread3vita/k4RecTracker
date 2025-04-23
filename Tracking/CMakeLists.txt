@@ -2,7 +2,7 @@ set(PackageName Tracking)
 
 project(${PackageName})
 
-#find_package(GenFit)
+find_package(GenFit REQUIRED)
 find_package(MarlinUtil REQUIRED)
 list(APPEND CMAKE_MODULE_PATH $ENV{PANDORAPFA}/cmakemodules)
 find_package(PandoraSDK REQUIRED)
@@ -13,16 +13,20 @@ FOREACH( pkg  MarlinUtil PandoraSDK )
     ADD_DEFINITIONS ( ${${pkg}_DEFINITIONS} )
   ENDIF()
 ENDFOREACH()
-#if (GenFit_FOUND)
 
 file(GLOB sources
     ${PROJECT_SOURCE_DIR}/src/*.cpp
     ${PROJECT_SOURCE_DIR}/components/*.cpp
+    ${PROJECT_SOURCE_DIR}/src/genfit_interfaces/*.cpp
 )
+
 
 file(GLOB headers
   ${PROJECT_SOURCE_DIR}/include/*.h
+  ${PROJECT_SOURCE_DIR}/include/genfit_interfaces/*.hpp
 )
+
+set(CMAKE_REQUIRED_LIBRARIES DD4hep::DDRec)
 
 gaudi_add_module(${PackageName}
   SOURCES ${sources}
@@ -30,11 +34,17 @@ gaudi_add_module(${PackageName}
   Gaudi::GaudiKernel
   EDM4HEP::edm4hep
   k4FWCore::k4FWCore
-  #GenFit::genfit2
+  extensionDict
+  OnnxRuntime
+  torch
+  GenFit::genfit2
+  DD4hep::DDRec
+  DD4hep::DDCore
 )
 
 target_include_directories(${PackageName} PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include/genfit_interfaces>
   $<INSTALL_INTERFACE:include>
   ${MarlinUtil_INCLUDE_DIRS}
 )
