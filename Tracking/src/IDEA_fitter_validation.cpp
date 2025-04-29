@@ -187,7 +187,7 @@ struct IDEA_fitter_validation final :
     {
         
         new TGeoManager("Geometry", "IDEA geometry");
-        TGeoManager::Import("/eos/user/a/adevita/saveSpace/IDEA_validation/TGeoIDEA.root");
+        TGeoManager::Import("/eos/user/a/adevita/saveSpace/k4RecTracker/Tracking/TGeo_IDEA.root");
        
         
         extension::TrackCollection trackColl;
@@ -220,8 +220,8 @@ struct IDEA_fitter_validation final :
                 {
 
                     auto part_id = link.getTo().getParticle().getObjectID().index;
-
-                    if (part_id == particle_id)
+                    auto flag = link.getTo().isProducedBySecondary();
+                    if (part_id == particle_id && !flag)
                     {
                         auto digi_hit = link.getFrom().as<edm4hep::TrackerHitPlane>();
                         track.addToTrackerHits(digi_hit);
@@ -232,8 +232,9 @@ struct IDEA_fitter_validation final :
                 {
 
                     auto part_id = link.getTo().getParticle().getObjectID().index;
+                    auto flag = link.getTo().isProducedBySecondary();
 
-                    if (part_id == particle_id)
+                    if (part_id == particle_id && !flag)
                     {   
                         auto digi_hit = link.getFrom().as<edm4hep::TrackerHitPlane>();
                         track.addToTrackerHits(digi_hit);
@@ -244,8 +245,9 @@ struct IDEA_fitter_validation final :
                 {
 
                     auto part_id = link.getTo().getParticle().getObjectID().index;
+                    auto flag = link.getTo().isProducedBySecondary();
                     
-                    if (part_id == particle_id)
+                    if (part_id == particle_id && !flag)
                     {
                         auto digi_hit = link.getFrom().as<edm4hep::TrackerHitPlane>();
                         track.addToTrackerHits(digi_hit);
@@ -256,8 +258,9 @@ struct IDEA_fitter_validation final :
                 {
 
                     auto part_id = link.getTo().getParticle().getObjectID().index;
+                    auto flag = link.getTo().isProducedBySecondary();
 
-                    if (part_id == particle_id)
+                    if (part_id == particle_id && !flag)
                     {
                         auto digi_hit = link.getFrom().as<edm4hep::TrackerHitPlane>();
                         track.addToTrackerHits(digi_hit);
@@ -268,8 +271,9 @@ struct IDEA_fitter_validation final :
                 {
 
                     auto part_id = link.getTo().getParticle().getObjectID().index;
+                    auto flag = link.getTo().isProducedBySecondary();
 
-                    if (part_id == particle_id)
+                    if (part_id == particle_id && !flag)
                     {
                         auto digi_hit = link.getFrom();
                         track.addToTrackerHits(digi_hit);
@@ -341,84 +345,84 @@ struct IDEA_fitter_validation final :
                     // auto helixAtLastHit = HelixClass_double();
                     // helixAtLastHit.Initialize_VP(posAtLastHit, momAtLastHit, 1, 2.);
 
-                //     // TrackState at Calorimeter
-                //     if (m_eCalBarrelInnerR>0. || m_eCalEndCapInnerR>0.) {
+                    // // TrackState at Calorimeter
+                    // if (m_eCalBarrelInnerR>0. || m_eCalEndCapInnerR>0.) {
 
-                //         pandora::CartesianVector bestECalProjection(0.f, 0.f, 0.f);
-                //         pandora::CartesianVector secondBestECalProjection(0.f, 0.f, 0.f);
-                //         float minGenericTime(std::numeric_limits<float>::max());
+                    //     pandora::CartesianVector bestECalProjection(0.f, 0.f, 0.f);
+                    //     pandora::CartesianVector secondBestECalProjection(0.f, 0.f, 0.f);
+                    //     float minGenericTime(std::numeric_limits<float>::max());
                 
-                //         // create helix to project
-                //         // rather than using parameters at production, better to use those from
-                //         // last hit
-                //         pandora::CartesianVector pos_lasthit(posAtLastHit[0], posAtLastHit[1], posAtLastHit[2]);
-                //         pandora::CartesianVector mom_lasthit(momAtLastHit[0], momAtLastHit[1], momAtLastHit[2]);
-                //         const pandora::Helix helix(pos_lasthit, mom_lasthit, 1,2.);
-                //         const pandora::CartesianVector& referencePoint(helix.GetReferencePoint());
-                //         const int signPz((helix.GetMomentum().GetZ() > 0.f) ? 1 : -1);
+                    //     // create helix to project
+                    //     // rather than using parameters at production, better to use those from
+                    //     // last hit
+                    //     pandora::CartesianVector pos_lasthit(posAtLastHit[0], posAtLastHit[1], posAtLastHit[2]);
+                    //     pandora::CartesianVector mom_lasthit(momAtLastHit[0], momAtLastHit[1], momAtLastHit[2]);
+                    //     const pandora::Helix helix(pos_lasthit, mom_lasthit, 1,2.);
+                    //     const pandora::CartesianVector& referencePoint(helix.GetReferencePoint());
+                    //     const int signPz((helix.GetMomentum().GetZ() > 0.f) ? 1 : -1);
                 
-                //         // First project to endcap
-                //         pandora::CartesianVector endCapProjection(0.f, 0.f, 0.f);
-                //         bool hasEndCapProjection(false);
-                //         if (m_eCalEndCapInnerR>0) {
-                //             float genericTime(std::numeric_limits<float>::max());
-                //             const pandora::StatusCode statusCode(helix.GetPointInZ(static_cast<float>(signPz) * m_eCalEndCapInnerZ, referencePoint,
-                //                                                 endCapProjection, genericTime));
-                //             float x = endCapProjection.GetX();
-                //             float y = endCapProjection.GetY();
-                //             float r = std::sqrt(x*x+y*y);
-                //             if (
-                //                 (pandora::STATUS_CODE_SUCCESS == statusCode) &&
-                //                 (genericTime < minGenericTime) &&
-                //                 (r >= m_eCalEndCapInnerR) &&
-                //                 (r <= m_eCalEndCapOuterR)
-                //             ) {
-                //                 minGenericTime = genericTime;
-                //                 bestECalProjection = endCapProjection;
-                //                 hasEndCapProjection = true;
-                //             }
-                //         }
+                    //     // First project to endcap
+                    //     pandora::CartesianVector endCapProjection(0.f, 0.f, 0.f);
+                    //     bool hasEndCapProjection(false);
+                    //     if (m_eCalEndCapInnerR>0) {
+                    //         float genericTime(std::numeric_limits<float>::max());
+                    //         const pandora::StatusCode statusCode(helix.GetPointInZ(static_cast<float>(signPz) * m_eCalEndCapInnerZ, referencePoint,
+                    //                                             endCapProjection, genericTime));
+                    //         float x = endCapProjection.GetX();
+                    //         float y = endCapProjection.GetY();
+                    //         float r = std::sqrt(x*x+y*y);
+                    //         if (
+                    //             (pandora::STATUS_CODE_SUCCESS == statusCode) &&
+                    //             (genericTime < minGenericTime) &&
+                    //             (r >= m_eCalEndCapInnerR) &&
+                    //             (r <= m_eCalEndCapOuterR)
+                    //         ) {
+                    //             minGenericTime = genericTime;
+                    //             bestECalProjection = endCapProjection;
+                    //             hasEndCapProjection = true;
+                    //         }
+                    //     }
                             
                             
-                //         // Then project to barrel surface(s), and keep projection
-                //         // if extrapolation is within the z acceptance of the detector
-                //         pandora::CartesianVector barrelProjection(0.f, 0.f, 0.f);
-                //         bool hasBarrelProjection = false;
-                //         if (m_eCalBarrelInnerR>0) {
-                //             float genericTime(std::numeric_limits<float>::max());
-                //             const pandora::StatusCode statusCode(helix.GetPointOnCircle(m_eCalBarrelInnerR, referencePoint,
-                //                                                 barrelProjection, genericTime));
-                //             if (
-                //                 (pandora::STATUS_CODE_SUCCESS == statusCode) &&
-                //                 (std::fabs(barrelProjection.GetZ())<= m_eCalBarrelMaxZ)
-                //             ) {
-                //                 hasBarrelProjection = true;
-                //                 if (genericTime < minGenericTime) {
-                //                 minGenericTime = genericTime;
-                //                 secondBestECalProjection = bestECalProjection;
-                //                 bestECalProjection = barrelProjection;
-                //                 }
-                //                 else {
-                //                 secondBestECalProjection = barrelProjection;
-                //                 }
-                //             }
-                //         }
+                    //     // Then project to barrel surface(s), and keep projection
+                    //     // if extrapolation is within the z acceptance of the detector
+                    //     pandora::CartesianVector barrelProjection(0.f, 0.f, 0.f);
+                    //     bool hasBarrelProjection = false;
+                    //     if (m_eCalBarrelInnerR>0) {
+                    //         float genericTime(std::numeric_limits<float>::max());
+                    //         const pandora::StatusCode statusCode(helix.GetPointOnCircle(m_eCalBarrelInnerR, referencePoint,
+                    //                                             barrelProjection, genericTime));
+                    //         if (
+                    //             (pandora::STATUS_CODE_SUCCESS == statusCode) &&
+                    //             (std::fabs(barrelProjection.GetZ())<= m_eCalBarrelMaxZ)
+                    //         ) {
+                    //             hasBarrelProjection = true;
+                    //             if (genericTime < minGenericTime) {
+                    //             minGenericTime = genericTime;
+                    //             secondBestECalProjection = bestECalProjection;
+                    //             bestECalProjection = barrelProjection;
+                    //             }
+                    //             else {
+                    //             secondBestECalProjection = barrelProjection;
+                    //             }
+                    //         }
+                    //     }
     
-                //         // store extrapolation to calo
-                //         // by default, store extrapolation with lower arrival time
-                //         // get extrapolated position
-                //         edm4hep::TrackState trackState_AtCalorimeter = getExtrapolationAtCalorimeter(bestECalProjection, helixAtLastHit);
-                //         omega_lastHit = trackState_AtCalorimeter.omega;
-                //         pt_lasthit = a * Bz / abs(omega_lastHit);
-                //         phi_lasthit = trackState_AtCalorimeter.phi;
-                //         pz_lasthit = trackState_AtCalorimeter.tanLambda * pt_lasthit;
-                //         px_lasthit = pt_lasthit * std::cos(phi_lasthit);
-                //         py_lasthit = pt_lasthit * std::sin(phi_lasthit);
-                //         ref_lastHit = trackState_AtCalorimeter.referencePoint;
-                //         // attach the TrackState to the track
-                //         edm4hep_track.addToTrackStates(trackState_AtCalorimeter);
+                    //     // store extrapolation to calo
+                    //     // by default, store extrapolation with lower arrival time
+                    //     // get extrapolated position
+                    //     edm4hep::TrackState trackState_AtCalorimeter = getExtrapolationAtCalorimeter(bestECalProjection, helixAtLastHit);
+                    //     omega_lastHit = trackState_AtCalorimeter.omega;
+                    //     pt_lasthit = a * Bz / abs(omega_lastHit);
+                    //     phi_lasthit = trackState_AtCalorimeter.phi;
+                    //     pz_lasthit = trackState_AtCalorimeter.tanLambda * pt_lasthit;
+                    //     px_lasthit = pt_lasthit * std::cos(phi_lasthit);
+                    //     py_lasthit = pt_lasthit * std::sin(phi_lasthit);
+                    //     ref_lastHit = trackState_AtCalorimeter.referencePoint;
+                    //     // attach the TrackState to the track
+                    //     edm4hep_track.addToTrackStates(trackState_AtCalorimeter);
 
-                //     }
+                    // }
                     
                     trackColl.push_back(edm4hep_track);
                 }

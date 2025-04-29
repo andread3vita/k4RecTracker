@@ -71,6 +71,9 @@ private:
 // #include "extension/SenseWireHitSimTrackerHitLinkCollection.h"
 // #include "k4Interface/IGeoSvc.h"
 // #include "k4Interface/IUniqueIDGenSvc.h"
+// #include "DD4hep/Detector.h" 
+// #include "DDSegmentation/BitFieldCoder.h"
+// #include "DDRec/DCH_info.h"
 
 
 // namespace GENFIT {
@@ -79,7 +82,7 @@ private:
 // public:
 
 //     // Constructor: takes a SenseWireHit and creates a WirePointMeasurement
-//     DC_measurement(const extension::SenseWireHit& hit, const int det_idx, const int hit_idx);
+//     DC_measurement(const extension::SenseWireHit& hit, const dd4hep::rec::DCH_info* dch_info, const dd4hep::DDSegmentation::BitFieldCoder* decoder,const int det_idx, const int hit_idx);
 
 //     // Getter for genfit::WirePointMeasurement
 //     genfit::WireMeasurementNew* getGenFit() const;

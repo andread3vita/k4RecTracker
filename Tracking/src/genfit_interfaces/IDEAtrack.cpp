@@ -187,10 +187,31 @@ namespace GENFIT {
     
             genfit::Track forwardTrack = *genfitTrack_;
             genfitFitter_->processTrack(&forwardTrack);
+
+            genfit::AbsTrackRep* forwardRep = forwardTrack.getTrackRep(0);
+            if (!genfitFitter_->isTrackFitted(&forwardTrack, forwardRep)) {
+                return false;
+            }
+
+            int nUsedHits = 0;
+            for (unsigned int i = 0; i < forwardTrack.getNumPoints(); ++i) {
+                genfit::TrackPoint* point = forwardTrack.getPoint(i);
+
+                if (point->hasFitterInfo(forwardRep)) {
+                    ++nUsedHits;
+                }
+            }
+
+            // std::cout << "Number of used hits: " << nUsedHits << std::endl;
             
             genfit::Track backwardTrack = forwardTrack;
             backwardTrack.reverseTrack();
             genfitFitter_->processTrack(&backwardTrack);
+
+            genfit::AbsTrackRep* backwardRep = backwardTrack.getTrackRep(0);
+            if (!genfitFitter_->isTrackFitted(&backwardTrack, backwardRep)) {
+                return false;
+            }
             
             genfit::MeasuredStateOnPlane fittedState;
             TVector3 gen_position, gen_momentum;
@@ -207,9 +228,6 @@ namespace GENFIT {
             double d0;
             double z0;
             double omega;  
-
-            genfit::AbsTrackRep* forwardRep = forwardTrack.getTrackRep(0);
-            genfit::AbsTrackRep* backwardRep = backwardTrack.getTrackRep(0);
 
             if (genfitFitter_->isTrackFitted(&forwardTrack,forwardRep))
             {
@@ -236,7 +254,6 @@ namespace GENFIT {
                 }
 
                 
-
                 trackStateFirstHit.D0 = d0;
                 trackStateFirstHit.Z0 = z0;
                 trackStateFirstHit.phi = phi0;
@@ -332,6 +349,8 @@ namespace GENFIT {
                 if (genfitFitter_->isTrackFitted(&forwardTrack,forwardRep))
                 {
                     
+                    // std::cout << forwardTrack.getFitStatus()->getChi2() << std::endl;
+                    // std::cout << forwardTrack.getFitStatus()->getNdf() << std::endl;
                     edm4hepTrack_.setChi2(forwardTrack.getFitStatus()->getChi2());
                     edm4hepTrack_.setNdf(forwardTrack.getFitStatus()->getNdf());
                 }

@@ -77,14 +77,14 @@ DC_measurement::DC_measurement(const extension::SenseWireHit& hit, const dd4hep:
 
     // genfit::WirePointMeasurement
     TVectorD rawHitCoords(8);
-    rawHitCoords(0) = p1.x();             // wire1 X
-    rawHitCoords(1) = p1.y();           // wire1 Y
-    rawHitCoords(2) = p1.z();         // wire1 Z
-    rawHitCoords(3) = p2.x();            // wire2 X
-    rawHitCoords(4) = p2.y();         // wire2 Y
-    rawHitCoords(5) = p2.z();             // wire2 Z
-    rawHitCoords(6) = Rdrift;           // Rdrift
-    rawHitCoords(7) = zreco;            // zreco
+    rawHitCoords(0) = p1.x();               // wire1 X
+    rawHitCoords(1) = p1.y();               // wire1 Y
+    rawHitCoords(2) = p1.z();               // wire1 Z
+    rawHitCoords(3) = p2.x();               // wire2 X
+    rawHitCoords(4) = p2.y();               // wire2 Y
+    rawHitCoords(5) = p2.z();               // wire2 Z
+    rawHitCoords(6) = Rdrift;               // Rdrift
+    rawHitCoords(7) = zreco;                // zreco
 
     // Covariance matrix
     double sigma_wire = 0; // 0 because they are fixed positions
@@ -179,37 +179,56 @@ genfit::WirePointMeasurement* DC_measurement::getGenFit() const {
 
 // namespace GENFIT {
 
-// DC_measurement::DC_measurement(const extension::SenseWireHit& hit, const int det_idx, const int hit_idx) {
+// DC_measurement::DC_measurement(const extension::SenseWireHit& hit, const dd4hep::rec::DCH_info* dch_info, const dd4hep::DDSegmentation::BitFieldCoder* decoder,const int det_idx, const int hit_idx) {
     
+
+//     int cellid = hit.getCellID();
+//     int ilayer = dch_info->CalculateILayerFromCellIDFields(decoder->get(cellid, "layer"), decoder->get(cellid, "superlayer"));
+//     int nphi = decoder->get(cellid, "nphi");
+
 //     float wireStereoAngle = hit.getWireStereoAngle();
 //     float wireAzimuthalAngle = hit.getWireAzimuthalAngle();
-    
 //     float distanceToWire = hit.getDistanceToWire() * dd4hep::mm; // cm
 //     float distanceToWireError = hit.getDistanceToWireError() * dd4hep::mm; // cm
 
-//     auto pos = hit.getPosition();
-//     edm4hep::Vector3d position{pos.x * dd4hep::mm, pos.y * dd4hep::mm, pos.z * dd4hep::mm};
+//     // // Wire direction
+//     TVector3 direction(0,0,1);
+//     direction.RotateX(wireStereoAngle);
+//     direction.RotateZ(wireAzimuthalAngle);
 
-
-//     // Wire direction
-//     float d_x = std::sin(wireStereoAngle) * std::cos(wireAzimuthalAngle);
-//     float d_y = std::sin(wireStereoAngle) * std::sin(wireAzimuthalAngle);
-//     float d_z = std::cos(wireStereoAngle);
-
-//     // wire extremities (   e.g. w1_x = x_0 + [(w1_z - z_0)/d_z]*d_x   )
-//     float w1_z = -200.;                                                   // cm
-//     float w1_x = position.x + (w1_z-position.z) / d_z * d_x;              // cm
-//     float w1_y = position.y + (w1_z-position.z) / d_z * d_y;              // cm
-//     float w2_z = 200.;                                                    // cm
-//     float w2_x = position.x + (w2_z-position.z) / d_z * d_x;              // cm
-//     float w2_y = position.y + (w2_z-position.z) / d_z * d_y;              // cm
+//     auto& l = dch_info->database.at(ilayer);
+//     int    stereosign = l.StereoSign();
+//     double rz0        = l.radius_sw_z0;
+//     double dphi       = dch_info->twist_angle;
+//     double kappa = (1. / dch_info->Lhalf) * tan(dphi / 2);
+    
+//     //--- calculating wire position
+//     // the points p1 and p2 correspond to the ends of the wire
+    
+//     // point 1
+//     double x1 = rz0;                                          // cm
+//     double y1 = -stereosign * rz0 * kappa * dch_info->Lhalf;  // cm
+//     double z1 = -dch_info->Lhalf;                             // cm
+    
+//     TVector3 p1(x1, y1, z1);
+    
+//     // point 2
+//     double x2 = rz0;                                         // cm
+//     double y2 = stereosign * rz0 * kappa * dch_info->Lhalf;  // cm
+//     double z2 = dch_info->Lhalf;                             // cm
+    
+//     TVector3 p2(x2, y2, z2);
+    
+//     // calculate phi rotation of whole twisted tube, ie, rotation at z=0
+//     double phi_z0 = dch_info->Calculate_wire_phi_z0(ilayer, nphi);
+//     p1.RotateZ(phi_z0);
+//     p2.RotateZ(phi_z0);
 
 //     //Rdrift
-//     double Rdrift = distanceToWire;             // cm
+//     double Rdrift = distanceToWire;    // cm
 //     double Rdrift_sigma = distanceToWireError;  // cm
-
-//     TVector3 endPoint1(w1_x, w1_y, w1_z);
-//     TVector3 endPoint2(w2_x, w2_y, w2_z);
+//     TVector3 endPoint1 = p1;
+//     TVector3 endPoint2 = p2;
     
 //     std::cout << "Rdrift: " << Rdrift << std::endl;
 //     std::cout << "Rdrift_sigma: " << Rdrift_sigma << std::endl;
