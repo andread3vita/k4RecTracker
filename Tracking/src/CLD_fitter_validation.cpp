@@ -162,23 +162,23 @@
 //         fieldManager = genfit::FieldManager::getInstance();
 //         fieldManager->init(new genfit::ConstField(0., 0., m_Bz.value())); // kGauss
 
-//         dd4hep::Detector* detector = (m_geoSvc->getDetector());
-//         surfMan = detector->extension<dd4hep::rec::SurfaceManager>();
-//         // surfaceMap_vertex = surfMan->map("Vertex");
-//         // surfaceMap_InnerTrackers = surfMan->map("InnerTrackers");
-//         // surfaceMap_OuterTrackers = surfMan->map("OuterTrackers");
+        dd4hep::Detector* detector = (m_geoSvc->getDetector());
+        surfMan = detector->extension<dd4hep::rec::SurfaceManager>();
+        // surfaceMap_vertex = surfMan->map("Vertex");
+        // surfaceMap_InnerTrackers = surfMan->map("InnerTrackers");
+        // surfaceMap_OuterTrackers = surfMan->map("OuterTrackers");
 
-//         const dd4hep::rec::LayeredCalorimeterData * eCalBarrelExtension = getExtension( ( dd4hep::DetType::CALORIMETER | dd4hep::DetType::ELECTROMAGNETIC | dd4hep::DetType::BARREL),
-//                                                                                           ( dd4hep::DetType::AUXILIARY  |  dd4hep::DetType::FORWARD ) , detector);
-//         m_eCalBarrelInnerR = eCalBarrelExtension->extent[0] / dd4hep::mm;
-//         m_eCalBarrelMaxZ = eCalBarrelExtension->extent[3] / dd4hep::mm;
+        const dd4hep::rec::LayeredCalorimeterData * eCalBarrelExtension = getExtension( ( dd4hep::DetType::CALORIMETER | dd4hep::DetType::ELECTROMAGNETIC | dd4hep::DetType::BARREL),
+                                                                                          ( dd4hep::DetType::AUXILIARY  |  dd4hep::DetType::FORWARD ) , detector);
+        m_eCalBarrelInnerR = eCalBarrelExtension->extent[0] / dd4hep::mm;
+        m_eCalBarrelMaxZ = eCalBarrelExtension->extent[3] / dd4hep::mm;
                   
-//         const dd4hep::rec::LayeredCalorimeterData * eCalEndCapExtension = getExtension( ( dd4hep::DetType::CALORIMETER | dd4hep::DetType::ELECTROMAGNETIC | dd4hep::DetType::ENDCAP),
-//                                                                                           ( dd4hep::DetType::AUXILIARY  |  dd4hep::DetType::FORWARD ) , detector);
-//         m_eCalEndCapInnerR = eCalEndCapExtension->extent[0] / dd4hep::mm;
-//         m_eCalEndCapOuterR = eCalEndCapExtension->extent[1] / dd4hep::mm;
-//         m_eCalEndCapInnerZ = eCalEndCapExtension->extent[2] / dd4hep::mm;
-//         m_eCalEndCapOuterZ = eCalEndCapExtension->extent[3] / dd4hep::mm;
+        const dd4hep::rec::LayeredCalorimeterData * eCalEndCapExtension = getExtension( ( dd4hep::DetType::CALORIMETER | dd4hep::DetType::ELECTROMAGNETIC | dd4hep::DetType::ENDCAP),
+                                                                                          ( dd4hep::DetType::AUXILIARY  |  dd4hep::DetType::FORWARD ) , detector);
+        m_eCalEndCapInnerR = eCalEndCapExtension->extent[0] / dd4hep::mm;
+        m_eCalEndCapOuterR = eCalEndCapExtension->extent[1] / dd4hep::mm;
+        m_eCalEndCapInnerZ = eCalEndCapExtension->extent[2] / dd4hep::mm;
+        m_eCalEndCapOuterZ = eCalEndCapExtension->extent[3] / dd4hep::mm;
                     
 //         return StatusCode::SUCCESS;
 

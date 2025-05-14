@@ -91,7 +91,7 @@ public:
     void initMOM(TVector3 mom) { _momInit = mom; }
 
     void createGenFitTrack();
-    bool fit(); 
+    bool fit(double Beta_init, double Beta_final, double Beta_steps);
 
     genfit::Track* getTrack_genfit() { return genfitTrack_; }
     genfit::AbsTrackRep* getRep_genfit() { return genfitTrackRep_; }

@@ -5,6 +5,54 @@
 
 namespace GENFIT {
 
+    // (d0, phi0, omega, z0, tanLambda, time)
+    TVectorD computeTrackParams(const TVectorD& x) {
+
+        double c_light = 2.99792458e8;
+        double a = c_light * 1e3 * 1e-15;
+
+        double x0 = x(0) * 10.;
+        double y0 = x(1) * 10.;
+        double z0_hit = x(2) * 10.;
+        double px = x(3);
+        double py = x(4);
+        double pz = x(5);
+
+        double pt = std::sqrt(px*px + py*py);
+        double phi0 = std::atan2(py, px);
+        double tanLambda = pz / pt;
+        double d0 = -x0 * std::sin(phi0) + y0 * std::cos(phi0);
+        double z0 = z0_hit - d0 * tanLambda;
+        double omega = a * 2.0 / std::abs(pt);
+        double time = 0.0;  // placeholder for time
+
+        TVectorD y(6);
+        y[0] = d0;
+        y[1] = phi0;
+        y[2] = omega;
+        y[3] = z0;
+        y[4] = tanLambda;
+        y[5] = time;
+        return y;
+    }
+
+    TMatrixD computeJacobian(const TVectorD& x, double epsilon = 1e-5) {
+
+        TVectorD y0 = computeTrackParams(x);
+        TMatrixD J(6, 6);
+
+        for (int i = 0; i < 6; ++i) {
+            TVectorD x_eps = x;
+            x_eps[i] += epsilon;
+            TVectorD y_eps = computeTrackParams(x_eps);
+            for (int j = 0; j < 6; ++j) {
+                J(j, i) = (y_eps[j] - y0[j]) / epsilon;
+            }
+        }
+
+        return J;
+    }
+
     IDEAtrack::IDEAtrack(const extension::Track& track, const dd4hep::rec::SurfaceManager* surfMan,const dd4hep::rec::DCH_info* dch_info,const dd4hep::DDSegmentation::BitFieldCoder* decoder)
         :   _particle_hypothesis(211), 
             _posInit(0., 0., 0.), 
@@ -172,19 +220,24 @@ namespace GENFIT {
 
     }
 
-    bool IDEAtrack::fit() {
+    bool IDEAtrack::fit(double Beta_init = 10., double Beta_final=0.1, double Beta_steps=10) {
 
         try{
 
-            // genfit::DAF* genfitFitter_ = new genfit::DAF(true, 1e-3,1e-3);
-            // genfit::MaterialEffects::getInstance()->setEnergyLossBrems(false);
-            // genfit::MaterialEffects::getInstance()->setNoiseBrems(false);
-            // genfitFitter_->setAnnealingScheme(100,0.1,20);
+            // genfit::DAF* genfitFitter_ = new genfit::DAF();
 
-            genfit::DAF* genfitFitter_ = new genfit::DAF();
 
-            genfitTrack_->checkConsistency();
-    
+            genfit::DAF* genfitFitter_ = new genfit::DAF(true, 1e-3,1e-3);
+            genfit::MaterialEffects::getInstance()->setEnergyLossBrems(false);
+            genfit::MaterialEffects::getInstance()->setNoiseBrems(false);
+            // genfitFitter_->setDebugLvl(1);
+
+            genfitFitter_->setAnnealingScheme(Beta_init,Beta_final,Beta_steps);
+            // genfitFitter_->setAnnealingScheme(100,1e-3,40);
+            // genfitFitter_->setAnnealingScheme(10,0.1,10);
+            // genfitFitter_->setAnnealingScheme(100,0.1,100);
+
+
             genfit::Track forwardTrack = *genfitTrack_;
             genfitFitter_->processTrack(&forwardTrack);
 
@@ -248,12 +301,47 @@ namespace GENFIT {
                 d0 = -x0 * sin(phi0) + y0 * cos(phi0);
                 z0 = z0_hit - d0 * tanLambda;
                 omega = a * 2.0 / abs(pt);
+
+                // TVectorD x = TVectorD(gen_position.X(),gen_position.Y(),gen_position.Z(),gen_momentum.X(),gen_momentum.Y(),gen_momentum.Z());
+                // TVectorD y = computeTrackParams(x);
+
+                // double omega = y(2);
                 if (_particle_hypothesis < 0)
                 {
                     omega = -omega; // _particle_hypothesis uses the pdg numbering scheme, so the positive particles have positive number encodings
                 }
+                // y(2) = omega;
 
+                // TMatrixD J = computeJacobian(x);    
+                // TMatrixD JT = TMatrixD(TMatrixD::kTransposed, J);   // J^T
+                // TMatrixD temp(6, 6);
+                // temp.Mult(J, covariancePosMom);                     // temp = J * Cx
+                // TMatrixD Cy(6, 6);
+                // Cy.Mult(temp, JT);                                  // Cy = temp * J^T
+
+                // std::array<float, 21> covVals;
+                // int index = 0;
+                // for (int i = 0; i < 6; ++i) {
+                //     for (int j = i; j < 6; ++j) {
+                //         covVals[index++] = static_cast<float>(Cy(i, j));
+                //     }
+                // }
                 
+                // trackStateFirstHit.D0 = x(0);
+                // trackStateFirstHit.phi = x(1);
+                // trackStateFirstHit.omega = x(2);
+                // trackStateFirstHit.Z0 = x(3);
+                // trackStateFirstHit.tanLambda = x(4);
+                // trackStateFirstHit.time = x(5);         // time is not used in the current implementation
+                // trackStateFirstHit.covMatrix = edm4hep::CovMatrix6f(
+                //     covVals[0], covVals[1], covVals[2], covVals[3], covVals[4], covVals[5],
+                //     covVals[6], covVals[7], covVals[8], covVals[9], covVals[10],
+                //     covVals[11], covVals[12], covVals[13], covVals[14], covVals[15],
+                //     covVals[16], covVals[17], covVals[18], covVals[19], covVals[20]
+                // );
+                // trackStateFirstHit.referencePoint = edm4hep::Vector3f(gen_position[0]*10., gen_position[1]*10., gen_position[2]*10.);
+                // trackStateFirstHit.location = edm4hep::TrackState::AtFirstHit;
+
                 trackStateFirstHit.D0 = d0;
                 trackStateFirstHit.Z0 = z0;
                 trackStateFirstHit.phi = phi0;

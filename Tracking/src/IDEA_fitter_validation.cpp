@@ -160,19 +160,19 @@ struct IDEA_fitter_validation final :
         // set the cellID decoder
         dc_decoder = dch_readout.idSpec().decoder();
 
-        // dd4hep::Detector& mainDetector = *detector;
-        // const std::vector< dd4hep::DetElement>& CaloBarrelDetector = dd4hep::DetectorSelector(mainDetector).detectors(  ( dd4hep::DetType::CALORIMETER | dd4hep::DetType::ELECTROMAGNETIC | dd4hep::DetType::BARREL),( dd4hep::DetType::AUXILIARY  |  dd4hep::DetType::FORWARD ) );
-        // const dd4hep::rec::LayeredCalorimeterData * eCalBarrelExtension = CaloBarrelDetector.at(0).extension<dd4hep::rec::LayeredCalorimeterData>();
-        // m_eCalBarrelInnerR = eCalBarrelExtension->extent[0] / dd4hep::mm;
-        // m_eCalBarrelMaxZ = eCalBarrelExtension->extent[3] / dd4hep::mm;
-                  
-        // const std::vector< dd4hep::DetElement>& CaloDiskDetector = dd4hep::DetectorSelector(mainDetector).detectors(  ( dd4hep::DetType::CALORIMETER | dd4hep::DetType::ELECTROMAGNETIC | dd4hep::DetType::ENDCAP), ( dd4hep::DetType::AUXILIARY  |  dd4hep::DetType::FORWARD ) );
-        // const dd4hep::rec::LayeredCalorimeterData * eCalEndCapExtension = CaloDiskDetector.at(0).extension<dd4hep::rec::LayeredCalorimeterData>();
-        // m_eCalEndCapInnerR = eCalEndCapExtension->extent[0] / dd4hep::mm;
-        // m_eCalEndCapOuterR = eCalEndCapExtension->extent[1] / dd4hep::mm;
-        // m_eCalEndCapInnerZ = eCalEndCapExtension->extent[2] / dd4hep::mm;
-        // m_eCalEndCapOuterZ = eCalEndCapExtension->extent[3] / dd4hep::mm;
-                    
+        // put an if statement to choose the detector
+        dd4hep::Detector& mainDetector = *detector;
+        const dd4hep::DetElement& detDRC = mainDetector.detector("DRcalo"); //put a gaudi property to choose the subetector
+        const dd4hep::rec::LayeredCalorimeterData* DRCextension = detDRC.extension<dd4hep::rec::LayeredCalorimeterData>();
+
+        m_eCalBarrelInnerR = DRCextension->extent[0] / dd4hep::mm;     // barrel rmin
+        m_eCalBarrelMaxZ = DRCextension->extent[2] / dd4hep::mm;       // barrel zmax == endcap zmin
+
+        m_eCalEndCapInnerR = DRCextension->extent[4] / dd4hep::mm;     // endcap rmin
+        m_eCalEndCapOuterR = DRCextension->extent[5] / dd4hep::mm;     // endcap rmax
+        m_eCalEndCapInnerZ = DRCextension->extent[2] / dd4hep::mm;     // endcap zmin
+        m_eCalEndCapOuterZ = DRCextension->extent[3] / dd4hep::mm;     // endcap zmax
+
         return StatusCode::SUCCESS;
 
     }
@@ -186,6 +186,15 @@ struct IDEA_fitter_validation final :
                                                         const edm4hep::TrackerHitSimTrackerHitLinkCollection& wrapperD_links) const override 
     {
         
+        index_counter++;
+        // if (index_counter != 11)
+        // {
+            
+        //     return std::make_tuple(extension::TrackCollection());
+        // }
+
+        std::cout << "Event number: " << index_counter << std::endl;
+
         new TGeoManager("Geometry", "IDEA geometry");
         TGeoManager::Import("/eos/user/a/adevita/saveSpace/k4RecTracker/Tracking/TGeo_IDEA.root");
        
@@ -195,6 +204,8 @@ struct IDEA_fitter_validation final :
         {
             auto genStatus = particle.getGeneratorStatus();
             auto vertex = particle.getVertex();
+
+
             
             if (genStatus == 1 && vertex.x == 0. && vertex.y == 0. && vertex.z == 0.) // make sure that you are taking only pions with vertex at the IP
             {
@@ -290,7 +301,7 @@ struct IDEA_fitter_validation final :
                 GENFIT::IDEAtrack track_interface = GENFIT::IDEAtrack(track, surfMan, dch_info, dc_decoder);
                 track_interface.createGenFitTrack();
 
-                bool isFit = track_interface.fit();
+                bool isFit = track_interface.fit(m_Beta_init,m_Beta_final,m_Beta_steps);
 
                 if (isFit)
                 {
@@ -442,14 +453,22 @@ struct IDEA_fitter_validation final :
         
     } 
 
+    public:
+        mutable int index_counter = 0;
+
     private:
 
+       
         // TGeoManager* geoManager;
         genfit::MaterialEffects* materialEffects;
         genfit::FieldManager* fieldManager;
 
         Gaudi::Property<std::string> m_geoSvcName{this, "GeoSvcName", "GeoSvc", "The name of the GeoSvc instance"};
         Gaudi::Property<double> m_Bz{this, "Bz", 20., "Bz value (kilogauss)"};
+
+        Gaudi::Property<double> m_Beta_init{this, "Beta_init", 10., "Beta Initial value"};
+        Gaudi::Property<double> m_Beta_final{this, "Beta_final", 0.1, "Beta Final value"};
+        Gaudi::Property<int> m_Beta_steps{this, "Beta_steps", 10, "Beta number of Steps"};
 
         SmartIF<IGeoSvc> m_geoSvc;
         const dd4hep::rec::SurfaceManager* surfMan;
