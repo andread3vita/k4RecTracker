@@ -22,20 +22,10 @@
 #include "edm4hep/ReconstructedParticleCollection.h"
 #include "edm4hep/TrackMCParticleLinkCollection.h"
 
-// Function to compute cosine of the theta angle and transverse momentum (pt)
-std::vector<double> computeCosThetaAndPt(double px, double py, double pz);
+dd4hep::rec::LayeredCalorimeterData * getExtension(unsigned int includeFlag, unsigned int excludeFlag);
 
-std::vector<double> computeCosThetaPtAndPhi(double px, double py, double pz);
+edm4hep::TrackState getExtrapolationAtCalorimeter(const pandora::CartesianVector& ecalProjection, const HelixClass_double& helixAtLastHit,double m_Bz);
 
-torch::Tensor find_condpoints(torch::Tensor betas, torch::Tensor unassigned, float tbeta);
-
-torch::Tensor get_clustering(std::vector<float> output_vector, int64_t num_rows,  float tbeta, float td);
-
-std::vector<float> local_to_global(std::vector<float> local_pos,std::vector<float> x_prime,std::vector<float> y_prime,std::vector<float> z_prime,std::vector<float> wire_pos);
-
-dd4hep::rec::LayeredCalorimeterData * getExtension(unsigned int includeFlag, unsigned int excludeFlag, dd4hep::Detector* mainDetector_pntr);
-
-edm4hep::TrackState getExtrapolationAtCalorimeter(const pandora::CartesianVector& ecalProjection, const HelixClass_double& helixAtLastHit);
-
+int getHypotesisCharge(int pdg);
 
 #endif // UTILS_HPP

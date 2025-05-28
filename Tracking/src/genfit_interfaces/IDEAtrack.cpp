@@ -93,10 +93,10 @@ namespace GENFIT {
 
     void IDEAtrack::checkInitialization() {
 
-        if (!gGeoManager) {
-            std::cerr << "Error: TGeoManager is not initialized!" << std::endl;
-            std::exit(EXIT_FAILURE);
-        }
+        // if (!gGeoManager) {
+        //     std::cerr << "Error: TGeoManager is not initialized!" << std::endl;
+        //     std::exit(EXIT_FAILURE);
+        // }
 
         if (!genfit::FieldManager::getInstance()->isInitialized()) {
             std::cerr << "Error: FieldManager is not initialized!" << std::endl;
@@ -224,19 +224,12 @@ namespace GENFIT {
 
         try{
 
-            // genfit::DAF* genfitFitter_ = new genfit::DAF();
-
-
             genfit::DAF* genfitFitter_ = new genfit::DAF(true, 1e-3,1e-3);
             genfit::MaterialEffects::getInstance()->setEnergyLossBrems(false);
             genfit::MaterialEffects::getInstance()->setNoiseBrems(false);
-            // genfitFitter_->setDebugLvl(1);
-
             genfitFitter_->setAnnealingScheme(Beta_init,Beta_final,Beta_steps);
-            // genfitFitter_->setAnnealingScheme(100,1e-3,40);
-            // genfitFitter_->setAnnealingScheme(10,0.1,10);
-            // genfitFitter_->setAnnealingScheme(100,0.1,100);
 
+            // genfitFitter_->setDebugLvl(1);
 
             genfit::Track forwardTrack = *genfitTrack_;
             genfitFitter_->processTrack(&forwardTrack);
