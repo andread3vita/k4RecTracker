@@ -114,9 +114,18 @@
 */
 
 struct testFunctional final : 
-        k4FWCore::MultiTransformer< std::tuple<extension::TrackCollection>(  const extension::TrackCollection&,
-                                                                             const edm4hep::MCParticleCollection&, 
-                                                                             const podio::UserDataCollection<int>&)>                                                                         
+        k4FWCore::MultiTransformer< std::tuple<extension::TrackCollection,
+                                        extension::TrackCollection,
+                                        extension::TrackCollection,
+                                        extension::TrackCollection,
+                                        extension::TrackCollection,
+                                        extension::TrackCollection,
+                                        extension::TrackCollection,
+                                        extension::TrackCollection,
+                                        extension::TrackCollection,
+                                        extension::TrackCollection>(const extension::TrackCollection&,
+                                                                    const edm4hep::MCParticleCollection&, 
+                                                                    const podio::UserDataCollection<int>&)>                                                                         
 {
     testFunctional(const std::string& name, ISvcLocator* svcLoc) : 
         MultiTransformer ( name, svcLoc,
@@ -125,9 +134,19 @@ struct testFunctional final :
                 KeyValues("tracks_input", {"tracks_input"}),
                 KeyValues("MCParticles", {"MCParticles"}),
                 KeyValues("MCparticleIndex", {"MCparticleIndex"}),
+                
             },
             {   
-                KeyValues("Fitted_tracks", {"Fitted_tracks"})
+                KeyValues("Fitted_tracks_electron", {"Fitted_tracks"}),
+                KeyValues("Fitted_tracks_positron", {"Fitted_tracks"}),
+                KeyValues("Fitted_tracks_muon", {"Fitted_tracks"}),
+                KeyValues("Fitted_tracks_antimuon", {"Fitted_tracks"}),
+                KeyValues("Fitted_tracks_pion", {"Fitted_tracks"}),
+                KeyValues("Fitted_tracks_antipion", {"Fitted_tracks"}),
+                KeyValues("Fitted_tracks_kaon", {"Fitted_tracks"}),
+                KeyValues("Fitted_tracks_antikaon", {"Fitted_tracks"}),
+                KeyValues("Fitted_tracks_proton", {"Fitted_tracks"}),
+                KeyValues("Fitted_tracks_antiproton", {"Fitted_tracks"})
             
             }) {}
          
@@ -210,14 +229,34 @@ struct testFunctional final :
     }
 
     
-    std::tuple<extension::TrackCollection> operator()(  const extension::TrackCollection& tracks_input,
+    std::tuple< extension::TrackCollection,
+                extension::TrackCollection,
+                extension::TrackCollection,
+                extension::TrackCollection,
+                extension::TrackCollection,
+                extension::TrackCollection,
+                extension::TrackCollection,
+                extension::TrackCollection,
+                extension::TrackCollection,
+                extension::TrackCollection> operator()( const extension::TrackCollection& tracks_input,
                                                         const edm4hep::MCParticleCollection& mcParticles,
                                                         const podio::UserDataCollection<int>& MCparticleIndex) const override                                                 
     {
         
 
         info() << "Event number: " << index_counter++ << endmsg;
-        extension::TrackCollection FittedTracks;
+
+        extension::TrackCollection FittedTracks_electron;
+        extension::TrackCollection FittedTracks_positron;
+        extension::TrackCollection FittedTracks_muon;
+        extension::TrackCollection FittedTracks_antimuon;
+        extension::TrackCollection FittedTracks_pion;
+        extension::TrackCollection FittedTracks_antipion;
+        extension::TrackCollection FittedTracks_kaon;
+        extension::TrackCollection FittedTracks_antikaon;
+        extension::TrackCollection FittedTracks_proton;
+        extension::TrackCollection FittedTracks_antiproton;
+
 
         // Loop over the extension::tracks
         int track_idx = 0;
@@ -281,7 +320,7 @@ struct testFunctional final :
                     debug() << "Number of hits in GENFIT track: " << genfit_hits_in_track.size() << endmsg;
                     debug() << "" << endmsg;
 
-		    int charge = getHypotesisCharge(pdgCode);
+		            int charge = getHypotesisCharge(pdgCode);
                     // TrackState at Calorimeter
                     auto trackStateLastHit = edm4hep_track.getTrackStates()[2];
 
@@ -379,16 +418,115 @@ struct testFunctional final :
 
                     }
                     
-                    // FittedTracks.push_back(edm4hep_track);
+                    if (pdgCode == 11)
+                    {
+                        FittedTracks_electron.push_back(edm4hep_track);
+                    }
+                    else if (pdgCode == -11)
+                    {
+                        FittedTracks_positron.push_back(edm4hep_track);
+                    }
+                    else if (pdgCode == 13)
+                    {
+                        FittedTracks_muon.push_back(edm4hep_track);
+                    }
+                    else if (pdgCode == -13)
+                    {
+                        FittedTracks_antimuon.push_back(edm4hep_track);
+                    }
+                    else if (pdgCode == 211)
+                    {
+                        FittedTracks_pion.push_back(edm4hep_track);
+                    }
+                    else if (pdgCode == -211)
+                    {
+                        FittedTracks_antipion.push_back(edm4hep_track);
+                    }
+                    else if (pdgCode == 321)
+                    {
+                        FittedTracks_kaon.push_back(edm4hep_track);
+                    }
+                    else if (pdgCode == -321)
+                    {
+                        FittedTracks_antikaon.push_back(edm4hep_track);
+                    }
+                    else if (pdgCode == 2212)
+                    {
+                        FittedTracks_proton.push_back(edm4hep_track);
+                    }
+                    else if (pdgCode == -2212)
+                    {
+                        FittedTracks_antiproton.push_back(edm4hep_track);
+                    }
+                   
                     
                 }
                 else
-                {
-                    // auto failedTrack = FittedTracks.create();
-                    // failedTrack.setChi2(-1);
-                    // failedTrack.setNdf(-1);
+                {   
+                    if (pdgCode == 11)
+                    {
+                        auto failedTrack = FittedTracks_electron.create();
+                        failedTrack.setChi2(-1);
+                        failedTrack.setNdf(-1);
+                    }
+                    else if (pdgCode == -11)
+                    {
+                        auto failedTrack = FittedTracks_positron.create();
+                        failedTrack.setChi2(-1);
+                        failedTrack.setNdf(-1);
 
-                    // debug() << "Chi2: " << failedTrack.getChi2() << " NDF: " << failedTrack.getNdf() << endmsg;   
+                    }
+                    else if (pdgCode == 13)
+                    {
+                        auto failedTrack = FittedTracks_muon.create();
+                        failedTrack.setChi2(-1);
+                        failedTrack.setNdf(-1);;
+                    }
+                    else if (pdgCode == -13)
+                    {
+                        auto failedTrack = FittedTracks_antimuon.create();
+                        failedTrack.setChi2(-1);
+                        failedTrack.setNdf(-1);
+                    }
+                    else if (pdgCode == 211)
+                    {
+                        auto failedTrack = FittedTracks_pion.create();
+                        failedTrack.setChi2(-1);
+                        failedTrack.setNdf(-1);
+                    }
+                    else if (pdgCode == -211)
+                    {
+                        auto failedTrack = FittedTracks_antipion.create();
+                        failedTrack.setChi2(-1);
+                        failedTrack.setNdf(-1);
+                    }
+                    else if (pdgCode == 321)
+                    {
+                        auto failedTrack = FittedTracks_kaon.create();
+                        failedTrack.setChi2(-1);
+                        failedTrack.setNdf(-1);
+                    }
+                    else if (pdgCode == -321)
+                    {
+                         auto failedTrack = FittedTracks_antikaon.create();
+                        failedTrack.setChi2(-1);
+                        failedTrack.setNdf(-1);
+                    }
+                    else if (pdgCode == 2212)
+                    {
+                        auto failedTrack = FittedTracks_proton.create();
+                        failedTrack.setChi2(-1);
+                        failedTrack.setNdf(-1);
+                    }
+                    else if (pdgCode == -2212)
+                    {
+                        auto failedTrack = FittedTracks_antiproton.create();
+                        failedTrack.setChi2(-1);
+                        failedTrack.setNdf(-1);
+                    }
+                    debug() << "GENFIT Chi2: " << -1 << " GENFIT NDF: " << -1 << endmsg;   
+
+
                     number_failures++;
                 }
                 
@@ -400,7 +538,16 @@ struct testFunctional final :
         debug() << "Number of failed tracks: " << number_failures << endmsg;
         debug() << "----------------\n" << endmsg;
         
-        return std::make_tuple(std::move(FittedTracks));
+        return std::make_tuple( std::move(FittedTracks_electron),
+                                std::move(FittedTracks_positron),
+                                std::move(FittedTracks_muon),
+                                std::move(FittedTracks_antimuon),
+                                std::move(FittedTracks_pion),
+                                std::move(FittedTracks_antipion),
+                                std::move(FittedTracks_kaon),
+                                std::move(FittedTracks_antikaon),
+                                std::move(FittedTracks_proton),
+                                std::move(FittedTracks_antiproton));
         
     } 
     
@@ -444,7 +591,8 @@ struct testFunctional final :
         double m_eCalEndCapInnerZ = 0;
         double m_eCalEndCapOuterZ = 0;
 
-        std::vector<int> m_particleHypotesis = {11,13,211,321,2212,-11,-13,-211,-321,-2212}; // pi+
+        // std::vector<int> m_particleHypotesis = {11,13,211,321,2212,-11,-13,-211,-321,-2212}; // e, mu, pi, K, p
+        std::vector<int> m_particleHypotesis = {211}; //pi
 
 
 };

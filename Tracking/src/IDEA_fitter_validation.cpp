@@ -227,6 +227,9 @@ struct IDEA_fitter_validation final :
 
         std::cout << "Event number: " << index_counter << std::endl;
 
+        new TGeoManager("Geometry", "IDEA geometry");
+        TGeoManager::Import("/eos/user/a/adevita/saveSpace/k4RecTracker/Tracking/TGeo_IDEA.root");
+
        
         
         extension::TrackCollection trackColl;

@@ -1,31 +1,44 @@
 #ifndef UTILS_HPP
 #define UTILS_HPP
 
-#include <vector>
+//=== Standard Library ===
 #include <cmath>
-#include <torch/torch.h>
-#include <marlinutil/HelixClass_double.h>
-#include <Objects/Helix.h>
-#include "utils.hpp"
-#include "DD4hep/DD4hepUnits.h"
+#include <sstream>
+#include <stdexcept>
+#include <vector>
+#include <limits>
+
+//=== DD4hep / DDRec ===
 #include "DD4hep/DetType.h"
 #include "DD4hep/DetElement.h"
 #include "DD4hep/Detector.h"
 #include "DD4hep/DetectorSelector.h"
-#include "DD4hep/Readout.h"
 #include <DDRec/DetectorData.h>
-#include <DDRec/Vector3D.h>
-#include <DDSegmentation/BitFieldCoder.h>
 
-#include "edm4hep/TrackCollection.h"
-#include "edm4hep/TrackerHitPlaneCollection.h"
-#include "edm4hep/ReconstructedParticleCollection.h"
-#include "edm4hep/TrackMCParticleLinkCollection.h"
+//=== edm4hep ===
+#include "edm4hep/TrackState.h"
+
+//=== Others ===
+#include <marlinutil/HelixClass_double.h>
+#include <Objects/Helix.h>
+
 
 dd4hep::rec::LayeredCalorimeterData * getExtension(unsigned int includeFlag, unsigned int excludeFlag);
 
 edm4hep::TrackState getExtrapolationAtCalorimeter(const pandora::CartesianVector& ecalProjection, const HelixClass_double& helixAtLastHit,double m_Bz);
 
 int getHypotesisCharge(int pdg);
+
+edm4hep::TrackState extrapolateToCalorimeter(   double posAtLastHit[3],
+                                                double momAtLastHit[3],
+                                                double m_eCalBarrelInnerR,
+                                                double m_eCalBarrelMaxZ,
+                                                double m_eCalEndCapInnerR,
+                                                double m_eCalEndCapOuterR,
+                                                double m_eCalEndCapInnerZ,
+                                                double m_eCalEndCapOuterZ,
+                                                double Bz,
+                                                double charge);
+
 
 #endif // UTILS_HPP

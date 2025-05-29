@@ -25,7 +25,7 @@ dd4hep::rec::LayeredCalorimeterData * getExtension(unsigned int includeFlag, uns
     return theExtension;
 }
 
-edm4hep::TrackState getExtrapolationAtCalorimeter(const pandora::CartesianVector& ecalProjection, const HelixClass_double& helixAtLastHit,double m_Bz) {
+edm4hep::TrackState getExtrapolationAtCalorimeter(const pandora::CartesianVector& ecalProjection, const HelixClass_double& helixAtLastHit,double Bz) {
 
     edm4hep::TrackState trackState_AtCalorimeter = edm4hep::TrackState{};
 
@@ -37,7 +37,7 @@ edm4hep::TrackState getExtrapolationAtCalorimeter(const pandora::CartesianVector
 
     // produce new helix at calorimeter position
     auto helixAtCalorimeter = HelixClass_double();
-    helixAtCalorimeter.Initialize_VP(posAtCalorimeter, momAtCalorimeter, helixAtLastHit.getCharge(), m_Bz);
+    helixAtCalorimeter.Initialize_VP(posAtCalorimeter, momAtCalorimeter, helixAtLastHit.getCharge(), Bz);
 
     // fill the TrackState parameters
     trackState_AtCalorimeter.location = edm4hep::TrackState::AtCalorimeter;
@@ -95,4 +95,106 @@ int getHypotesisCharge(int pdg) {
     }
   
   return 0; // Default case, should not happen
+}
+
+
+edm4hep::TrackState extrapolateToCalorimeter(   double posAtLastHit[3],
+                                                double momAtLastHit[3],
+                                                double m_eCalBarrelInnerR,
+                                                double m_eCalBarrelMaxZ,
+                                                double m_eCalEndCapInnerR,
+                                                double m_eCalEndCapOuterR,
+                                                double m_eCalEndCapInnerZ,
+                                                double m_eCalEndCapOuterZ,
+                                                double Bz,
+                                                double charge) {
+  
+  double c_light = 2.99792458e8;
+  double a = c_light * 1e3 * 1e-15;
+
+  auto helixAtLastHit = HelixClass_double();
+  helixAtLastHit.Initialize_VP(posAtLastHit, momAtLastHit, charge, Bz);
+
+  // Propagation to Endcap
+  if (m_eCalBarrelInnerR>0. || m_eCalEndCapInnerR>0.) {
+
+    pandora::CartesianVector bestECalProjection(0.f, 0.f, 0.f);
+    pandora::CartesianVector secondBestECalProjection(0.f, 0.f, 0.f);
+    float minGenericTime(std::numeric_limits<float>::max());
+                        
+    // create helix to project
+    // rather than using parameters at production, better to use those from
+    // last hit
+    pandora::CartesianVector pos_lasthit(posAtLastHit[0], posAtLastHit[1], posAtLastHit[2]);
+    pandora::CartesianVector mom_lasthit(momAtLastHit[0], momAtLastHit[1], momAtLastHit[2]);
+
+    const pandora::Helix helix(pos_lasthit, mom_lasthit, charge ,Bz);
+    const pandora::CartesianVector& referencePoint(helix.GetReferencePoint());
+    const int signPz((helix.GetMomentum().GetZ() > 0.f) ? 1 : -1);
+                        
+    // First project to endcap
+    pandora::CartesianVector endCapProjection(0.f, 0.f, 0.f);
+    bool hasEndCapProjection(false);
+    if (m_eCalEndCapInnerR>0) {
+      float genericTime(std::numeric_limits<float>::max());
+      const pandora::StatusCode statusCode(helix.GetPointInZ(static_cast<float>(signPz) * m_eCalEndCapInnerZ, referencePoint, endCapProjection, genericTime));
+      float x = endCapProjection.GetX();
+      float y = endCapProjection.GetY();
+      float r = std::sqrt(x*x+y*y);
+      if (
+          (pandora::STATUS_CODE_SUCCESS == statusCode) &&
+          (genericTime < minGenericTime) &&
+          (r >= m_eCalEndCapInnerR) &&
+          (r <= m_eCalEndCapOuterR)
+      ) {
+          minGenericTime = genericTime;
+          bestECalProjection = endCapProjection;
+          hasEndCapProjection = true;
+        }
+    }
+                                    
+                                    
+    // Then project to barrel surface(s), and keep projection
+    // if extrapolation is within the z acceptance of the detector
+    pandora::CartesianVector barrelProjection(0.f, 0.f, 0.f);
+    bool hasBarrelProjection = false;
+    if (m_eCalBarrelInnerR>0) {
+
+      float genericTime(std::numeric_limits<float>::max());
+      const pandora::StatusCode statusCode(helix.GetPointOnCircle(m_eCalBarrelInnerR, referencePoint, barrelProjection, genericTime));
+                            
+      if ((pandora::STATUS_CODE_SUCCESS == statusCode) && (std::fabs(barrelProjection.GetZ())<= m_eCalBarrelMaxZ)) {
+        hasBarrelProjection = true;
+        if (genericTime < minGenericTime) {
+          minGenericTime = genericTime;
+          secondBestECalProjection = bestECalProjection;
+          bestECalProjection = barrelProjection;
+        }
+        else {
+         secondBestECalProjection = barrelProjection;
+        }
+      }
+    }
+           
+    // store extrapolation to calo
+    // by default, store extrapolation with lower arrival time
+    // get extrapolated position
+    edm4hep::TrackState trackState_AtCalorimeter = getExtrapolationAtCalorimeter(bestECalProjection, helixAtLastHit,Bz);
+    // double omega_lastHit = trackState_AtCalorimeter.omega;
+    // double pt_lasthit = a * Bz / abs(omega_lastHit);
+    // double phi_lasthit = trackState_AtCalorimeter.phi;
+    // double pz_lasthit = trackState_AtCalorimeter.tanLambda * pt_lasthit;
+    // double px_lasthit = pt_lasthit * std::cos(phi_lasthit);
+    // double py_lasthit = pt_lasthit * std::sin(phi_lasthit);
+    // auto ref_lastHit = trackState_AtCalorimeter.referencePoint;
+    // attach the TrackState to the track
+
+    return trackState_AtCalorimeter;      
+  }
+  else
+  {
+    std::cerr << "Error: Calorimeter parameters are not properly defined!" << std::endl;
+    std::exit(EXIT_FAILURE);
+  }                                  
+
 }
