@@ -291,7 +291,7 @@ struct GenfitTrackFitter final :
 
                 
                 GENFIT::GenfitTrack track_interface = GENFIT::GenfitTrack(track, dch_info, dc_decoder,pdgCode);
-                track_interface.createGenFitTrack();
+                track_interface.createGenFitTrack(m_debug_lvl);
                 bool isFit = track_interface.fit(m_Beta_init,m_Beta_final,m_Beta_steps); 
                 if (isFit)
                 {
@@ -372,7 +372,6 @@ struct GenfitTrackFitter final :
                         
                         // First project to endcap
                         pandora::CartesianVector endCapProjection(0.f, 0.f, 0.f);
-                        bool hasEndCapProjection(false);
                         if (m_eCalEndCapInnerR>0) {
                             float genericTime(std::numeric_limits<float>::max());
                             const pandora::StatusCode statusCode(helix.GetPointInZ(static_cast<float>(signPz) * m_eCalEndCapInnerZ, referencePoint, endCapProjection, genericTime));
@@ -387,7 +386,6 @@ struct GenfitTrackFitter final :
                             ) {
                                     minGenericTime = genericTime;
                                     bestECalProjection = endCapProjection;
-                                    hasEndCapProjection = true;
                             }
                         }
                                     
@@ -395,7 +393,6 @@ struct GenfitTrackFitter final :
                             // Then project to barrel surface(s), and keep projection
                             // if extrapolation is within the z acceptance of the detector
                             pandora::CartesianVector barrelProjection(0.f, 0.f, 0.f);
-                            bool hasBarrelProjection = false;
                             if (m_eCalBarrelInnerR>0) {
 
                             float genericTime(std::numeric_limits<float>::max());
@@ -405,7 +402,6 @@ struct GenfitTrackFitter final :
                                 (pandora::STATUS_CODE_SUCCESS == statusCode) &&
                                 (std::fabs(barrelProjection.GetZ())<= m_eCalBarrelMaxZ)
                             ) {
-                                    hasBarrelProjection = true;
                                     if (genericTime < minGenericTime) {
                                     minGenericTime = genericTime;
                                     secondBestECalProjection = bestECalProjection;
@@ -593,6 +589,8 @@ struct GenfitTrackFitter final :
         Gaudi::Property<double> m_Beta_init{this, "Beta_init", 100, "Beta Initial value"};
         Gaudi::Property<double> m_Beta_final{this, "Beta_final", 0.1, "Beta Final value"};
         Gaudi::Property<int> m_Beta_steps{this, "Beta_steps", 10, "Beta number of Steps"};
+
+        Gaudi::Property<int> m_debug_lvl{this, "debug_lvl", 0, "Debug level for GenfitTrack"};
 
         double c_light = 2.99792458e8;
         double a = c_light * 1e3 * 1e-15;
