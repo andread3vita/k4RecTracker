@@ -152,16 +152,16 @@ DC_measurement::DC_measurement(const extension::SenseWireHit& hit, const dd4hep:
 
     rawHitCov(6, 7) = 0;                                // Covariance between Rdrift and zreco
     
-    // std::cout << "rawHitCoords = [ ";
-    // for (int i = 0; i < rawHitCoords.GetNrows(); ++i) {
-    //     std::cout << rawHitCoords[i] << " ,";
-    // }
-    // std::cout << "]" << std::endl;    
-    // std::cout << "rawHitCov(6, 6): " << Rdrift_sigma * Rdrift_sigma << std::endl;
-    // std::cout << "rawHitCov(7, 7): " << zreco_sigma * zreco_sigma << std::endl;
-    // std::cout << "detID: " << det_idx << std::endl;
-    // std::cout << "hitID: " << hit_idx << std::endl;
-    // std::cout << "" << std::endl;
+    std::cout << "rawHitCoords = [ ";
+    for (int i = 0; i < rawHitCoords.GetNrows(); ++i) {
+        std::cout << rawHitCoords[i] << " ,";
+    }
+    std::cout << "]" << std::endl;    
+    std::cout << "rawHitCov(6, 6): " << Rdrift_sigma * Rdrift_sigma << std::endl;
+    std::cout << "rawHitCov(7, 7): " << zreco_sigma * zreco_sigma << std::endl;
+    std::cout << "detID: " << det_idx << std::endl;
+    std::cout << "hitID: " << hit_idx << std::endl;
+    std::cout << "" << std::endl;
     genfitHit_ = new genfit::WirePointMeasurement(rawHitCoords, rawHitCov, det_idx, hit_idx, nullptr);
 
 }

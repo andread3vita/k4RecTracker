@@ -21,7 +21,7 @@ class Planar_measurement {
 public:
 
     // Constructor: takes a SenseWireHit and creates a WirePointMeasurement
-    Planar_measurement(const edm4hep::TrackerHitPlane& hit, const int det_idx, const int hit_idx);
+    Planar_measurement(const edm4hep::TrackerHitPlane& hit, const int det_idx, const int hit_idx,const int debug_lvl);
 
     // Getter for genfit::WirePointMeasurement
     genfit::PlanarMeasurement* getGenFit() const;

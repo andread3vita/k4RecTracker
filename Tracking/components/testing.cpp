@@ -107,13 +107,13 @@
 #include "utils.hpp"
 
 
-/** @struct testFunctional
+/** @struct GenfitTrackFitter
 
 *
 *
 */
 
-struct testFunctional final : 
+struct GenfitTrackFitter final : 
         k4FWCore::MultiTransformer< std::tuple<extension::TrackCollection,
                                         extension::TrackCollection,
                                         extension::TrackCollection,
@@ -127,7 +127,7 @@ struct testFunctional final :
                                                                     const edm4hep::MCParticleCollection&, 
                                                                     const podio::UserDataCollection<int>&)>                                                                         
 {
-    testFunctional(const std::string& name, ISvcLocator* svcLoc) : 
+    GenfitTrackFitter(const std::string& name, ISvcLocator* svcLoc) : 
         MultiTransformer ( name, svcLoc,
             {   
                 
@@ -166,8 +166,8 @@ struct testFunctional final :
         fieldManager->init(m_genfitField);
 
         m_geoMaterial=GenfitMaterialInterface::getInstance(m_detector);
-        m_geoMaterial->setMinSafetyDistanceCut(m_extMinDistCut);
-        m_geoMaterial->setSkipWireMaterial(m_skipWireMaterial);
+        // m_geoMaterial->setMinSafetyDistanceCut(m_extMinDistCut);
+        // m_geoMaterial->setSkipWireMaterial(m_skipWireMaterial);
 
         
         genfit::MaterialEffects::getInstance()->setEnergyLossBrems(false);
@@ -243,9 +243,6 @@ struct testFunctional final :
                                                         const podio::UserDataCollection<int>& MCparticleIndex) const override                                                 
     {
         
-
-        info() << "Event number: " << index_counter++ << endmsg;
-
         extension::TrackCollection FittedTracks_electron;
         extension::TrackCollection FittedTracks_positron;
         extension::TrackCollection FittedTracks_muon;
@@ -257,7 +254,23 @@ struct testFunctional final :
         extension::TrackCollection FittedTracks_proton;
         extension::TrackCollection FittedTracks_antiproton;
 
+        info() << "Event number: " << index_counter++ << endmsg;
+        // if (index_counter != 15)
+        // {
+            
+        //     return std::make_tuple( std::move(FittedTracks_electron),
+        //                         std::move(FittedTracks_positron),
+        //                         std::move(FittedTracks_muon),
+        //                         std::move(FittedTracks_antimuon),
+        //                         std::move(FittedTracks_pion),
+        //                         std::move(FittedTracks_antipion),
+        //                         std::move(FittedTracks_kaon),
+        //                         std::move(FittedTracks_antikaon),
+        //                         std::move(FittedTracks_proton),
+        //                         std::move(FittedTracks_antiproton));
+        // }
 
+        
         // Loop over the extension::tracks
         int track_idx = 0;
         for (const auto& track : tracks_input)
@@ -270,13 +283,6 @@ struct testFunctional final :
             auto pt = mom.Pt();
             auto costheta = mom.CosTheta();
             auto phi = mom.Phi();
-                
-            debug() << "True pdg: " << particle.getPDG() << endmsg;
-            debug() << "True Momentum: [" << mom.X() << " " << mom.Y() << " " << mom.Z() << " ]-> " << mom.Mag() << endmsg;
-            debug() << "True pt: " << pt << endmsg;
-            debug() << "True cos(theta): " << costheta << endmsg;
-            debug() << "True phi: " << phi << endmsg;
-            debug() << "" << endmsg;
 
             track_idx += 1;
 
@@ -307,6 +313,14 @@ struct testFunctional final :
                     double genfit_chi2_ndf_val = (genfit_ndf_val > 0 ? genfit_chi2_val / genfit_ndf_val : -1);
 
                     auto genfit_hits_in_track = edm4hep_track.getTrackerHits();
+
+                    debug() << "True pdg: " << particle.getPDG() << endmsg;
+                    debug() << "True Momentum: [" << mom.X() << " " << mom.Y() << " " << mom.Z() << " ]-> " << mom.Mag() << endmsg;
+                    debug() << "True pt: " << pt << endmsg;
+                    debug() << "True cos(theta): " << costheta << endmsg;
+                    debug() << "True phi: " << phi << endmsg;
+                    debug() << "" << endmsg;
+                    
                     debug() << "GENFIT PDG: " << pdgCode << endmsg;
                     debug() << "GENFIT Omega: " << genfit_omega << endmsg;
                     debug() << "GENFIT Phi: " << genfit_phi_val << endmsg;
@@ -320,10 +334,11 @@ struct testFunctional final :
                     debug() << "Number of hits in GENFIT track: " << genfit_hits_in_track.size() << endmsg;
                     debug() << "" << endmsg;
 
+                    /////// TrackState at Calorimeter
 		            int charge = getHypotesisCharge(pdgCode);
-                    // TrackState at Calorimeter
+                   
+                    // Retrieve the last hit TrackState
                     auto trackStateLastHit = edm4hep_track.getTrackStates()[2];
-
                     double omega_lastHit = trackStateLastHit.omega;
                     double pt_lasthit = a * m_Bz / abs(omega_lastHit);
                     double phi_lasthit = trackStateLastHit.phi;
@@ -534,9 +549,9 @@ struct testFunctional final :
             debug() << "----------------\n" << endmsg;
         }
 
-        debug() << "----------------" << endmsg;
-        debug() << "Number of failed tracks: " << number_failures << endmsg;
-        debug() << "----------------\n" << endmsg;
+        // debug() << "----------------" << endmsg;
+        // debug() << "Number of failed tracks: " << number_failures << endmsg;
+        // debug() << "----------------\n" << endmsg;
         
         return std::make_tuple( std::move(FittedTracks_electron),
                                 std::move(FittedTracks_positron),
@@ -576,7 +591,7 @@ struct testFunctional final :
         dd4hep::DDSegmentation::BitFieldCoder* dc_decoder;
 
         Gaudi::Property<double> m_Beta_init{this, "Beta_init", 100, "Beta Initial value"};
-        Gaudi::Property<double> m_Beta_final{this, "Beta_final", 10, "Beta Final value"};
+        Gaudi::Property<double> m_Beta_final{this, "Beta_final", 0.1, "Beta Final value"};
         Gaudi::Property<int> m_Beta_steps{this, "Beta_steps", 10, "Beta number of Steps"};
 
         double c_light = 2.99792458e8;
@@ -597,4 +612,4 @@ struct testFunctional final :
 
 };
 
-DECLARE_COMPONENT(testFunctional)
+DECLARE_COMPONENT(GenfitTrackFitter)

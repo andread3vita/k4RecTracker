@@ -40,15 +40,15 @@ namespace GENFIT {
         TVector3 u_(u[0],u[1],u[2]);
         TVector3 v_(v[0],v[1],v[2]);
 
-        // std::cout << "rawHitCoords: " << rawHitCoords[0] << "," << rawHitCoords[1] << std::endl;
-        // std::cout << "rawHitCov: " << std::pow(dd4hep::mm * sigma_u, 2) << "," << std::pow(dd4hep::mm * sigma_v, 2) << std::endl;
-        // std::cout << "detId: " << det_idx << std::endl;
-        // std::cout << "hitID: " << hit_idx << std::endl;
-        // std::cout << "O: " << origin[0] <<" , " << origin[1] <<" , " << origin[2] << std::endl;
-        // std::cout << "U: " << u[0] <<" , " << u[1] <<" , " << u[2] << std::endl;
-        // std::cout << "V: " << v[0] <<" , " << v[1] <<" , " << v[2] << std::endl;
-        // std::cout << "PlaneID: " << cellID0 << std::endl;
-        // std::cout << "" << std::endl;
+        std::cout << "rawHitCoords: " << rawHitCoords[0] << "," << rawHitCoords[1] << std::endl;
+        std::cout << "rawHitCov: " << std::pow(dd4hep::mm * sigma_u, 2) << "," << std::pow(dd4hep::mm * sigma_v, 2) << std::endl;
+        std::cout << "detId: " << det_idx << std::endl;
+        std::cout << "hitID: " << hit_idx << std::endl;
+        std::cout << "O: " << origin[0] <<" , " << origin[1] <<" , " << origin[2] << std::endl;
+        std::cout << "U: " << u[0] <<" , " << u[1] <<" , " << u[2] << std::endl;
+        std::cout << "V: " << v[0] <<" , " << v[1] <<" , " << v[2] << std::endl;
+        std::cout << "PlaneID: " << cellID0 << std::endl;
+        std::cout << "" << std::endl;
 
         // double lengthU = surf->length_along_u();
         // double lengthV = surf->length_along_v();

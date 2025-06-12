@@ -4,7 +4,7 @@
 namespace GENFIT {
 
 // Constructor implementation
-Wire_measurement::Wire_measurement(const extension::SenseWireHit& hit, const dd4hep::rec::DCH_info* dch_info, const dd4hep::DDSegmentation::BitFieldCoder* decoder,const int det_idx, const int hit_idx) {
+Wire_measurement::Wire_measurement(const extension::SenseWireHit& hit, const dd4hep::rec::DCH_info* dch_info, const dd4hep::DDSegmentation::BitFieldCoder* decoder,const int det_idx, const int hit_idx, const int debug_lvl=0) {
     
 
     int cellid = hit.getCellID();
@@ -24,22 +24,6 @@ Wire_measurement::Wire_measurement(const extension::SenseWireHit& hit, const dd4
     TVector3 direction(0,0,1);
     direction.RotateX(wireStereoAngle);
     direction.RotateZ(wireAzimuthalAngle);
-
-    // float d_x = direction.x();
-    // float d_y =  direction.y();
-    // float d_z =  direction.z();
-
-    // // wire extremities (   e.g. w1_x = x_0 + [(w1_z - z_0)/d_z]*d_x   )
-
-    // float w1_z = -200.;                                         // cm          
-    // float t1 = (w1_z - position.z())/d_z;            
-    // float w1_x = position.x() + d_x * t1;                       // cm
-    // float w1_y = position.y() + d_y * t1;                       // cm
-
-    // float w2_z = 200.;                                          // cm                  
-    // float t2 = (w2_z - position.z())/d_z;                        
-    // float w2_x = position.x() + d_x * t2;                       // cm
-    // float w2_y = position.y() + d_y * t2;                       // cm
 
     auto& l = dch_info->database.at(ilayer);
     int    stereosign = l.StereoSign();
@@ -152,16 +136,23 @@ Wire_measurement::Wire_measurement(const extension::SenseWireHit& hit, const dd4
 
     rawHitCov(6, 7) = 0;                                // Covariance between Rdrift and zreco
     
-    // std::cout << "rawHitCoords = [ ";
-    // for (int i = 0; i < rawHitCoords.GetNrows(); ++i) {
-    //     std::cout << rawHitCoords[i] << " ,";
-    // }
-    // std::cout << "]" << std::endl;    
-    // std::cout << "rawHitCov(6, 6): " << Rdrift_sigma * Rdrift_sigma << std::endl;
-    // std::cout << "rawHitCov(7, 7): " << zreco_sigma * zreco_sigma << std::endl;
-    // std::cout << "detID: " << det_idx << std::endl;
-    // std::cout << "hitID: " << hit_idx << std::endl;
-    // std::cout << "" << std::endl;
+    if (debug_lvl > 0) {
+        std::cout << "Wire measurement created with the following parameters:" << std::endl;
+
+        
+        std::cout << "rawHitCoords = [ ";
+        for (int i = 0; i < rawHitCoords.GetNrows(); ++i) {
+            std::cout << rawHitCoords[i] << " ,";
+        }
+        std::cout << "]" << std::endl;    
+        std::cout << "rawHitCov(6, 6): " << Rdrift_sigma * Rdrift_sigma << std::endl;
+        std::cout << "rawHitCov(7, 7): " << zreco_sigma * zreco_sigma << std::endl;
+        std::cout << "detID: " << det_idx << std::endl;
+        std::cout << "hitID: " << hit_idx << std::endl;
+        std::cout << "" << std::endl;
+    }
+
+    // create measurement
     genfitHit_ = new genfit::WirePointMeasurement(rawHitCoords, rawHitCov, det_idx, hit_idx, nullptr);
 
 }
@@ -174,12 +165,13 @@ genfit::WirePointMeasurement* Wire_measurement::getGenFit() const {
 } // namespace GENFIT
 
 
-// #include "DC_measurement.hpp"
+// #include "Wire_measurement.hpp"
 // #include "TDecompSVD.h"
 
 // namespace GENFIT {
 
-// DC_measurement::DC_measurement(const extension::SenseWireHit& hit, const dd4hep::rec::DCH_info* dch_info, const dd4hep::DDSegmentation::BitFieldCoder* decoder,const int det_idx, const int hit_idx) {
+// // Constructor implementation
+// Wire_measurement::Wire_measurement(const extension::SenseWireHit& hit, const dd4hep::rec::DCH_info* dch_info, const dd4hep::DDSegmentation::BitFieldCoder* decoder,const int det_idx, const int hit_idx, const int debug_lvl=0) {
     
 
 //     int cellid = hit.getCellID();
@@ -188,6 +180,10 @@ genfit::WirePointMeasurement* Wire_measurement::getGenFit() const {
 
 //     float wireStereoAngle = hit.getWireStereoAngle();
 //     float wireAzimuthalAngle = hit.getWireAzimuthalAngle();
+//     auto pos = hit.getPosition();
+//     TVector3 position(pos.x * dd4hep::mm, pos.y * dd4hep::mm, pos.z * dd4hep::mm);
+
+//     double positionAlongWireError = hit.getPositionAlongWireError() * dd4hep::mm; // cm
 //     float distanceToWire = hit.getDistanceToWire() * dd4hep::mm; // cm
 //     float distanceToWireError = hit.getDistanceToWireError() * dd4hep::mm; // cm
 
@@ -227,23 +223,12 @@ genfit::WirePointMeasurement* Wire_measurement::getGenFit() const {
 //     //Rdrift
 //     double Rdrift = distanceToWire;    // cm
 //     double Rdrift_sigma = distanceToWireError;  // cm
-//     TVector3 endPoint1 = p1;
-//     TVector3 endPoint2 = p2;
-    
-//     std::cout << "Rdrift: " << Rdrift << std::endl;
-//     std::cout << "Rdrift_sigma: " << Rdrift_sigma << std::endl;
-//     std::cout << "endPoint1: " << endPoint1.X() << " " << endPoint1.Y() << " " << endPoint1.Z() << std::endl;
-//     std::cout << "endPoint2: " << endPoint2.X() << " " << endPoint2.Y() << " " << endPoint2.Z() << std::endl;
-//     std::cout << "detID: " << det_idx << std::endl;
-//     std::cout << "hitID: " << hit_idx << std::endl;
-//     std::cout << "" << std::endl;
-
-//     genfitHit_ = new genfit::WireMeasurementNew(Rdrift, Rdrift_sigma, endPoint1, endPoint2, det_idx, hit_idx, nullptr);
+//     genfitHit_ = new genfit::WireMeasurementNew(Rdrift, Rdrift_sigma, p1, p2, det_idx, hit_idx, nullptr);
 
 // }
 
 // // Get implementation
-// genfit::WireMeasurementNew* DC_measurement::getGenFit() const {
+// genfit::WireMeasurementNew* Wire_measurement::getGenFit() const {
 //     return genfitHit_;
 // }
 

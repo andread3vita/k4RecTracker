@@ -98,15 +98,15 @@ namespace GENFIT {
         //     std::exit(EXIT_FAILURE);
         // }
 
-        if (!genfit::FieldManager::getInstance()->isInitialized()) {
-            std::cerr << "Error: FieldManager is not initialized!" << std::endl;
-            std::exit(EXIT_FAILURE);
-        }
+        // if (!genfit::FieldManager::getInstance()->isInitialized()) {
+        //     std::cerr << "Error: FieldManager is not initialized!" << std::endl;
+        //     std::exit(EXIT_FAILURE);
+        // }
 
-        if (!genfit::MaterialEffects::getInstance()->isInitialized()) {
-            std::cerr << "Error: MaterialEffects is not initialized!" << std::endl;
-            std::exit(EXIT_FAILURE);
-        }
+        // if (!genfit::MaterialEffects::getInstance()->isInitialized()) {
+        //     std::cerr << "Error: MaterialEffects is not initialized!" << std::endl;
+        //     std::exit(EXIT_FAILURE);
+        // }
     }
 
     void IDEAtrack::init(const extension::Track& track_init) {
@@ -150,8 +150,8 @@ namespace GENFIT {
         _posInit = first_hit;
         _momInit = (second_hit - first_hit).Unit();
 
-        // _posInit.Print();
-        // _momInit.Print();
+        _posInit.Print();
+        _momInit.Print();
 
     }
 

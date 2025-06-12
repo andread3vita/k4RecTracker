@@ -82,7 +82,7 @@ public:
     void checkInitialization();
     void init(const extension::Track& track_init);
 
-    void createGenFitTrack();
+    void createGenFitTrack(int debug_lvl);
     bool fit(double Beta_init, double Beta_final, double Beta_steps);
 
     genfit::Track* getTrack_genfit() { return genfitTrack_; }

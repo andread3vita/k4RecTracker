@@ -4,7 +4,7 @@
 
 namespace GENFIT {
 
-    Planar_measurement::Planar_measurement(const edm4hep::TrackerHitPlane& hit, const int det_idx, const int hit_idx) {
+    Planar_measurement::Planar_measurement(const edm4hep::TrackerHitPlane& hit, const int det_idx, const int hit_idx, const int debug_lvl=0) {
 
         auto cellID0 = hit.getCellID();
         
@@ -12,7 +12,7 @@ namespace GENFIT {
         // convert 3D global position to 2D local position
         auto pos_hit = hit.getPosition();                                                                           // mm
         dd4hep::rec::Vector3D global_pos(dd4hep::mm * pos_hit.x,dd4hep::mm * pos_hit.y,dd4hep::mm * pos_hit.z);     // cm
-        dd4hep::rec::Vector2D local_pos(0.,0.);                                                                  // cm
+        dd4hep::rec::Vector2D local_pos(0.,0.);                                                                     // cm
         dd4hep::rec::Vector3D origin = global_pos;
 
         auto U_theta = hit.getU()[0];
@@ -38,6 +38,21 @@ namespace GENFIT {
         
         // create measurement 
         genfitHit_ = new genfit::PlanarMeasurement(rawHitCoords, rawHitCov, det_idx, hit_idx, nullptr);
+
+        if (debug_lvl > 0) {
+            std::cout << "Planar measurement created with the following parameters:" << std::endl;
+
+            std::cout << "rawHitCoords: " << rawHitCoords[0] << "," << rawHitCoords[1] << std::endl;
+            std::cout << "rawHitCov: " << std::pow(dd4hep::mm * sigma_u, 2) << "," << std::pow(dd4hep::mm * sigma_v, 2) << std::endl;
+            std::cout << "detId: " << det_idx << std::endl;
+            std::cout << "hitID: " << hit_idx << std::endl;
+            std::cout << "O: " << origin[0] <<" , " << origin[1] <<" , " << origin[2] << std::endl;
+            std::cout << "U: " << u[0] <<" , " << u[1] <<" , " << u[2] << std::endl;
+            std::cout << "V: " << v[0] <<" , " << v[1] <<" , " << v[2] << std::endl;
+            std::cout << "PlaneID: " << cellID0 << std::endl;
+            std::cout << "" << std::endl;
+        }
+        
 
         // add plane
         TVector3 o(origin[0],origin[1],origin[2]); // cm

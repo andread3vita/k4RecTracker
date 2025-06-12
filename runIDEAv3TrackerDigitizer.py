@@ -21,6 +21,32 @@ args = parser.parse_args()
 svc = IOSvc("IOSvc")
 svc.Input = args.inputFile
 svc.Output = args.outputFile
+svc.outputCommands = [
+    "drop *",
+    "keep VTXBDigis",
+    "keep VTXBSimDigiLinks",
+    "keep VertexBarrelCollection",
+    
+    
+    "keep VTXDDigis",
+    "keep VTXDSimDigiLinks",
+    "keep VertexEndcapCollection",
+    
+    "keep SiWrBDigis",
+    "keep SiWrBSimDigiLinks",
+    "keep SiWrBCollection",
+    
+    "keep SiWrDDigis",
+    "keep SiWrDSimDigiLinks",
+    "keep SiWrDCollection",
+    
+    "keep DCH_DigiCollection",
+    "keep DCH_DigiSimAssociationCollection",
+    "keep DCHCollection",
+    
+    "keep MCParticles"
+]
+
 
 ################ Detector geometry
 geoservice = GeoSvc("GeoSvc")

@@ -3,7 +3,7 @@
 # Script to setup key4hep nightly envrionment that allows to use (py)torch, onnx and Marlin
 # together with DD4hep.
 
-source /cvmfs/sw-nightlies.hsf.org/key4hep/setup.sh -r 2025-04-26
+source /cvmfs/sw-nightlies.hsf.org/key4hep/setup.sh -r 2025-05-15
 # source /cvmfs/sw.hsf.org/key4hep/setup.sh 
 
 TORCH_PATH=$(dirname $(python -c 'import torch; print(f"{torch.__file__}")'))

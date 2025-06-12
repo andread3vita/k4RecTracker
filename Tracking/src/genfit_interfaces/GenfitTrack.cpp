@@ -24,24 +24,24 @@ namespace GENFIT {
 
     void GenfitTrack::checkInitialization() {
 
-        if (!genfit::FieldManager::getInstance()->isInitialized()) {
-            std::cerr << "Error: FieldManager is not initialized!" << std::endl;
-            std::exit(EXIT_FAILURE);
-        }
+        // if (!genfit::FieldManager::getInstance()->isInitialized()) {
+        //     std::cerr << "Error: FieldManager is not initialized!" << std::endl;
+        //     std::exit(EXIT_FAILURE);
+        // }
 
-        if (!genfit::MaterialEffects::getInstance()->isInitialized()) {
-            std::cerr << "Error: MaterialEffects is not initialized!" << std::endl;
-            std::exit(EXIT_FAILURE);
-        }
+        // if (!genfit::MaterialEffects::getInstance()->isInitialized()) {
+        //     std::cerr << "Error: MaterialEffects is not initialized!" << std::endl;
+        //     std::exit(EXIT_FAILURE);
+        // }
     }
 
     void GenfitTrack::init(const extension::Track& track_init) {
 
-        // Check if the track is empty
-        if (track_init.getTrackerHits().empty()) {
-            std::cerr << "Error: Track has no hits!" << std::endl;
-            std::exit(EXIT_FAILURE);
-        }
+        // // Check if the track is empty
+        // if (track_init.getTrackerHits().empty()) {
+        //     std::cerr << "Error: Track has no hits!" << std::endl;
+        //     std::exit(EXIT_FAILURE);
+        // }
 
         // Initialize the edm4hepTrack_
         edm4hepTrack_ = extension::MutableTrack();
@@ -91,9 +91,12 @@ namespace GENFIT {
         _posInit = first_hit;
         _momInit = (second_hit - first_hit).Unit();
 
+        // _posInit.Print();
+        // _momInit.Print();
+
     }
 
-    void GenfitTrack::createGenFitTrack() {
+    void GenfitTrack::createGenFitTrack(int debug_lvl = 0) {
 
         delete genfitTrackRep_;
         delete genfitTrack_;
@@ -126,14 +129,14 @@ namespace GENFIT {
             {
                
                 auto planar_hit =  hit.as<edm4hep::TrackerHitPlane>();
-                GENFIT::Planar_measurement measurement = GENFIT::Planar_measurement(planar_hit,detID,++hit_idx);
+                GENFIT::Planar_measurement measurement = GENFIT::Planar_measurement(planar_hit,detID,++hit_idx,debug_lvl);
                 genfitTrack_->insertPoint(new genfit::TrackPoint(measurement.getGenFit(), genfitTrack_));
                 
             }
             else if (hit.isA<extension::SenseWireHit>()) {
 
                 auto wire_hit =  hit.as<extension::SenseWireHit>();
-                GENFIT::Wire_measurement measurement = GENFIT::Wire_measurement(wire_hit,_dch_info,_dc_decoder,detID,++hit_idx);
+                GENFIT::Wire_measurement measurement = GENFIT::Wire_measurement(wire_hit,_dch_info,_dc_decoder,detID,++hit_idx,debug_lvl);
                 genfitTrack_->insertPoint(new genfit::TrackPoint(measurement.getGenFit(), genfitTrack_));
                 
                         
@@ -169,6 +172,7 @@ namespace GENFIT {
             // Process forward fit
             genfit::Track forwardTrack = *genfitTrack_;
             genfitFitter_->processTrack(&forwardTrack);
+            
 
             genfit::AbsTrackRep* forwardRep = forwardTrack.getTrackRep(0);
             if (!genfitFitter_->isTrackFitted(&forwardTrack, forwardRep)) {
