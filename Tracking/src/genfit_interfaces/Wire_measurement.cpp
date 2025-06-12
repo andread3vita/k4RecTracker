@@ -20,7 +20,7 @@ Wire_measurement::Wire_measurement(const extension::SenseWireHit& hit, const dd4
     float distanceToWire = hit.getDistanceToWire() * dd4hep::mm; // cm
     float distanceToWireError = hit.getDistanceToWireError() * dd4hep::mm; // cm
 
-    // // Wire direction
+    // Wire direction
     TVector3 direction(0,0,1);
     direction.RotateX(wireStereoAngle);
     direction.RotateZ(wireAzimuthalAngle);

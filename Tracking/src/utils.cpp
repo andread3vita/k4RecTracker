@@ -134,7 +134,6 @@ edm4hep::TrackState extrapolateToCalorimeter(   double posAtLastHit[3],
                         
     // First project to endcap
     pandora::CartesianVector endCapProjection(0.f, 0.f, 0.f);
-    bool hasEndCapProjection(false);
     if (m_eCalEndCapInnerR>0) {
       float genericTime(std::numeric_limits<float>::max());
       const pandora::StatusCode statusCode(helix.GetPointInZ(static_cast<float>(signPz) * m_eCalEndCapInnerZ, referencePoint, endCapProjection, genericTime));
@@ -149,7 +148,7 @@ edm4hep::TrackState extrapolateToCalorimeter(   double posAtLastHit[3],
       ) {
           minGenericTime = genericTime;
           bestECalProjection = endCapProjection;
-          hasEndCapProjection = true;
+        
         }
     }
                                     
@@ -157,14 +156,13 @@ edm4hep::TrackState extrapolateToCalorimeter(   double posAtLastHit[3],
     // Then project to barrel surface(s), and keep projection
     // if extrapolation is within the z acceptance of the detector
     pandora::CartesianVector barrelProjection(0.f, 0.f, 0.f);
-    bool hasBarrelProjection = false;
+    
     if (m_eCalBarrelInnerR>0) {
 
       float genericTime(std::numeric_limits<float>::max());
       const pandora::StatusCode statusCode(helix.GetPointOnCircle(m_eCalBarrelInnerR, referencePoint, barrelProjection, genericTime));
                             
       if ((pandora::STATUS_CODE_SUCCESS == statusCode) && (std::fabs(barrelProjection.GetZ())<= m_eCalBarrelMaxZ)) {
-        hasBarrelProjection = true;
         if (genericTime < minGenericTime) {
           minGenericTime = genericTime;
           secondBestECalProjection = bestECalProjection;
@@ -197,4 +195,53 @@ edm4hep::TrackState extrapolateToCalorimeter(   double posAtLastHit[3],
     std::exit(EXIT_FAILURE);
   }                                  
 
+}
+
+torch::Tensor find_condpoints(torch::Tensor betas, torch::Tensor unassigned, float tbeta) {
+    int n_points = unassigned.size(0);
+    int size_b = betas.size(0);
+    auto select_condpoints = betas.gt(tbeta);
+    auto mask_unassigned = torch::zeros({size_b}, torch::dtype(torch::kBool));
+    for (int i = 0; i < n_points-1; ++i) {
+        auto ii = unassigned.index({i});
+        mask_unassigned.index_put_({ii.squeeze()}, true);
+    }
+    select_condpoints = mask_unassigned * select_condpoints;
+    auto indices_condpoints = select_condpoints.nonzero();
+    auto betas_condpoints = -betas.index({indices_condpoints});
+    auto sorted_indices = torch::argsort(betas_condpoints, /*dim=*/0, /*descending=*/false);
+    indices_condpoints = indices_condpoints.index({sorted_indices});
+    return indices_condpoints;
+}
+
+// Main clustering function
+torch::Tensor get_clustering(std::vector<float> output_vector, int64_t num_rows,  float tbeta, float td) {
+
+    torch::Tensor output_model_tensor = torch::from_blob(output_vector.data(), {num_rows,4}, torch::kFloat32);
+    auto rows_output_model = torch::arange(0, output_model_tensor.size(0), torch::kLong);
+    auto coord_ind_output_model = torch::arange(0, 3, torch::kLong);
+    auto betas = output_model_tensor.index({rows_output_model,3});
+    auto X = output_model_tensor.index({torch::indexing::Slice(), torch::indexing::Slice(0, 3)});
+    int n_points = betas.size(0);
+    auto select_condpoints = betas.gt(tbeta);
+    auto indices_condpoints = find_condpoints(betas, torch::arange(n_points), tbeta);
+    
+    auto clustering = torch::zeros({n_points}, torch::kLong);
+    int index_assignation = 1;
+    auto unassigned = torch::arange(n_points);
+    while (indices_condpoints.size(0) > 0 && unassigned.size(0) > 0) {
+        auto index_condpoint = indices_condpoints.index({0});
+        auto d = (X.index({unassigned}) - X.index({index_condpoint})).norm(2, -1).squeeze();
+        auto mask_distance = d.lt(td);
+        auto  mask_distance_ind = mask_distance.nonzero();
+        auto assigned_to_this_condpoint = unassigned.index({mask_distance_ind});
+        clustering.index_put_({assigned_to_this_condpoint}, index_assignation);
+        auto mask_distance_out = d.ge(td);
+        auto  mask_distance_ind_out = mask_distance_out.squeeze(0).nonzero();
+        unassigned = unassigned.index({mask_distance_ind_out});
+        indices_condpoints = find_condpoints(betas, unassigned, tbeta);
+        index_assignation += 1;
+    }
+    
+    return clustering;
 }

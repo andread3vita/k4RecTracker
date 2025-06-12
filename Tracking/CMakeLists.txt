@@ -18,12 +18,14 @@ file(GLOB sources
     ${PROJECT_SOURCE_DIR}/src/*.cpp
     ${PROJECT_SOURCE_DIR}/components/*.cpp
     ${PROJECT_SOURCE_DIR}/src/genfit_interfaces/*.cpp
+    ${PROJECT_SOURCE_DIR}/src/onnx_helpers/*.cpp
 )
 
 
 file(GLOB headers
-  ${PROJECT_SOURCE_DIR}/include/*.h
+  ${PROJECT_SOURCE_DIR}/include/*.hpp
   ${PROJECT_SOURCE_DIR}/include/genfit_interfaces/*.hpp
+  ${PROJECT_SOURCE_DIR}/include/onnx_helpers/*.hpp
 )
 
 set(CMAKE_REQUIRED_LIBRARIES DD4hep::DDRec)

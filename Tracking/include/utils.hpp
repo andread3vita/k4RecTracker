@@ -21,7 +21,7 @@
 //=== Others ===
 #include <marlinutil/HelixClass_double.h>
 #include <Objects/Helix.h>
-
+#include <torch/torch.h>
 
 dd4hep::rec::LayeredCalorimeterData * getExtension(unsigned int includeFlag, unsigned int excludeFlag);
 
@@ -39,6 +39,10 @@ edm4hep::TrackState extrapolateToCalorimeter(   double posAtLastHit[3],
                                                 double m_eCalEndCapOuterZ,
                                                 double Bz,
                                                 double charge);
+
+torch::Tensor find_condpoints(torch::Tensor betas, torch::Tensor unassigned, float tbeta);
+
+torch::Tensor get_clustering(std::vector<float> output_vector, int64_t num_rows,  float tbeta, float td);
 
 
 #endif // UTILS_HPP
