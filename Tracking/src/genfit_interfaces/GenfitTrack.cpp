@@ -38,16 +38,8 @@ namespace GENFIT {
 
     void GenfitTrack::init(const extension::Track& track_init) {
 
-        // // Check if the track is empty
-        // if (track_init.getTrackerHits().empty()) {
-        //     std::cerr << "Error: Track has no hits!" << std::endl;
-        //     std::exit(EXIT_FAILURE);
-        // }
-
         // Initialize the edm4hepTrack_
         edm4hepTrack_ = extension::MutableTrack();
-
-
 
         // Sort the hits by distance from the origin
         std::vector<std::pair<float, int>> hitDistIndices{};
@@ -102,8 +94,33 @@ namespace GENFIT {
         delete genfitTrackRep_;
         delete genfitTrack_;
 
+        // Create covState ( 1 GeV + 10 cm )      
+        TMatrixDSym covState(6);
+        covState.Zero();  
+
+        for (int i = 0; i < 3; ++i) {
+            covState(i,i) = 100.;  // (10 cm)^2
+        }
+        for (int i = 3; i < 6; ++i) {
+            covState(i,i) = 1.;  // (1 GeV)^2
+        }
+
+        // Create stateVec
+        TVectorD stateVec(6);
+        
+        // pos
+        stateVec[0] = _posInit.X();
+        stateVec[1] = _posInit.Y();
+        stateVec[2] = _posInit.Z();
+
+        // mom
+        stateVec[3] = _momInit.X();
+        stateVec[4] = _momInit.Y();
+        stateVec[5] = _momInit.Z();
+
+
         genfitTrackRep_ = new genfit::RKTrackRep(_particle_hypothesis);
-        genfitTrack_ = new genfit::Track(genfitTrackRep_, _posInit, _momInit);
+        genfitTrack_ = new genfit::Track(genfitTrackRep_, stateVec, covState);
                 
         auto hits_for_genfit = edm4hepTrack_.getTrackerHits();
 

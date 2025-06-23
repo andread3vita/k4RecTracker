@@ -7,7 +7,7 @@ namespace GENFIT {
 Wire_measurement::Wire_measurement(const extension::SenseWireHit& hit, const dd4hep::rec::DCH_info* dch_info, const dd4hep::DDSegmentation::BitFieldCoder* decoder,const int det_idx, const int hit_idx, const int debug_lvl) {
     
 
-    double scalingFactor = 10.0;
+    double scalingFactor = 1.0;
 
     int cellid = hit.getCellID();
     
@@ -27,54 +27,52 @@ Wire_measurement::Wire_measurement(const extension::SenseWireHit& hit, const dd4
 
 
     // wire extremities (   e.g. w1_x = x_0 + [(w1_z - z_0)/d_z]*d_x   )
-    float d_x = direction.x();
-    float d_y =  direction.y();
-    float d_z =  direction.z();
+    // float d_x = direction.x();
+    // float d_y =  direction.y();
+    // float d_z =  direction.z();
 
-    float w1_z = -200.;                                         // cm          
-    float t1 = (w1_z - position.z())/d_z;            
-    float w1_x = position.x() + d_x * t1;                       // cm
-    float w1_y = position.y() + d_y * t1;                       // cm
+    // float w1_z = -200.;                                         // cm          
+    // float t1 = (w1_z - position.z())/d_z;            
+    // float w1_x = position.x() + d_x * t1;                       // cm
+    // float w1_y = position.y() + d_y * t1;                       // cm
 
-    float w2_z = 200.;                                          // cm                  
-    float t2 = (w2_z - position.z())/d_z;                        
-    float w2_x = position.x() + d_x * t2;                       // cm
-    float w2_y = position.y() + d_y * t2;                       // cm
-
-
-    TVector3 p1(w1_x,w1_y,w1_z);  // wire1 extremity
-    TVector3 p2(w2_x,w2_y,w2_z);  // wire2 extremity
+    // float w2_z = 200.;                                          // cm                  
+    // float t2 = (w2_z - position.z())/d_z;                        
+    // float w2_x = position.x() + d_x * t2;                       // cm
+    // float w2_y = position.y() + d_y * t2;                       // cm
 
 
-    // int ilayer = dch_info->CalculateILayerFromCellIDFields(decoder->get(cellid, "layer"), decoder->get(cellid, "superlayer"));
-    // int nphi = decoder->get(cellid, "nphi");
-    // auto& l = dch_info->database.at(ilayer);
-    // int    stereosign = l.StereoSign();
-    // double rz0        = l.radius_sw_z0;
-    // double dphi       = dch_info->twist_angle;
-    // double kappa = (1. / dch_info->Lhalf) * tan(dphi / 2);
+    // TVector3 p1(w1_x,w1_y,w1_z);  // wire1 extremity
+    // TVector3 p2(w2_x,w2_y,w2_z);  // wire2 extremity
+
+
+    int ilayer = dch_info->CalculateILayerFromCellIDFields(decoder->get(cellid, "layer"), decoder->get(cellid, "superlayer"));
+    int nphi = decoder->get(cellid, "nphi");
+    auto& l = dch_info->database.at(ilayer);
+    int    stereosign = l.StereoSign();
+    double rz0        = l.radius_sw_z0;
+    double dphi       = dch_info->twist_angle;
+    double kappa = (1. / dch_info->Lhalf) * tan(dphi / 2);
     
-    // //--- calculating wire position
-    // // the points p1 and p2 correspond to the ends of the wire
+    //--- calculating wire position
+    // the points p1 and p2 correspond to the ends of the wire
     
-    // // point 1
-    // double x1 = rz0;                                          // cm
-    // double y1 = -stereosign * rz0 * kappa * dch_info->Lhalf;  // cm
-    // double z1 = -dch_info->Lhalf;                             // cm
+    // point 1
+    double x1 = rz0;                                          // cm
+    double y1 = -stereosign * rz0 * kappa * dch_info->Lhalf;  // cm
+    double z1 = -dch_info->Lhalf;                             // cm
+    TVector3 p1(x1, y1, z1);
     
-    // TVector3 p1(x1, y1, z1);
+    // point 2
+    double x2 = rz0;                                         // cm
+    double y2 = stereosign * rz0 * kappa * dch_info->Lhalf;  // cm
+    double z2 = dch_info->Lhalf;                             // cm
+    TVector3 p2(x2, y2, z2);
     
-    // // point 2
-    // double x2 = rz0;                                         // cm
-    // double y2 = stereosign * rz0 * kappa * dch_info->Lhalf;  // cm
-    // double z2 = dch_info->Lhalf;                             // cm
-    
-    // TVector3 p2(x2, y2, z2);
-    
-    // // calculate phi rotation of whole twisted tube, ie, rotation at z=0
-    // double phi_z0 = dch_info->Calculate_wire_phi_z0(ilayer, nphi);
-    // p1.RotateZ(phi_z0);
-    // p2.RotateZ(phi_z0);
+    // calculate phi rotation of whole twisted tube, ie, rotation at z=0
+    double phi_z0 = dch_info->Calculate_wire_phi_z0(ilayer, nphi);
+    p1.RotateZ(phi_z0);
+    p2.RotateZ(phi_z0);
 
 
     //Rdrift
