@@ -6,6 +6,8 @@ namespace GENFIT {
 
     Planar_measurement::Planar_measurement(const edm4hep::TrackerHitPlane& hit, const int det_idx, const int hit_idx, const int debug_lvl=0) {
 
+        double scalingFactor = 1.0;
+
         auto cellID0 = hit.getCellID();
         
                         
@@ -28,8 +30,8 @@ namespace GENFIT {
         rawHitCoords[1] = local_pos[1]; //cm
 
         TMatrixDSym rawHitCov(2);
-        double sigma_u = hit.getDu();                       // mm
-        double sigma_v = hit.getDv();                       // mm 
+        double sigma_u = hit.getDu() * scalingFactor;       // mm
+        double sigma_v = hit.getDv() * scalingFactor;       // mm 
         rawHitCov(0,0) = std::pow(dd4hep::mm * sigma_u, 2); // cm^2
         rawHitCov(0,1) = 0;
         rawHitCov(1,0) = 0;

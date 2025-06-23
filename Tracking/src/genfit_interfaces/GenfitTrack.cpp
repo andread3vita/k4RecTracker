@@ -24,15 +24,16 @@ namespace GENFIT {
 
     void GenfitTrack::checkInitialization() {
 
-        // if (!genfit::FieldManager::getInstance()->isInitialized()) {
-        //     std::cerr << "Error: FieldManager is not initialized!" << std::endl;
-        //     std::exit(EXIT_FAILURE);
-        // }
+        if (!genfit::FieldManager::getInstance()->isInitialized()) {
+            std::cerr << "Error: FieldManager is not initialized!" << std::endl;
+            std::exit(EXIT_FAILURE);
+        }
 
-        // if (!genfit::MaterialEffects::getInstance()->isInitialized()) {
-        //     std::cerr << "Error: MaterialEffects is not initialized!" << std::endl;
-        //     std::exit(EXIT_FAILURE);
-        // }
+        if (!genfit::MaterialEffects::getInstance()->isInitialized()) {
+            std::cerr << "Error: MaterialEffects is not initialized!" << std::endl;
+            std::exit(EXIT_FAILURE);
+        }
+
     }
 
     void GenfitTrack::init(const extension::Track& track_init) {
@@ -96,7 +97,7 @@ namespace GENFIT {
 
     }
 
-    void GenfitTrack::createGenFitTrack(int debug_lvl = 0) {
+    void GenfitTrack::createGenFitTrack(int debug_lvl) {
 
         delete genfitTrackRep_;
         delete genfitTrack_;
@@ -133,15 +134,16 @@ namespace GENFIT {
                 genfitTrack_->insertPoint(new genfit::TrackPoint(measurement.getGenFit(), genfitTrack_));
                 
             }
-            else if (hit.isA<extension::SenseWireHit>()) {
+            else if (hit.isA<extension::SenseWireHit>()) 
+            {
 
                 auto wire_hit =  hit.as<extension::SenseWireHit>();
                 GENFIT::Wire_measurement measurement = GENFIT::Wire_measurement(wire_hit,_dch_info,_dc_decoder,detID,++hit_idx,debug_lvl);
                 genfitTrack_->insertPoint(new genfit::TrackPoint(measurement.getGenFit(), genfitTrack_));
-                
-                        
+                       
             } 
-            else {
+            else 
+            {
 
                 std::cerr << "Error: No hits with cellID: " << cellID0 << std::endl;
                 std::exit(EXIT_FAILURE);
@@ -167,13 +169,15 @@ namespace GENFIT {
             genfit::MaterialEffects::getInstance()->setNoiseBrems(false);
             genfitFitter_->setAnnealingScheme(Beta_init,Beta_final,Beta_steps);
 
+            // genfit::KalmanFitterRefTrack* genfitFitter_ = new genfit::KalmanFitterRefTrack();
+            // genfit::MaterialEffects::getInstance()->setEnergyLossBrems(false);
+            // genfit::MaterialEffects::getInstance()->setNoiseBrems(false);
+           
             // genfitFitter_->setDebugLvl(1);
             
             // Process forward fit
             genfit::Track forwardTrack = *genfitTrack_;
             genfitFitter_->processTrack(&forwardTrack);
-            
-
             genfit::AbsTrackRep* forwardRep = forwardTrack.getTrackRep(0);
             if (!genfitFitter_->isTrackFitted(&forwardTrack, forwardRep)) {
                 return false;
@@ -183,7 +187,6 @@ namespace GENFIT {
             genfit::Track backwardTrack = forwardTrack;
             backwardTrack.reverseTrack();
             genfitFitter_->processTrack(&backwardTrack);
-
             genfit::AbsTrackRep* backwardRep = backwardTrack.getTrackRep(0);
             if (!genfitFitter_->isTrackFitted(&backwardTrack, backwardRep)) {
                 return false;
@@ -230,8 +233,6 @@ namespace GENFIT {
                     omega = -omega;
                 }
                 
-
-
                 trackStateFirstHit.D0 = d0;
                 trackStateFirstHit.Z0 = z0;
                 trackStateFirstHit.phi = phi0;
@@ -326,23 +327,26 @@ namespace GENFIT {
                 if (genfitFitter_->isTrackFitted(&forwardTrack,forwardRep))
                 {
                     
-                    // std::cout << forwardTrack.getFitStatus()->getChi2() << std::endl;
-                    // std::cout << forwardTrack.getFitStatus()->getNdf() << std::endl;
                     edm4hepTrack_.setChi2(forwardTrack.getFitStatus()->getChi2());
                     edm4hepTrack_.setNdf(forwardTrack.getFitStatus()->getNdf());
+
                 }
                 else
                 {
+
                     edm4hepTrack_.setChi2(-1);
                     edm4hepTrack_.setNdf(-1);
+
                 }
 
                 
             }
             else
             {
+
                 edm4hepTrack_.setChi2(-1);
                 edm4hepTrack_.setNdf(-1);
+
             }
 
             return genfitFitter_->isTrackFitted(&forwardTrack,forwardRep);

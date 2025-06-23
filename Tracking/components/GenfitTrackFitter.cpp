@@ -114,18 +114,13 @@
 */
 
 struct GenfitTrackFitter final : 
-        k4FWCore::MultiTransformer< std::tuple<extension::TrackCollection,
-                                        extension::TrackCollection,
-                                        extension::TrackCollection,
-                                        extension::TrackCollection,
-                                        extension::TrackCollection,
-                                        extension::TrackCollection,
-                                        extension::TrackCollection,
-                                        extension::TrackCollection,
-                                        extension::TrackCollection,
-                                        extension::TrackCollection>(const extension::TrackCollection&,
-                                                                    const edm4hep::MCParticleCollection&, 
-                                                                    const podio::UserDataCollection<int>&)>                                                                         
+        k4FWCore::MultiTransformer< std::tuple< extension::TrackCollection,
+                                                extension::TrackCollection,
+                                                extension::TrackCollection,
+                                                extension::TrackCollection,
+                                                extension::TrackCollection>(const extension::TrackCollection&,
+                                                                            const edm4hep::MCParticleCollection&, 
+                                                                            const podio::UserDataCollection<int>&)>                                                                         
 {
     GenfitTrackFitter(const std::string& name, ISvcLocator* svcLoc) : 
         MultiTransformer ( name, svcLoc,
@@ -133,20 +128,15 @@ struct GenfitTrackFitter final :
                 
                 KeyValues("tracks_input", {"tracks_input"}),
                 KeyValues("MCParticles", {"MCParticles"}),
-                KeyValues("MCparticleIndex", {"MCparticleIndex"}),
+                KeyValues("MCparticleIndex", {"MCParticleIndex"}),
                 
             },
             {   
                 KeyValues("Fitted_tracks_electron", {"Fitted_tracks"}),
-                KeyValues("Fitted_tracks_positron", {"Fitted_tracks"}),
                 KeyValues("Fitted_tracks_muon", {"Fitted_tracks"}),
-                KeyValues("Fitted_tracks_antimuon", {"Fitted_tracks"}),
                 KeyValues("Fitted_tracks_pion", {"Fitted_tracks"}),
-                KeyValues("Fitted_tracks_antipion", {"Fitted_tracks"}),
                 KeyValues("Fitted_tracks_kaon", {"Fitted_tracks"}),
-                KeyValues("Fitted_tracks_antikaon", {"Fitted_tracks"}),
-                KeyValues("Fitted_tracks_proton", {"Fitted_tracks"}),
-                KeyValues("Fitted_tracks_antiproton", {"Fitted_tracks"})
+                KeyValues("Fitted_tracks_proton", {"Fitted_tracks"})
             
             }) {}
          
@@ -233,41 +223,26 @@ struct GenfitTrackFitter final :
                 extension::TrackCollection,
                 extension::TrackCollection,
                 extension::TrackCollection,
-                extension::TrackCollection,
-                extension::TrackCollection,
-                extension::TrackCollection,
-                extension::TrackCollection,
-                extension::TrackCollection,
                 extension::TrackCollection> operator()( const extension::TrackCollection& tracks_input,
                                                         const edm4hep::MCParticleCollection& mcParticles,
                                                         const podio::UserDataCollection<int>& MCparticleIndex) const override                                                 
     {
         
         extension::TrackCollection FittedTracks_electron;
-        extension::TrackCollection FittedTracks_positron;
         extension::TrackCollection FittedTracks_muon;
-        extension::TrackCollection FittedTracks_antimuon;
         extension::TrackCollection FittedTracks_pion;
-        extension::TrackCollection FittedTracks_antipion;
         extension::TrackCollection FittedTracks_kaon;
-        extension::TrackCollection FittedTracks_antikaon;
         extension::TrackCollection FittedTracks_proton;
-        extension::TrackCollection FittedTracks_antiproton;
 
         info() << "Event number: " << index_counter++ << endmsg;
-        // if (index_counter != 15)
+        // if (index_counter != 9)
         // {
             
         //     return std::make_tuple( std::move(FittedTracks_electron),
-        //                         std::move(FittedTracks_positron),
-        //                         std::move(FittedTracks_muon),
-        //                         std::move(FittedTracks_antimuon),
-        //                         std::move(FittedTracks_pion),
-        //                         std::move(FittedTracks_antipion),
+        //                         std::move(FittedTracks_muon),          
+        //                         std::move(FittedTracks_pion),                 
         //                         std::move(FittedTracks_kaon),
-        //                         std::move(FittedTracks_antikaon),
-        //                         std::move(FittedTracks_proton),
-        //                         std::move(FittedTracks_antiproton));
+        //                         std::move(FittedTracks_proton));
         // }
 
         
@@ -275,7 +250,7 @@ struct GenfitTrackFitter final :
         int track_idx = 0;
         for (const auto& track : tracks_input)
         {
-            
+            num_tracks+=1;
             auto particle = mcParticles[MCparticleIndex[track_idx]];
 
             auto p = particle.getMomentum();
@@ -310,8 +285,80 @@ struct GenfitTrackFitter final :
 
                     float genfit_chi2_val = edm4hep_track.getChi2();
                     int genfit_ndf_val = edm4hep_track.getNdf();
-                    double genfit_chi2_ndf_val = (genfit_ndf_val > 0 ? genfit_chi2_val / genfit_ndf_val : -1);
 
+
+                    if (genfit_chi2_val <= 0 || genfit_ndf_val <= 0) {
+                        
+                        number_failures++;
+                        if (pdgCode == 11)
+                        {
+                            auto failedTrack = FittedTracks_electron.create();
+                            failedTrack.setChi2(-1);
+                            failedTrack.setNdf(-1);
+                        }
+                        else if (pdgCode == -11)
+                        {
+                            auto failedTrack = FittedTracks_electron.create();
+                            failedTrack.setChi2(-1);
+                            failedTrack.setNdf(-1);
+
+                        }
+                        else if (pdgCode == 13)
+                        {
+                            auto failedTrack = FittedTracks_muon.create();
+                            failedTrack.setChi2(-1);
+                            failedTrack.setNdf(-1);;
+                        }
+                        else if (pdgCode == -13)
+                        {
+                            auto failedTrack = FittedTracks_muon.create();
+                            failedTrack.setChi2(-1);
+                            failedTrack.setNdf(-1);
+                        }
+                        else if (pdgCode == 211)
+                        {
+                            auto failedTrack = FittedTracks_pion.create();
+                            failedTrack.setChi2(-1);
+                            failedTrack.setNdf(-1);
+                        }
+                        else if (pdgCode == -211)
+                        {
+                            auto failedTrack = FittedTracks_pion.create();
+                            failedTrack.setChi2(-1);
+                            failedTrack.setNdf(-1);
+                        }
+                        else if (pdgCode == 321)
+                        {
+                            auto failedTrack = FittedTracks_kaon.create();
+                            failedTrack.setChi2(-1);
+                            failedTrack.setNdf(-1);
+                        }
+                        else if (pdgCode == -321)
+                        {
+                            auto failedTrack = FittedTracks_kaon.create();
+                            failedTrack.setChi2(-1);
+                            failedTrack.setNdf(-1);
+                        }
+                        else if (pdgCode == 2212)
+                        {
+                            auto failedTrack = FittedTracks_proton.create();
+                            failedTrack.setChi2(-1);
+                            failedTrack.setNdf(-1);
+                        }
+                        else if (pdgCode == -2212)
+                        {
+                            auto failedTrack = FittedTracks_proton.create();
+                            failedTrack.setChi2(-1);
+                            failedTrack.setNdf(-1);
+                        }
+                        debug() << "True pdg: " << particle.getPDG() << endmsg;
+                        debug() << "GENFIT PDG: " << pdgCode << endmsg;
+                        debug() << "GENFIT Chi2: " << -1 << " GENFIT NDF: " << -1 << endmsg;   
+                        continue; 
+                    }
+
+
+                    double genfit_chi2_ndf_val = (genfit_ndf_val > 0 ? genfit_chi2_val / genfit_ndf_val : -1);
                     auto genfit_hits_in_track = edm4hep_track.getTrackerHits();
 
                     debug() << "True pdg: " << particle.getPDG() << endmsg;
@@ -336,98 +383,111 @@ struct GenfitTrackFitter final :
 
                     /////// TrackState at Calorimeter
 		            int charge = getHypotesisCharge(pdgCode);
+                    
+                    FillTrackWithCalorimeterExtrapolation(
+                        edm4hep_track,
+                        m_Bz,
+                        charge,
+                        a,
+                        m_eCalBarrelInnerR,
+                        m_eCalBarrelMaxZ,
+                        m_eCalEndCapInnerR,
+                        m_eCalEndCapOuterR,
+                        m_eCalEndCapInnerZ
+                    );
+
                    
-                    // Retrieve the last hit TrackState
-                    auto trackStateLastHit = edm4hep_track.getTrackStates()[2];
-                    double omega_lastHit = trackStateLastHit.omega;
-                    double pt_lasthit = a * m_Bz / abs(omega_lastHit);
-                    double phi_lasthit = trackStateLastHit.phi;
-                    double pz_lasthit = trackStateLastHit.tanLambda * pt_lasthit;
-                    double px_lasthit = pt_lasthit * std::cos(phi_lasthit);
-                    double py_lasthit = pt_lasthit * std::sin(phi_lasthit);
-                    auto ref_lastHit = trackStateLastHit.referencePoint;
+                    // // Retrieve the last hit TrackState
+                    // auto trackStateLastHit = edm4hep_track.getTrackStates()[2];
+                    // double omega_lastHit = trackStateLastHit.omega;
+                    // double pt_lasthit = a * m_Bz / abs(omega_lastHit);
+                    // double phi_lasthit = trackStateLastHit.phi;
+                    // double pz_lasthit = trackStateLastHit.tanLambda * pt_lasthit;
+                    // double px_lasthit = pt_lasthit * std::cos(phi_lasthit);
+                    // double py_lasthit = pt_lasthit * std::sin(phi_lasthit);
+                    // auto ref_lastHit = trackStateLastHit.referencePoint;
 
-                    // produce new helix at last hit position
-                    double posAtLastHit[] = {ref_lastHit[0], ref_lastHit[1], ref_lastHit[2]};
-                    double momAtLastHit[] = {px_lasthit, py_lasthit, pz_lasthit};
-                    auto helixAtLastHit = HelixClass_double();
-                    helixAtLastHit.Initialize_VP(posAtLastHit, momAtLastHit, charge, m_Bz);
+                    // // produce new helix at last hit position
+                    // double posAtLastHit[] = {ref_lastHit[0], ref_lastHit[1], ref_lastHit[2]};
+                    // double momAtLastHit[] = {px_lasthit, py_lasthit, pz_lasthit};
+                    // auto helixAtLastHit = HelixClass_double();
+                    // helixAtLastHit.Initialize_VP(posAtLastHit, momAtLastHit, charge, m_Bz);
 
-                    // Propagation to Endcap
-                    if (m_eCalBarrelInnerR>0. || m_eCalEndCapInnerR>0.) {
+                    // // Propagation to Endcap
+                    // if (m_eCalBarrelInnerR>0. || m_eCalEndCapInnerR>0.) {
 
-                        pandora::CartesianVector bestECalProjection(0.f, 0.f, 0.f);
-                        pandora::CartesianVector secondBestECalProjection(0.f, 0.f, 0.f);
-                        float minGenericTime(std::numeric_limits<float>::max());
+                    //     pandora::CartesianVector bestECalProjection(0.f, 0.f, 0.f);
+                    //     pandora::CartesianVector secondBestECalProjection(0.f, 0.f, 0.f);
+                    //     float minGenericTime(std::numeric_limits<float>::max());
                         
-                        // create helix to project
-                        // rather than using parameters at production, better to use those from
-                        // last hit
-                        pandora::CartesianVector pos_lasthit(posAtLastHit[0], posAtLastHit[1], posAtLastHit[2]);
-                        pandora::CartesianVector mom_lasthit(momAtLastHit[0], momAtLastHit[1], momAtLastHit[2]);
+                    //     // create helix to project
+                    //     // rather than using parameters at production, better to use those from
+                    //     // last hit
+                    //     pandora::CartesianVector pos_lasthit(posAtLastHit[0], posAtLastHit[1], posAtLastHit[2]);
+                    //     pandora::CartesianVector mom_lasthit(momAtLastHit[0], momAtLastHit[1], momAtLastHit[2]);
 
-                        const pandora::Helix helix(pos_lasthit, mom_lasthit, charge ,m_Bz);
-                        const pandora::CartesianVector& referencePoint(helix.GetReferencePoint());
-                        const int signPz((helix.GetMomentum().GetZ() > 0.f) ? 1 : -1);
+                    //     const pandora::Helix helix(pos_lasthit, mom_lasthit, charge ,m_Bz);
+                    //     const pandora::CartesianVector& referencePoint(helix.GetReferencePoint());
+                    //     const int signPz((helix.GetMomentum().GetZ() > 0.f) ? 1 : -1);
                         
-                        // First project to endcap
-                        pandora::CartesianVector endCapProjection(0.f, 0.f, 0.f);
-                        if (m_eCalEndCapInnerR>0) {
-                            float genericTime(std::numeric_limits<float>::max());
-                            const pandora::StatusCode statusCode(helix.GetPointInZ(static_cast<float>(signPz) * m_eCalEndCapInnerZ, referencePoint, endCapProjection, genericTime));
-                            float x = endCapProjection.GetX();
-                            float y = endCapProjection.GetY();
-                            float r = std::sqrt(x*x+y*y);
-                            if (
-                                (pandora::STATUS_CODE_SUCCESS == statusCode) &&
-                                (genericTime < minGenericTime) &&
-                                (r >= m_eCalEndCapInnerR) &&
-                                (r <= m_eCalEndCapOuterR)
-                            ) {
-                                    minGenericTime = genericTime;
-                                    bestECalProjection = endCapProjection;
-                            }
-                        }
+                    //     // First project to endcap
+                    //     pandora::CartesianVector endCapProjection(0.f, 0.f, 0.f);
+                    //     if (m_eCalEndCapInnerR>0) {
+                    //         float genericTime(std::numeric_limits<float>::max());
+                    //         const pandora::StatusCode statusCode(helix.GetPointInZ(static_cast<float>(signPz) * m_eCalEndCapInnerZ, referencePoint, endCapProjection, genericTime));
+                    //         float x = endCapProjection.GetX();
+                    //         float y = endCapProjection.GetY();
+                    //         float r = std::sqrt(x*x+y*y);
+                    //         if (
+                    //             (pandora::STATUS_CODE_SUCCESS == statusCode) &&
+                    //             (genericTime < minGenericTime) &&
+                    //             (r >= m_eCalEndCapInnerR) &&
+                    //             (r <= m_eCalEndCapOuterR)
+                    //         ) {
+                    //                 minGenericTime = genericTime;
+                    //                 bestECalProjection = endCapProjection;
+                    //         }
+                    //     }
                                     
                                     
-                            // Then project to barrel surface(s), and keep projection
-                            // if extrapolation is within the z acceptance of the detector
-                            pandora::CartesianVector barrelProjection(0.f, 0.f, 0.f);
-                            if (m_eCalBarrelInnerR>0) {
+                    //         // Then project to barrel surface(s), and keep projection
+                    //         // if extrapolation is within the z acceptance of the detector
+                    //         pandora::CartesianVector barrelProjection(0.f, 0.f, 0.f);
+                    //         if (m_eCalBarrelInnerR>0) {
 
-                            float genericTime(std::numeric_limits<float>::max());
-                            const pandora::StatusCode statusCode(helix.GetPointOnCircle(m_eCalBarrelInnerR, referencePoint, barrelProjection, genericTime));
+                    //         float genericTime(std::numeric_limits<float>::max());
+                    //         const pandora::StatusCode statusCode(helix.GetPointOnCircle(m_eCalBarrelInnerR, referencePoint, barrelProjection, genericTime));
                             
-                            if (
-                                (pandora::STATUS_CODE_SUCCESS == statusCode) &&
-                                (std::fabs(barrelProjection.GetZ())<= m_eCalBarrelMaxZ)
-                            ) {
-                                    if (genericTime < minGenericTime) {
-                                    minGenericTime = genericTime;
-                                    secondBestECalProjection = bestECalProjection;
-                                    bestECalProjection = barrelProjection;
-                                    }
-                                    else {
-                                    secondBestECalProjection = barrelProjection;
-                                    }
-                            }
-                        }
+                    //         if (
+                    //             (pandora::STATUS_CODE_SUCCESS == statusCode) &&
+                    //             (std::fabs(barrelProjection.GetZ())<= m_eCalBarrelMaxZ)
+                    //         ) {
+                    //                 if (genericTime < minGenericTime) {
+                    //                 minGenericTime = genericTime;
+                    //                 secondBestECalProjection = bestECalProjection;
+                    //                 bestECalProjection = barrelProjection;
+                    //                 }
+                    //                 else {
+                    //                 secondBestECalProjection = barrelProjection;
+                    //                 }
+                    //         }
+                    //     }
             
-                        // store extrapolation to calo
-                        // by default, store extrapolation with lower arrival time
-                        // get extrapolated position
-                        edm4hep::TrackState trackState_AtCalorimeter = getExtrapolationAtCalorimeter(bestECalProjection, helixAtLastHit,m_Bz);
-                        omega_lastHit = trackState_AtCalorimeter.omega;
-                        pt_lasthit = a * m_Bz / abs(omega_lastHit);
-                        phi_lasthit = trackState_AtCalorimeter.phi;
-                        pz_lasthit = trackState_AtCalorimeter.tanLambda * pt_lasthit;
-                        px_lasthit = pt_lasthit * std::cos(phi_lasthit);
-                        py_lasthit = pt_lasthit * std::sin(phi_lasthit);
-                        ref_lastHit = trackState_AtCalorimeter.referencePoint;
-                        // attach the TrackState to the track
-                        edm4hep_track.addToTrackStates(trackState_AtCalorimeter);
+                    //     // store extrapolation to calo
+                    //     // by default, store extrapolation with lower arrival time
+                    //     // get extrapolated position
+                    //     edm4hep::TrackState trackState_AtCalorimeter = getExtrapolationAtCalorimeter(bestECalProjection, helixAtLastHit,m_Bz);
+                    //     omega_lastHit = trackState_AtCalorimeter.omega;
+                    //     pt_lasthit = a * m_Bz / abs(omega_lastHit);
+                    //     phi_lasthit = trackState_AtCalorimeter.phi;
+                    //     pz_lasthit = trackState_AtCalorimeter.tanLambda * pt_lasthit;
+                    //     px_lasthit = pt_lasthit * std::cos(phi_lasthit);
+                    //     py_lasthit = pt_lasthit * std::sin(phi_lasthit);
+                    //     ref_lastHit = trackState_AtCalorimeter.referencePoint;
+                    //     // attach the TrackState to the track
+                    //     edm4hep_track.addToTrackStates(trackState_AtCalorimeter);
 
-                    }
+                    // }
                     
                     if (pdgCode == 11)
                     {
@@ -435,7 +495,7 @@ struct GenfitTrackFitter final :
                     }
                     else if (pdgCode == -11)
                     {
-                        FittedTracks_positron.push_back(edm4hep_track);
+                        FittedTracks_electron.push_back(edm4hep_track);
                     }
                     else if (pdgCode == 13)
                     {
@@ -443,7 +503,7 @@ struct GenfitTrackFitter final :
                     }
                     else if (pdgCode == -13)
                     {
-                        FittedTracks_antimuon.push_back(edm4hep_track);
+                        FittedTracks_muon.push_back(edm4hep_track);
                     }
                     else if (pdgCode == 211)
                     {
@@ -451,7 +511,7 @@ struct GenfitTrackFitter final :
                     }
                     else if (pdgCode == -211)
                     {
-                        FittedTracks_antipion.push_back(edm4hep_track);
+                        FittedTracks_pion.push_back(edm4hep_track);
                     }
                     else if (pdgCode == 321)
                     {
@@ -459,7 +519,7 @@ struct GenfitTrackFitter final :
                     }
                     else if (pdgCode == -321)
                     {
-                        FittedTracks_antikaon.push_back(edm4hep_track);
+                        FittedTracks_kaon.push_back(edm4hep_track);
                     }
                     else if (pdgCode == 2212)
                     {
@@ -467,7 +527,7 @@ struct GenfitTrackFitter final :
                     }
                     else if (pdgCode == -2212)
                     {
-                        FittedTracks_antiproton.push_back(edm4hep_track);
+                        FittedTracks_proton.push_back(edm4hep_track);
                     }
                    
                     
@@ -482,7 +542,7 @@ struct GenfitTrackFitter final :
                     }
                     else if (pdgCode == -11)
                     {
-                        auto failedTrack = FittedTracks_positron.create();
+                        auto failedTrack = FittedTracks_electron.create();
                         failedTrack.setChi2(-1);
                         failedTrack.setNdf(-1);
 
@@ -495,7 +555,7 @@ struct GenfitTrackFitter final :
                     }
                     else if (pdgCode == -13)
                     {
-                        auto failedTrack = FittedTracks_antimuon.create();
+                        auto failedTrack = FittedTracks_muon.create();
                         failedTrack.setChi2(-1);
                         failedTrack.setNdf(-1);
                     }
@@ -507,7 +567,7 @@ struct GenfitTrackFitter final :
                     }
                     else if (pdgCode == -211)
                     {
-                        auto failedTrack = FittedTracks_antipion.create();
+                        auto failedTrack = FittedTracks_pion.create();
                         failedTrack.setChi2(-1);
                         failedTrack.setNdf(-1);
                     }
@@ -519,7 +579,7 @@ struct GenfitTrackFitter final :
                     }
                     else if (pdgCode == -321)
                     {
-                         auto failedTrack = FittedTracks_antikaon.create();
+                         auto failedTrack = FittedTracks_kaon.create();
                         failedTrack.setChi2(-1);
                         failedTrack.setNdf(-1);
                     }
@@ -531,7 +591,7 @@ struct GenfitTrackFitter final :
                     }
                     else if (pdgCode == -2212)
                     {
-                        auto failedTrack = FittedTracks_antiproton.create();
+                        auto failedTrack = FittedTracks_proton.create();
                         failedTrack.setChi2(-1);
                         failedTrack.setNdf(-1);
                     }
@@ -545,26 +605,31 @@ struct GenfitTrackFitter final :
             debug() << "----------------\n" << endmsg;
         }
 
-        // debug() << "----------------" << endmsg;
-        // debug() << "Number of failed tracks: " << number_failures << endmsg;
-        // debug() << "----------------\n" << endmsg;
         
         return std::make_tuple( std::move(FittedTracks_electron),
-                                std::move(FittedTracks_positron),
                                 std::move(FittedTracks_muon),
-                                std::move(FittedTracks_antimuon),
                                 std::move(FittedTracks_pion),
-                                std::move(FittedTracks_antipion),
                                 std::move(FittedTracks_kaon),
-                                std::move(FittedTracks_antikaon),
-                                std::move(FittedTracks_proton),
-                                std::move(FittedTracks_antiproton));
+                                std::move(FittedTracks_proton));
         
     } 
     
+    StatusCode finalize() {     
+        
+        info() << "Run report:" << endmsg;
+        info() << "Number of failed tracks: " << number_failures <<  "/" << num_tracks << endmsg;
+        info() << "----------------\n" << endmsg;
+
+
+
+        return StatusCode::SUCCESS;
+
+    }
+
     public:
         mutable int index_counter = 0;
         mutable int number_failures = 0;
+        mutable int num_tracks = 0; // Total number of tracks processed
 
     private:
 
@@ -578,8 +643,8 @@ struct GenfitTrackFitter final :
         GenfitField* m_genfitField;
         GenfitMaterialInterface* m_geoMaterial;
 
-        Gaudi::Property<double> m_extMinDistCut{this,"extMinDistCut",1e-4};
-        Gaudi::Property<bool> m_skipWireMaterial{this,"skipWireMaterial",true};
+        // Gaudi::Property<double> m_extMinDistCut{this,"extMinDistCut",1e-4};
+        // Gaudi::Property<bool> m_skipWireMaterial{this,"skipWireMaterial",true};
 
         dd4hep::rec::SurfaceManager* surfMan;
         dd4hep::rec::DCH_info* dch_info;
