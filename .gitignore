@@ -56,3 +56,7 @@ CTestTestfile.cmake
 CPackSourceConfig.cmake
 CPackConfig.cmake
 cmake_install.cmake
+
+Tracking/withTrackCandidate
+Tracking/components/IDEATracksFromParticleGuns.cpp
+Tracking/components/GenfitTrackFitter_validation.cpp

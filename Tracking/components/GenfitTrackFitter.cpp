@@ -118,17 +118,13 @@ struct GenfitTrackFitter final :
                                                 extension::TrackCollection,
                                                 extension::TrackCollection,
                                                 extension::TrackCollection,
-                                                extension::TrackCollection>(const extension::TrackCollection&,
-                                                                            const edm4hep::MCParticleCollection&, 
-                                                                            const podio::UserDataCollection<int>&)>                                                                         
+                                                extension::TrackCollection>(const extension::TrackCollection&)>                                                                         
 {
     GenfitTrackFitter(const std::string& name, ISvcLocator* svcLoc) : 
         MultiTransformer ( name, svcLoc,
             {   
                 
-                KeyValues("tracks_input", {"tracks_input"}),
-                KeyValues("MCParticles", {"MCParticles"}),
-                KeyValues("MCparticleIndex", {"MCParticleIndex"}),
+                KeyValues("tracks_input", {"tracks_input"})
                 
             },
             {   
@@ -155,11 +151,7 @@ struct GenfitTrackFitter final :
         fieldManager = genfit::FieldManager::getInstance();
         fieldManager->init(m_genfitField);
 
-        m_geoMaterial=GenfitMaterialInterface::getInstance(m_detector);
-        // m_geoMaterial->setMinSafetyDistanceCut(m_extMinDistCut);
-        // m_geoMaterial->setSkipWireMaterial(m_skipWireMaterial);
-
-        
+        m_geoMaterial=GenfitMaterialInterface::getInstance(m_detector);        
         genfit::MaterialEffects::getInstance()->setEnergyLossBrems(false);
         genfit::MaterialEffects::getInstance()->setNoiseBrems(false);
         genfit::MaterialEffects::getInstance()->setMscModel("Highland");
@@ -223,9 +215,7 @@ struct GenfitTrackFitter final :
                 extension::TrackCollection,
                 extension::TrackCollection,
                 extension::TrackCollection,
-                extension::TrackCollection> operator()( const extension::TrackCollection& tracks_input,
-                                                        const edm4hep::MCParticleCollection& mcParticles,
-                                                        const podio::UserDataCollection<int>& MCparticleIndex) const override                                                 
+                extension::TrackCollection> operator()( const extension::TrackCollection& tracks_input) const override                                                 
     {
         
         extension::TrackCollection FittedTracks_electron;
@@ -235,31 +225,13 @@ struct GenfitTrackFitter final :
         extension::TrackCollection FittedTracks_proton;
 
         info() << "Event number: " << index_counter++ << endmsg;
-        // if (index_counter != 9)
-        // {
             
-        //     return std::make_tuple( std::move(FittedTracks_electron),
-        //                         std::move(FittedTracks_muon),          
-        //                         std::move(FittedTracks_pion),                 
-        //                         std::move(FittedTracks_kaon),
-        //                         std::move(FittedTracks_proton));
-        // }
-
-        
         // Loop over the extension::tracks
         int track_idx = 0;
         for (const auto& track : tracks_input)
         {
-            num_tracks+=1;
-            auto particle = mcParticles[MCparticleIndex[track_idx]];
-
-            auto p = particle.getMomentum();
-            TVector3 mom(p.x, p.y, p.z);
-            auto pt = mom.Pt();
-            auto costheta = mom.CosTheta();
-            auto phi = mom.Phi();
-
-            track_idx += 1;
+            num_tracks  +=1;
+            track_idx   +=1;
 
             for (int pdgCode : m_particleHypotesis)
             {
@@ -352,9 +324,9 @@ struct GenfitTrackFitter final :
                             failedTrack.setNdf(-1);
                         }
 
-                        debug() << "True pdg: " << particle.getPDG() << endmsg;
+                        debug() << "Number of hits in the track: " << track.getTrackerHits().size() << std::endl;
                         debug() << "GENFIT PDG: " << pdgCode << endmsg;
-                        debug() << "GENFIT Chi2: " << -1 << " GENFIT NDF: " << -1 << endmsg;   
+                        debug() << "GENFIT Chi2: " << -1 << ", GENFIT NDF: " << -1 << ", GENFIT Chi2/NDF: " << -1 << endmsg;
                         continue; 
                     }
 
@@ -362,18 +334,12 @@ struct GenfitTrackFitter final :
                     double genfit_chi2_ndf_val = (genfit_ndf_val > 0 ? genfit_chi2_val / genfit_ndf_val : -1);
                     auto genfit_hits_in_track = edm4hep_track.getTrackerHits();
 
-                    debug() << "True pdg: " << particle.getPDG() << endmsg;
-                    debug() << "True Momentum: [" << mom.X() << " " << mom.Y() << " " << mom.Z() << " ]-> " << mom.Mag() << endmsg;
-                    debug() << "True pt: " << pt << endmsg;
-                    debug() << "True cos(theta): " << costheta << endmsg;
-                    debug() << "True phi: " << phi << endmsg;
-                    debug() << "" << endmsg;
-                    
+                    debug() << "Number of hits in the track: " << track.getTrackerHits().size() << std::endl;
                     debug() << "GENFIT PDG: " << pdgCode << endmsg;
                     debug() << "GENFIT Omega: " << genfit_omega << endmsg;
                     debug() << "GENFIT Phi: " << genfit_phi_val << endmsg;
                     debug() << "GENFIT tanLambda: " << genfit_trackstate.tanLambda << endmsg;
-                                
+
                     debug() << "GENFIT Momentum: " << "[ " << genfit_mom.X() << " " << genfit_mom.Y() << " " << genfit_mom.Z() << " ] -> " << genfit_p << endmsg;
                     debug() << "GENFIT pt: " << genfit_mom.Pt() << endmsg;
                     debug() << "GENFIT cosTheta: " << genfit_mom.CosTheta() << endmsg;
@@ -503,7 +469,11 @@ struct GenfitTrackFitter final :
                         failedTrack.setChi2(-1);
                         failedTrack.setNdf(-1);
                     }
-                    debug() << "GENFIT Chi2: " << -1 << " GENFIT NDF: " << -1 << endmsg;   
+
+                    
+                    debug() << "Number of hits in the track: " << track.getTrackerHits().size() << std::endl;
+                    debug() << "GENFIT PDG: " << pdgCode << endmsg;
+                    debug() << "GENFIT Chi2: " << -1 << ", GENFIT NDF: " << -1 << ", GENFIT Chi2/NDF: " << -1 << endmsg;
 
 
                     number_failures++;
@@ -550,9 +520,6 @@ struct GenfitTrackFitter final :
         dd4hep::OverlayedField m_field;         // Magnetic field
         GenfitField* m_genfitField;
         GenfitMaterialInterface* m_geoMaterial;
-
-        // Gaudi::Property<double> m_extMinDistCut{this,"extMinDistCut",1e-4};
-        // Gaudi::Property<bool> m_skipWireMaterial{this,"skipWireMaterial",true};
 
         dd4hep::rec::SurfaceManager* surfMan;
         dd4hep::rec::DCH_info* dch_info;

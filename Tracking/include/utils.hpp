@@ -24,6 +24,9 @@
 #include <marlinutil/HelixClass_double.h>
 #include <Objects/Helix.h>
 #include <torch/torch.h>
+#include <TMatrixDSym.h>
+#include <TVector3.h>
+#include <TVectorD.h>
 
 
 // Calorimeter extrapolation utilities
@@ -50,5 +53,7 @@ torch::Tensor get_clustering(std::vector<float> output_vector, int64_t num_rows,
 
 // Miscellaneous utility functions
 int getHypotesisCharge(int pdg);
+
+TMatrixDSym computeTrackStateCovMatrix(TVectorD stateTrack, TVectorD params, TVector3 referencePoint, double timeError, TMatrixDSym statecovMatrix);
 
 #endif // UTILS_HPP

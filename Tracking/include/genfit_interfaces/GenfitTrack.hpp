@@ -105,6 +105,12 @@ private:
 
     const dd4hep::rec::DCH_info* _dch_info;
     const dd4hep::DDSegmentation::BitFieldCoder* _dc_decoder;
+
+    TVector3 IP_referencePoint{0., 0., 0.};
+    TVector3 firstHit_referencePoint;
+    TVector3 lastHit_referencePoint;
+
+    
 };
 
 }  // namespace GENFIT
