@@ -60,3 +60,4 @@ cmake_install.cmake
 Tracking/withTrackCandidate
 Tracking/components/IDEATracksFromParticleGuns.cpp
 Tracking/components/GenfitTrackFitter_validation.cpp
+Tracking/components/GGTF_tracking_OC.cpp

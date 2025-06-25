@@ -166,7 +166,7 @@ struct GenfitTrackFitter final :
             return StatusCode::FAILURE;
         }
         
-        // Initialize the Genfit
+        // Initialize the Genfit: FieldManager and MaterialEffects
         m_detector = m_geoSvc->getDetector();
         m_field = m_detector->field();
         m_genfitField=new GenfitInterface::GenfitField(m_field);
@@ -179,10 +179,11 @@ struct GenfitTrackFitter final :
         genfit::MaterialEffects::getInstance()->setNoiseBrems(false);
         genfit::MaterialEffects::getInstance()->setMscModel("Highland");
 
-        // Initialize the surface manager
+        // Retrieve the SurfaceManager, ddd4hep::rec::DCH_info and dd4hep::DDSegmentation::BitFieldCoder
+        // These object are necessary to extract the drift chamber hits information, such as positions of the wire extremities
         surfMan = m_geoSvc->getDetector()->extension<dd4hep::rec::SurfaceManager>();
 
-        // Retrieve the drift chamber information and decoder
+        // If the detector doesn't have a drift chamber, this part will be skipped
         try {
             std::string DCH_name("DCH_v2");
             dd4hep::DetElement DCH_DE = m_geoSvc->getDetector()->detectors().at(DCH_name);
@@ -192,11 +193,15 @@ struct GenfitTrackFitter final :
             dc_decoder = dch_readout.idSpec().decoder();
         } catch (const std::out_of_range& e) {}
 
+        // Z-component of the magnetic field at the center of the detector
+        // This component is used to propagate the track to the calorimeter surface, but it is also necessary to
+        // compute the pt component given omega
         dd4hep::Position center(0, 0, 0);
         dd4hep::Direction bfield = m_field.magneticField(center);
         m_Bz = bfield.z() / dd4hep::tesla;
 
         // Retrive calorimeter information
+        // These parameters are necessary to propagate the track to the calorimeter surface
         dd4hep::Detector& detector = dd4hep::Detector::getInstance();
         const std::vector< dd4hep::DetElement>& isDuaReadout = dd4hep::DetectorSelector(detector).detectors(  dd4hep::DetType::CALORIMETER | dd4hep::DetType::BARREL | dd4hep::DetType::ENDCAP, dd4hep::DetType::AUXILIARY );
         if( isDuaReadout.size() > 0 )
@@ -241,6 +246,7 @@ struct GenfitTrackFitter final :
                 extension::TrackCollection> operator()( const extension::TrackCollection& tracks_input) const override                                                 
     {
         
+        // These 5 collections store the output of the fit for 5 particle hypotesis: e, mu, pi, K, p
         extension::TrackCollection FittedTracks_electron;
         extension::TrackCollection FittedTracks_muon;
         extension::TrackCollection FittedTracks_pion;
@@ -249,17 +255,19 @@ struct GenfitTrackFitter final :
 
         info() << "Event number: " << index_counter++ << endmsg;
             
-        // Loop over the extension::tracks
+        // Loop over the tracks created by the pattern recognition step
         for (const auto& track : tracks_input)
         {
             
 
-            if (track.getTrackerHits().size() == 0) continue;
+            if (track.getTrackerHits().size() == 0) continue; // skip empty tracks
             num_tracks  +=1;
             
+            // Loop over the particle hypotesis
             for (int pdgCode : m_particleHypotesis)
             {
 
+                // Create trackInterface, initialize genfit trakc and fit it
                 GenfitInterface::GenfitTrack track_interface = GenfitInterface::GenfitTrack(track, dch_info, dc_decoder,pdgCode);
                 track_interface.createGenFitTrack(m_debug_lvl);
                 bool isFit = track_interface.fit(m_Beta_init,m_Beta_final,m_Beta_steps); 
@@ -281,7 +289,7 @@ struct GenfitTrackFitter final :
                     float genfit_chi2_val = edm4hep_track.getChi2();
                     int genfit_ndf_val = edm4hep_track.getNdf();
 
-
+                    // If the fitter suppresses the hits (ndf or chi2 <= 0) the fit is considered as failed
                     if (genfit_chi2_val <= 0 || genfit_ndf_val <= 0) {
                         
                         number_failures++;
@@ -354,7 +362,7 @@ struct GenfitTrackFitter final :
                     }
 
 
-                    double genfit_chi2_ndf_val = (genfit_ndf_val > 0 ? genfit_chi2_val / genfit_ndf_val : -1);
+                    double genfit_chi2_ndf_val = genfit_chi2_val / genfit_ndf_val;
                     auto genfit_hits_in_track = edm4hep_track.getTrackerHits();
 
                     debug() << "Number of hits in the track: " << track.getTrackerHits().size() << std::endl;
@@ -371,7 +379,7 @@ struct GenfitTrackFitter final :
                     debug() << "Number of hits in GENFIT track: " << genfit_hits_in_track.size() << endmsg;
                     debug() << "" << endmsg;
 
-                    /////// TrackState at Calorimeter
+                    // Propagation of the track to the calorimeter surface: add atCalorimeter trackState to the track
 		            int charge = getHypotesisCharge(pdgCode);
                     
                     FillTrackWithCalorimeterExtrapolation(
@@ -386,6 +394,7 @@ struct GenfitTrackFitter final :
                         m_eCalEndCapInnerZ
                     );
                     
+                    // Fill track collections
                     if (pdgCode == 11)
                     {
                         FittedTracks_electron.push_back(edm4hep_track);
@@ -426,11 +435,11 @@ struct GenfitTrackFitter final :
                     {
                         FittedTracks_proton.push_back(edm4hep_track);
                     }
-                   
-                    
+                       
                 }
                 else
                 {   
+                    // If the fit fails, it returns a track with chi2=ndf=-1
                     if (pdgCode == 11)
                     {
                         auto failedTrack = FittedTracks_electron.create();
