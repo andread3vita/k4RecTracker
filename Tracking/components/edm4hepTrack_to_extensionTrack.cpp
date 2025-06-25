@@ -95,7 +95,24 @@
 
 /** @struct edm4hepTrack_to_extensionTrack
  *
+ *  Gaudi MultiTransformer that converts a collection of EDM4hep tracks into an extended format.
+ *  This transformation wraps each input edm4hep::Track into a corresponding extension::Track, 
+ *  preserving track-level information and associated subcomponents.
+ *  
+ *  Specifically, for each input track the module:
+ *    - Copies the track type, chi-squared value (χ²), and number of degrees of freedom (ndf)
+ *    - Transfers associated tracker hits, casted to edm4hep::TrackerHitPlane
+ *    - Transfers all associated track states
+ * 
+ *  This transformer ensures compatibility with downstream modules that rely on the extended
+ *  track format by providing a one-to-one mapping between input and output tracks.
+ * 
+ *  input:
+ *    - tracks_input : edm4hep::TrackCollection
  *
+ *  output:
+ *    - extensionTrackCollection : extension::TrackCollection
+ * 
  *  @author Andrea De Vita
  *  @date   2025-06
  *

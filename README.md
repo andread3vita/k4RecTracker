@@ -34,7 +34,7 @@ k4_local_repo
 * `DCHdigi`: drift chamber digitization (for now, this step produces 'reco' collection)
 * `ARCdigi`: ARC digitization (for now, this step produces 'reco' collection)
 * `VTXdigi`: vertex detector digitization (for now, this step produces 'reco' collection)
-* `Tracking`: tracking algorithms orchestrating [GenFit](https://github.com/GenFit/GenFit)
+* `Tracking`: tracking algorithms orchestrating GGTF and [GenFit](https://github.com/GenFit/GenFit)
 
 ## References:
 
