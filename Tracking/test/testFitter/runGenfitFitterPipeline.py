@@ -141,9 +141,6 @@ TrackFitter.debug_lvl = 0
 
 
 ################ Application
-ifilename = "https://fccsw.web.cern.ch/fccsw/filesForSimDigiReco/IDEA/DataAlgFORGEANT.root"
-subprocess.run(["wget", "--no-clobber", ifilename])
-
 ApplicationMgr(
     TopAlg=[dch_digitizer, vtxb_digitizer, vtxd_digitizer, siwrb_digitizer, siwrd_digitizer, trackFinder, TrackFitter],
     EvtSel="NONE",
