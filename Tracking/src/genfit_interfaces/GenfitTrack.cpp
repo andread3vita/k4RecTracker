@@ -1,9 +1,26 @@
+/*
+ * Copyright (c) 2020-2024 Key4hep-Project.
+ *
+ * This file is part of Key4hep.
+ * See https://key4hep.github.io/key4hep-doc/ for further info.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+*/
+
 #include "GenfitTrack.hpp"
-#include<ranges>
 
-#define CHECK_MAP(m) if (!(m)) std::cerr << #m " is null!\n";
 
-namespace GENFIT {
+namespace GenfitInterface {
 
     GenfitTrack::GenfitTrack(const extension::Track& track,const dd4hep::rec::DCH_info* dch_info,const dd4hep::DDSegmentation::BitFieldCoder* decoder, const int particle_hypothesis)
         :   _particle_hypothesis(particle_hypothesis), 
@@ -78,7 +95,7 @@ namespace GENFIT {
                 auto position = hit.getPosition();
                 second_hit = TVector3(dd4hep::mm * position.x, dd4hep::mm * position.y, dd4hep::mm * position.z);
             }
-            if (index_loopHit == hits_for_genfit.size()-1) {
+            if (static_cast<size_t>(index_loopHit) == hits_for_genfit.size()-1) {
 
                 auto position = hit.getPosition();
                 lastHit_referencePoint = TVector3(dd4hep::mm * position.x, dd4hep::mm * position.y, dd4hep::mm * position.z);
@@ -154,7 +171,7 @@ namespace GENFIT {
             {
                
                 auto planar_hit =  hit.as<edm4hep::TrackerHitPlane>();
-                GENFIT::Planar_measurement measurement = GENFIT::Planar_measurement(planar_hit,detID,++hit_idx,debug_lvl);
+                GenfitInterface::Planar_measurement measurement = GenfitInterface::Planar_measurement(planar_hit,detID,++hit_idx,debug_lvl);
                 genfitTrack_->insertPoint(new genfit::TrackPoint(measurement.getGenFit(), genfitTrack_));
                 
             }
@@ -162,7 +179,7 @@ namespace GENFIT {
             {
 
                 auto wire_hit =  hit.as<extension::SenseWireHit>();
-                GENFIT::Wire_measurement measurement = GENFIT::Wire_measurement(wire_hit,_dch_info,_dc_decoder,detID,++hit_idx,debug_lvl);
+                GenfitInterface::Wire_measurement measurement = GenfitInterface::Wire_measurement(wire_hit,_dch_info,_dc_decoder,detID,++hit_idx,debug_lvl);
                 genfitTrack_->insertPoint(new genfit::TrackPoint(measurement.getGenFit(), genfitTrack_));
                        
             } 
@@ -218,9 +235,7 @@ namespace GENFIT {
             
             double x0_PCA;
             double y0_PCA;
-            double z0_PCA;
-            double px;   
-            double py;   
+            double z0_PCA; 
             double pz;  
 
             double pt;
@@ -248,8 +263,6 @@ namespace GENFIT {
                 x0_PCA = gen_position.X() / dd4hep::mm;
                 y0_PCA = gen_position.Y() / dd4hep::mm;
                 z0_PCA = gen_position.Z() / dd4hep::mm;
-                px = gen_momentum.X(); 
-                py = gen_momentum.Y(); 
                 pz = gen_momentum.Z();      
                 pt = gen_momentum.Perp(); 
 
@@ -283,8 +296,6 @@ namespace GENFIT {
                 x0_PCA = gen_position.X() / dd4hep::mm;
                 y0_PCA = gen_position.Y() / dd4hep::mm;
                 z0_PCA = gen_position.Z() / dd4hep::mm;
-                px = gen_momentum.X(); 
-                py = gen_momentum.Y(); 
                 pz = gen_momentum.Z();      
                 pt = gen_momentum.Perp(); 
 
@@ -326,8 +337,6 @@ namespace GENFIT {
                     x0_PCA = gen_position.X() / dd4hep::mm;
                     y0_PCA = gen_position.Y() / dd4hep::mm;
                     z0_PCA = gen_position.Z() / dd4hep::mm;
-                    px = gen_momentum.X(); 
-                    py = gen_momentum.Y(); 
                     pz = gen_momentum.Z();      
                     pt = gen_momentum.Perp(); 
 

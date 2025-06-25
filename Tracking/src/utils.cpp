@@ -151,6 +151,7 @@ void FillTrackWithCalorimeterExtrapolation(
   
   }
 }
+
 torch::Tensor find_condpoints(torch::Tensor betas, torch::Tensor unassigned, float tbeta) {
     int n_points = unassigned.size(0);
     int size_b = betas.size(0);
@@ -201,49 +202,21 @@ torch::Tensor get_clustering(std::vector<float> output_vector, int64_t num_rows,
 }
 
 int getHypotesisCharge(int pdg) {
-    if (pdg == 11)
-    {
-      return -1;
+    switch (pdg) {
+        case 11:   return -1; // electron
+        case -11:  return 1;  // positron
+        case 13:   return -1; // muon
+        case -13:  return 1;  // anti-muon
+        case 211:  return 1;  // pion+
+        case -211: return -1; // pion-
+        case 321:  return 1;  // kaon+
+        case -321: return -1; // kaon-
+        case 2212: return 1;  // proton
+        case -2212:return -1; // anti-proton
+        default:   return 0;  // unknown particle
     }
-    else if (pdg == -11)
-    {
-      return 1;
-    }
-    else if (pdg == 13)
-    {
-      return -1;
-    }
-    else if (pdg == -13)
-    {
-      return 1;
-    }
-    else if (pdg == 211)
-    {
-      return 1;
-    }
-    else if (pdg == -211)
-    {
-      return -1;
-    }
-    else if (pdg == 321)
-    {
-      return 1;
-    }
-    else if (pdg == -321)
-    {
-      return -1;
-    }
-    else if (pdg == 2212)
-    {
-      return 1;
-    }
-    else if (pdg == -2212)
-    {
-      return -1;
-    }
-  
-  return 0; // Default case, should not happen
 }
+
 
 TMatrixDSym computeTrackStateCovMatrix(TVectorD stateTrack, TVectorD params, TVector3 referencePoint, double timeError, TMatrixDSym statecovMatrix)
 {

@@ -73,6 +73,7 @@
 #include <DDRec/Vector3D.h>
 #include <DDSegmentation/BitFieldCoder.h>
 #include "DD4hep/Fields.h"
+#include "DDRec/SurfaceManager.h"
 
 //=== podio / edm4hep ===
 #include "podio/Frame.h"
@@ -108,10 +109,32 @@
 
 
 /** @struct GenfitTrackFitter
+ *
+ *  Gaudi MultiTransformer that refines the parameters of the reconstructed tracks using the GENFIT library.  
+ *  For each input track, the module performs a fit under five different particle hypotheses (electron, muon, pion, kaon, proton), 
+ *  producing five distinct output collections of fitted tracks.  
+ *  The fitting process minimizes the track χ² while accounting for material effects, magnetic field, and detector geometry.
+ *
+ *  If the fit fails for a given hypothesis, a fallback track is still generated with χ² = -1 and ndf = -1 to preserve collection integrity.
+ *  Each fitted track also includes the extrapolated state at the calorimeter (barrel or endcap).
+ *
+ *  input:
+ *    - initial track collection : extension::TrackCollection
+ *
+ *  output:
+ *    - fitted track collection under electron hypothesis : extension::TrackCollection
+ *    - fitted track collection under muon hypothesis : extension::TrackCollection
+ *    - fitted track collection under pion hypothesis : extension::TrackCollection
+ *    - fitted track collection under kaon hypothesis : extension::TrackCollection
+ *    - fitted track collection under proton hypothesis : extension::TrackCollection
+ *
+ *
+ *
+ *  @author Andrea De Vita
+ *  @date   2025-06
+ *
+ */
 
-*
-*
-*/
 
 struct GenfitTrackFitter final : 
         k4FWCore::MultiTransformer< std::tuple< extension::TrackCollection,
@@ -146,12 +169,12 @@ struct GenfitTrackFitter final :
         // Initialize the Genfit
         m_detector = m_geoSvc->getDetector();
         m_field = m_detector->field();
-        m_genfitField=new GenfitField(m_field);
+        m_genfitField=new GenfitInterface::GenfitField(m_field);
 
         fieldManager = genfit::FieldManager::getInstance();
         fieldManager->init(m_genfitField);
 
-        m_geoMaterial=GenfitMaterialInterface::getInstance(m_detector);        
+        m_geoMaterial=GenfitInterface::GenfitMaterialInterface::getInstance(m_detector);        
         genfit::MaterialEffects::getInstance()->setEnergyLossBrems(false);
         genfit::MaterialEffects::getInstance()->setNoiseBrems(false);
         genfit::MaterialEffects::getInstance()->setMscModel("Highland");
@@ -227,17 +250,17 @@ struct GenfitTrackFitter final :
         info() << "Event number: " << index_counter++ << endmsg;
             
         // Loop over the extension::tracks
-        int track_idx = 0;
         for (const auto& track : tracks_input)
         {
-            num_tracks  +=1;
-            track_idx   +=1;
+            
 
+            if (track.getTrackerHits().size() == 0) continue;
+            num_tracks  +=1;
+            
             for (int pdgCode : m_particleHypotesis)
             {
 
-                
-                GENFIT::GenfitTrack track_interface = GENFIT::GenfitTrack(track, dch_info, dc_decoder,pdgCode);
+                GenfitInterface::GenfitTrack track_interface = GenfitInterface::GenfitTrack(track, dch_info, dc_decoder,pdgCode);
                 track_interface.createGenFitTrack(m_debug_lvl);
                 bool isFit = track_interface.fit(m_Beta_init,m_Beta_final,m_Beta_steps); 
                 if (isFit)
@@ -518,8 +541,8 @@ struct GenfitTrackFitter final :
        
         dd4hep::Detector* m_detector{nullptr};  // Detector instance
         dd4hep::OverlayedField m_field;         // Magnetic field
-        GenfitField* m_genfitField;
-        GenfitMaterialInterface* m_geoMaterial;
+        GenfitInterface::GenfitField* m_genfitField;
+        GenfitInterface::GenfitMaterialInterface* m_geoMaterial;
 
         dd4hep::rec::SurfaceManager* surfMan;
         dd4hep::rec::DCH_info* dch_info;

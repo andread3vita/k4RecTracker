@@ -1,118 +1,123 @@
+/*
+ * Copyright (c) 2020-2024 Key4hep-Project.
+ *
+ * This file is part of Key4hep.
+ * See https://key4hep.github.io/key4hep-doc/ for further info.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 #ifndef GENFIT_TRACK_H
 #define GENFIT_TRACK_H
 
-// Standard library
-#include <algorithm>
-#include <cmath>
-#include <cstdlib>  // For getenv
-#include <fstream>  // For std::ifstream
-#include <iostream>
-#include <iterator> // For std::istreambuf_iterator
-#include <map>
-#include <memory> 
-#include <numeric>
-#include <queue>
-#include <sstream>
-#include <stdexcept>  // For std::runtime_error
+// Standard Library
+#include <memory>
+#include <stdexcept>
 #include <string>
-#include <typeinfo>
 #include <vector>
-#include <filesystem>  // For std::filesystem::path
+#include<ranges>
 
 // ROOT
-#include <TEveManager.h>
-#include <TGeoManager.h>
 #include <TVector3.h>
-#include <TVectorD.h>
 
 // GenFit
-#include <ConstField.h>
+#include <AbsBField.h>
+#include <AbsTrackRep.h>
 #include <DAF.h>
-#include <EventDisplay.h>
-#include <Exception.h>
 #include <FieldManager.h>
-#include <KalmanFitterInfo.h>
-#include <KalmanFitterRefTrack.h>
-#include <MaterialEffects.h>
-#include <PlanarMeasurement.h>
 #include <RKTrackRep.h>
-// #include <GeaneTrackRep.h>
-#include <StateOnPlane.h>
-#include <TGeoMaterialInterface.h>
 #include <Track.h>
-#include <TrackPoint.h>
+#include <MaterialEffects.h>
+
 #include "Planar_measurement.hpp"
 #include "Wire_measurement.hpp"
+
+// DD4hep
+#include "DD4hep/Detector.h"
+#include "DD4hep/Fields.h"
+#include "DDRec/Vector3D.h"
+#include "DDSegmentation/BitFieldCoder.h"
 
 // EDM4hep
 #include "extension/MutableTrack.h"
 #include "extension/TrackCollection.h"
-#include "edm4hep/TrackerHit3DCollection.h"
-#include "edm4hep/TrackerHitPlaneCollection.h"
 
-// DD4hep
-#include "DD4hep/Detector.h"
-#include "DDRec/Vector3D.h"
-#include "DDSegmentation/BitFieldCoder.h"
-
-// k4FWCore & k4Interface
-#include "Gaudi/Property.h"
-#include "k4FWCore/DataHandle.h"
-#include "k4FWCore/Transformer.h"
-#include "k4Interface/IGeoSvc.h"
-#include "k4Interface/IUniqueIDGenSvc.h"
-
-// Torch
-#include <torch/torch.h>
-
-// podio
-#include "podio/Frame.h"
-#include "podio/ROOTReader.h"
-#include "podio/UserDataCollection.h"
-
+// Local
 #include "utils.hpp"
 
-namespace GENFIT {
+/** @class GenfitTrack
+ *
+ *  Internal helper class that bridges an EDM4hep track with the GENFIT track representation.
+ *  This class is responsible for preparing, initializing, and managing the GENFIT track object,
+ *  starting from an EDM4hep `extension::Track`, and performing the track fit using the GENFIT library.
+ *
+ *  The `GenfitTrack` encapsulates the logic required to:
+ *    - extract and convert the track parameters (position, momentum, charge)
+ *    - create and configure the appropriate `genfit::AbsTrackRep` based on the particle hypothesis
+ *    - construct the `genfit::Track` object including measurement hits
+ *    - execute the GENFIT fitting procedure
+ *
+ *  The class maintains access to both the EDM4hep and GENFIT representations of the track, and stores
+ *  relevant geometry information such as the drift chamber (DCH) description and segmentation decoder.
+ *
+ *
+ *  Author: Andrea De Vita  
+ *  Date  : 2025-06
+ *
+ */
 
-class GenfitTrack {
-public:
-    GenfitTrack(const extension::Track& track, const dd4hep::rec::DCH_info* dch_info,const dd4hep::DDSegmentation::BitFieldCoder* decoder, const int particle_hypothesis);
-    ~GenfitTrack();
 
-    void checkInitialization();
-    void init(const extension::Track& track_init);
+namespace GenfitInterface {
 
-    void createGenFitTrack(int debug_lvl);
-    bool fit(double Beta_init, double Beta_final, double Beta_steps);
+    class GenfitTrack {
+    public:
+        GenfitTrack(const extension::Track& track, const dd4hep::rec::DCH_info* dch_info,const dd4hep::DDSegmentation::BitFieldCoder* decoder, const int particle_hypothesis);
+        ~GenfitTrack();
 
-    genfit::Track* getTrack_genfit() { return genfitTrack_; }
-    genfit::AbsTrackRep* getRep_genfit() { return genfitTrackRep_; }
-    extension::MutableTrack& getTrack_edm4hep() { return edm4hepTrack_; }
+        void checkInitialization();
+        void init(const extension::Track& track_init);
 
-private:
+        void createGenFitTrack(int debug_lvl);
+        bool fit(double Beta_init, double Beta_final, double Beta_steps);
 
-    int _particle_hypothesis;
-    TVector3 _posInit{0., 0., 0.};
-    TVector3 _momInit{0., 0., 0.};
+        genfit::Track* getTrack_genfit() { return genfitTrack_; }
+        genfit::AbsTrackRep* getRep_genfit() { return genfitTrackRep_; }
+        extension::MutableTrack& getTrack_edm4hep() { return edm4hepTrack_; }
 
-    genfit::AbsTrackRep* genfitTrackRep_;    
-    genfit::AbsTrackRep* genfitTrackRepBack_;    
+    private:
 
-    genfit::Track* genfitTrack_;
-    genfit::Track* backwardGenfitTrack_;
-    
-    extension::MutableTrack edm4hepTrack_;  
+        int _particle_hypothesis;
+        TVector3 _posInit{0., 0., 0.};
+        TVector3 _momInit{0., 0., 0.};
 
-    const dd4hep::rec::DCH_info* _dch_info;
-    const dd4hep::DDSegmentation::BitFieldCoder* _dc_decoder;
+        genfit::AbsTrackRep* genfitTrackRep_;    
+        genfit::AbsTrackRep* genfitTrackRepBack_;    
 
-    TVector3 IP_referencePoint{0., 0., 0.};
-    TVector3 firstHit_referencePoint;
-    TVector3 lastHit_referencePoint;
+        genfit::Track* genfitTrack_;
+        genfit::Track* backwardGenfitTrack_;
+        
+        extension::MutableTrack edm4hepTrack_;  
 
-    
-};
+        const dd4hep::rec::DCH_info* _dch_info;
+        const dd4hep::DDSegmentation::BitFieldCoder* _dc_decoder;
 
-}  // namespace GENFIT
+        TVector3 IP_referencePoint{0., 0., 0.};
+        TVector3 firstHit_referencePoint;
+        TVector3 lastHit_referencePoint;
+
+        
+    };
+
+}  // namespace GenfitInterface
 
 #endif // GENFIT_TRACK_H
