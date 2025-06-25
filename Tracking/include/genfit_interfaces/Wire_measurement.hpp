@@ -63,7 +63,7 @@ namespace GenfitInterface {
         Wire_measurement(const extension::SenseWireHit& hit, const dd4hep::rec::DCH_info* dch_info, const dd4hep::DDSegmentation::BitFieldCoder* decoder, const int det_idx, const int hit_idx,const int debug_lvl);
 
         // Getter for genfit::WirePointMeasurement
-        genfit::WirePointMeasurement* getGenFit() const;
+        genfit::WirePointMeasurement* getGenFit() const {return genfitHit_;};
 
     private:
         genfit::WirePointMeasurement* genfitHit_; 

@@ -39,6 +39,19 @@ namespace GenfitInterface {
 
     GenfitTrack::~GenfitTrack() {}
 
+    /**
+    * @brief Check if required Genfit components are properly initialized.
+    * 
+    * This method verifies whether the singleton instances of `genfit::FieldManager`
+    * and `genfit::MaterialEffects` have been initialized. These components are essential
+    * for tracking operations in the Genfit framework. 
+    * 
+    * If either component is not initialized, an error message is printed to `std::cerr` 
+    * and the program exits with `EXIT_FAILURE`.
+    * 
+    * @note This method should be called before performing any tracking-related operations 
+    * that depend on magnetic field or material effects.
+    */
     void GenfitTrack::checkInitialization() {
 
         if (!genfit::FieldManager::getInstance()->isInitialized()) {
@@ -53,6 +66,22 @@ namespace GenfitInterface {
 
     }
 
+    /**
+    * @brief Initialize the GenfitTrack from a given input track.
+    * 
+    * This method initializes the internal state of the `GenfitTrack` object using
+    * an input track of type `extension::Track`. The following operations are performed:
+    * - Initializes the internal `edm4hepTrack_` with a new `MutableTrack`.
+    * - Sorts the tracker hits of the input track by their Euclidean distance from the origin.
+    * - Fills the internal track (`edm4hepTrack_`) with the sorted hits.
+    * - Extracts the positions of the first two hits and the last hit to initialize:
+    *   - `_posInit`: the initial position (first hit).
+    *   - `_momInit`: the initial direction (unit vector from first to second hit).
+    *   - `firstHit_referencePoint`: copy of the first hit position.
+    *   - `lastHit_referencePoint`: position of the last hit.
+    * 
+    * @param track_init The input track containing tracker hits used for initialization.
+    */
     void GenfitTrack::init(const extension::Track& track_init) {
 
         // Initialize the edm4hepTrack_
@@ -107,12 +136,35 @@ namespace GenfitInterface {
         _posInit = first_hit;
         _momInit = (second_hit - first_hit).Unit();
         firstHit_referencePoint = first_hit;
-        
-        // _posInit.Print();
-        // _momInit.Print();
 
     }
 
+    
+    /**
+    * @brief Creates a Genfit track object from the initialized state and tracker hits.
+    * 
+    * This method constructs the `genfit::Track` and associated `genfit::TrackRep` using the
+    * initial position and momentum previously set during initialization. It assigns a default
+    * covariance matrix (10 cm position resolution and 1 GeV momentum resolution), constructs
+    * the state vector, and creates a `genfit::RKTrackRep` using the specified particle hypothesis.
+    * 
+    * Tracker hits from the internal `edm4hepTrack_` are processed and converted to Genfit-compatible
+    * measurements. Based on the hit type, the method creates either planar or wire measurements.
+    * These measurements are inserted into the `genfit::Track` as `genfit::TrackPoint` objects.
+    * 
+    * The supported hit types and their corresponding detector type IDs are:
+    * - `edm4hep::TrackerHitPlane`: Planar detector hit
+    * - `extension::SenseWireHit`: Drift chamber wire hit
+    * 
+    * If an unsupported hit type is encountered, the method prints an error message and exits.
+    * 
+    * @param debug_lvl The debug verbosity level to pass to the measurement constructors.
+    * 
+    * @note The method deletes any existing Genfit track or track representation before creating new ones.
+    * 
+    * @warning The method will terminate the program with `std::exit(EXIT_FAILURE)` if it encounters
+    * an unknown hit type.
+    */
     void GenfitTrack::createGenFitTrack(int debug_lvl) {
 
         delete genfitTrackRep_;
@@ -195,7 +247,20 @@ namespace GenfitInterface {
 
     }
 
-    bool GenfitTrack::fit(double Beta_init = 10., double Beta_final=0.1, double Beta_steps=10) {
+    /**
+    * @brief Fit the Genfit track using the Deterministic Annealing Filter (DAF).
+    * 
+    * This function performs a forward and backward track fit using the Genfit DAF algorithm,
+    * and populates the EDM4hep track states at the IP, first hit, and last hit positions.
+    * 
+    * @param Beta_init  Initial annealing parameter (temperature).
+    * @param Beta_final Final annealing parameter.
+    * @param Beta_steps Number of steps in the annealing schedule.
+    * @param Bz         Value of z-component of the magnetic field at the center of the detector
+    * 
+    * @return true if the fit was successful, false otherwise.
+    */
+    bool GenfitTrack::fit(double Beta_init = 10., double Beta_final=0.1, double Beta_steps=10, double Bz = 2.) {
 
         for (size_t i = 0; i < edm4hepTrack_.trackStates_size(); ++i) {
 
@@ -248,7 +313,6 @@ namespace GenfitInterface {
 
             double c_light = 2.99792458e8;
             double a = c_light * 1e3 * 1e-15;
-            double Bz = 2.;
             
             int charge = getHypotesisCharge(_particle_hypothesis);
             if (genfitFitter_->isTrackFitted(&forwardTrack,forwardRep))
@@ -282,7 +346,6 @@ namespace GenfitInterface {
                 // trackStateFirstHit.time = time;
                 // TVectorD trackStateGenfit(x0_PCA,y0_PCA,Z0_PCA,px,py,pz):
                 // TVectorD params(omega, phi0,d0,z0,tanLambda,time);
-                // TVectorD params(omega, phi0,d0,z0,tanLambda,time);
                 // trackStateFirstHit.covMatrix = computeTrackStateCovMatrix(trackStateGenfit, params, firstHit_referencePoint, timeError, covariancePosMom);
                 trackStateFirstHit.referencePoint = edm4hep::Vector3f(firstHit_referencePoint.X() / dd4hep::mm, firstHit_referencePoint.Y() / dd4hep::mm, firstHit_referencePoint.Z() / dd4hep::mm);
                 trackStateFirstHit.location = edm4hep::TrackState::AtFirstHit;
@@ -313,7 +376,6 @@ namespace GenfitInterface {
                 trackStateLastHit.tanLambda = tanLambda;
                 // trackStateLastHit.time = time;
                 // TVectorD trackStateGenfit(x0_PCA,y0_PCA,Z0_PCA,px,py,pz):
-                // TVectorD params(omega, phi0,d0,z0,tanLambda,time);
                 // TVectorD params(omega, phi0,d0,z0,tanLambda,time);
                 // trackStateLastHit.covMatrix = computeTrackStateCovMatrix(trackStateGenfit, params, lastHit_referencePoint, timeError, covariancePosMom);
                 trackStateLastHit.referencePoint = edm4hep::Vector3f(lastHit_referencePoint.X() / dd4hep::mm, lastHit_referencePoint.Y() / dd4hep::mm, lastHit_referencePoint.Z() / dd4hep::mm);
@@ -354,7 +416,6 @@ namespace GenfitInterface {
                     trackStateIP.tanLambda = tanLambda;
                     // trackStateIP.time = time;
                     // TVectorD trackStateGenfit(x0_PCA,y0_PCA,Z0_PCA,px,py,pz):
-                    // TVectorD params(omega, phi0,d0,z0,tanLambda,time);
                     // TVectorD params(omega, phi0,d0,z0,tanLambda,time);
                     // trackStateIP.covMatrix = computeTrackStateCovMatrix(trackStateGenfit, params, IP_referencePoint, timeError, covariancePosMom);
                     trackStateIP.referencePoint = edm4hep::Vector3f(IP_referencePoint.X() / dd4hep::mm, IP_referencePoint.Y() / dd4hep::mm, IP_referencePoint.Z() / dd4hep::mm);

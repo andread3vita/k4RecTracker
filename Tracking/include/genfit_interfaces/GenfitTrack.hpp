@@ -88,7 +88,7 @@ namespace GenfitInterface {
         void init(const extension::Track& track_init);
 
         void createGenFitTrack(int debug_lvl);
-        bool fit(double Beta_init, double Beta_final, double Beta_steps);
+        bool fit(double Beta_init, double Beta_final, double Beta_steps, double Bz);
 
         genfit::Track* getTrack_genfit() { return genfitTrack_; }
         genfit::AbsTrackRep* getRep_genfit() { return genfitTrackRep_; }

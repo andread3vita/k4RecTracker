@@ -58,6 +58,7 @@ CPackConfig.cmake
 cmake_install.cmake
 
 Tracking/withTrackCandidate
-Tracking/components/IDEATracksFromParticleGuns.cpp
 Tracking/components/GenfitTrackFitter_validation.cpp
 Tracking/components/GGTF_tracking_OC.cpp
+SteeringFile_IDEA_o1_v03.py
+runIDEAv3TrackerDigitizer.py

@@ -270,7 +270,7 @@ struct GenfitTrackFitter final :
                 // Create trackInterface, initialize genfit trakc and fit it
                 GenfitInterface::GenfitTrack track_interface = GenfitInterface::GenfitTrack(track, dch_info, dc_decoder,pdgCode);
                 track_interface.createGenFitTrack(m_debug_lvl);
-                bool isFit = track_interface.fit(m_Beta_init,m_Beta_final,m_Beta_steps); 
+                bool isFit = track_interface.fit(m_Beta_init,m_Beta_final,m_Beta_steps, m_Bz); 
                 if (isFit)
                 {
 

@@ -78,4 +78,9 @@ ADD_TEST(NAME ${test_name} COMMAND k4run test/runTracksFromGenParticles.py)
 set_test_env(${test_name})
 set_tests_properties(${test_name} PROPERTIES DEPENDS test_CreateInputForTrackTests)
 
+SET(test_name "test_genfitFitter")
+ADD_TEST(NAME ${test_name} COMMAND sh +x test_genfitFitter.sh )
+set_test_env(${test_name})
+set_tests_properties(${test_name} PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/Tracking/test/testFitter")
+
 #endif()
