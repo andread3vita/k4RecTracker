@@ -57,8 +57,6 @@ CPackSourceConfig.cmake
 CPackConfig.cmake
 cmake_install.cmake
 
-Tracking/withTrackCandidate
 Tracking/components/GenfitTrackFitter_validation.cpp
-Tracking/components/GGTF_tracking_OC_IDEA_o1_v3.cpp
-SteeringFile_IDEA_o1_v03.py
-runIDEAv3TrackerDigitizer.py
+SteeringFile*
+runIDEA*
