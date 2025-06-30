@@ -109,23 +109,17 @@
  *
  */
 
-struct GGTF_tracking_OC_IDEAv3 final : 
+struct GGTF_tracking final : 
         k4FWCore::MultiTransformer< std::tuple<extension::TrackCollection>(   
-                                                                    const extension::SenseWireHitCollection&, 
-                                                                    const edm4hep::TrackerHitPlaneCollection&,
-                                                                    const edm4hep::TrackerHitPlaneCollection&,
-                                                                    const edm4hep::TrackerHitPlaneCollection&,
-                                                                    const edm4hep::TrackerHitPlaneCollection&)>                                                                                            
+                                                                    const std::vector<const edm4hep::TrackerHitPlaneCollection*>&, 
+                                                                    const std::vector<const extension::SenseWireHitCollection*>&)>                                                                                            
 {
-    GGTF_tracking_OC_IDEAv3(const std::string& name, ISvcLocator* svcLoc) : 
+    GGTF_tracking(const std::string& name, ISvcLocator* svcLoc) : 
         MultiTransformer ( name, svcLoc,
             {   
                  
-                KeyValues("inputHits_CDC", {"inputHits_CDC"}),
-                KeyValues("inputHits_VTXB", {"inputHits_VTXB"}),
-                KeyValues("inputHits_VTXD", {"inputHits_VTXD"}),
-                KeyValues("inputHits_SWB", {"inputHits_SWB"}),
-                KeyValues("inputHits_SWD", {"inputHits_SWD"})
+                KeyValues("inputPlanarHits", {"inputPlanarHits"}),
+                KeyValues("inputWireHits", {"inputWireHits"})
 
             },
             {   
@@ -198,175 +192,145 @@ struct GGTF_tracking_OC_IDEAv3 final :
    }
 
     
-    std::tuple<extension::TrackCollection> operator()(      const extension::SenseWireHitCollection& inputHits_CDC, 
-                                                            const edm4hep::TrackerHitPlaneCollection& inputHits_VTXB,
-                                                            const edm4hep::TrackerHitPlaneCollection& inputHits_VTXD,
-                                                            const edm4hep::TrackerHitPlaneCollection& inputHits_SWB,
-                                                            const edm4hep::TrackerHitPlaneCollection& inputHits_SWD) const override 
+    std::tuple<extension::TrackCollection> operator()(      const std::vector<const edm4hep::TrackerHitPlaneCollection*>& inputPlanarHits, 
+                                                            const std::vector<const extension::SenseWireHitCollection*>& inputWireHits) const override 
     {
 
         ////////////////////////////////////////
         ////////// DATA PREPROCESSING //////////
         ////////////////////////////////////////
 
-
         // Vector to store the global input values for all hits.
         // This will contain position and other hit-specific data to be used as input for the model.
-        std::vector<float> ListGlobalInputs; 
-        int it = 0;
+        std::vector<float> ListGlobalInputs; int globalHitIndex = 0;
 
-        /// Processing hits from the VTXD (Vertex Disk).
-        std::vector<float> ListHitType_VTXD;
-        int it_0 = 0; 
-        for (const auto input_hit : inputHits_VTXD) {
+        /// Processing hits from the Silicon Detectors
+        std::vector<int64_t> ListHitType_Planar; int planarHit_index = 0;
+        std::vector<int64_t> ListPlanarHitIndices; int planarHitCollection_index = 0; 
+        for (const auto& inputHits_collection : inputPlanarHits)
+        {   
+            
+            int planarHit_subcollection_index = 0;
+            for (const auto& input_hit : *inputHits_collection) {
+                
+                
 
-            // Add the 3D position of the hit to the global input list.
-            ListGlobalInputs.push_back(input_hit.getPosition().x);
-            ListGlobalInputs.push_back(input_hit.getPosition().y);
-            ListGlobalInputs.push_back(input_hit.getPosition().z);
-            
-            // Add placeholder values for additional input dimensions.
-            ListGlobalInputs.push_back(1.0); 
-            ListGlobalInputs.push_back(0.0);
-            ListGlobalInputs.push_back(0.0);
-            ListGlobalInputs.push_back(0.0); 
-            
-            // Store the current index in ListHitType_VTXD and increment the global iterator.
-            ListHitType_VTXD.push_back(it);
-            it += 1;  
-            it_0 += 1;                        
+                // Add the 3D position of the hit to the global input list.
+                ListGlobalInputs.push_back(input_hit.getPosition().x);
+                ListGlobalInputs.push_back(input_hit.getPosition().y);
+                ListGlobalInputs.push_back(input_hit.getPosition().z);
+                
+                // Add placeholder values for additional input dimensions.
+                ListGlobalInputs.push_back(1.0); 
+                ListGlobalInputs.push_back(0.0);
+                ListGlobalInputs.push_back(0.0);
+                ListGlobalInputs.push_back(0.0); 
+                
+                // Store the current index in ListHitType_Planar and increment the global iterator.
+                ListHitType_Planar.push_back(globalHitIndex);
+
+                ListPlanarHitIndices.push_back(planarHitCollection_index);
+                ListPlanarHitIndices.push_back(planarHit_subcollection_index);
+
+                globalHitIndex += 1;  
+                planarHit_index += 1;   
+                planarHit_subcollection_index += 1;   
+                
+                
+            }
+
+            planarHitCollection_index += 1;
         }
-        // Convert ListHitType_VTXD to a Torch tensor for use in PyTorch models.
-        torch::Tensor ListHitType_VTXD_tensor = torch::from_blob(ListHitType_VTXD.data(), {it_0}, torch::kFloat32);
+        // Convert ListHitType_Planar to a Torch tensor for use in PyTorch models.
+        torch::Tensor ListHitType_Planar_tensor = torch::from_blob(ListHitType_Planar.data(), {planarHit_index}, torch::kFloat32);
 
-        /// Processing hits from the VTXB (Vertex Barrel).
-        std::vector<float> ListHitType_VTXB; 
-        int it_1 = 0; 
-        for (const auto input_hit : inputHits_VTXB) {
+        int64_t n_planar_hits = ListPlanarHitIndices.size() / 2;
+        torch::Tensor ListPlanarHitIndices_tensor = torch::from_blob(
+            ListPlanarHitIndices.data(),
+            {n_planar_hits, 2},
+            torch::kInt64
+        );
 
-            // Add the 3D position of the hit to the global input list.
-            ListGlobalInputs.push_back(input_hit.getPosition().x);
-            ListGlobalInputs.push_back(input_hit.getPosition().y);
-            ListGlobalInputs.push_back(input_hit.getPosition().z);
+        /// Processing hits from gaseous detectors
+        std::vector<int64_t> ListHitType_Wire; int wireHit_index = 0;
+        std::vector<int64_t> ListWireHitIndices; int wireHitCollection_index = 0; 
+        for (const auto& inputHits_collection : inputWireHits)
+        {
+            int wireHit_subcollection_index = 0;
+            for (const auto& input_hit : *inputHits_collection) {
+                
+                // position along the wire, wire direction and drift distance
+                edm4hep::Vector3d wirePos = input_hit.getPosition();   
+                TVector3 wire_pos(static_cast<float>(wirePos.x),static_cast<float>(wirePos.y),static_cast<float>(wirePos.z));
+
+                double distanceToWire = input_hit.getDistanceToWire(); 
+                double wireAzimuthalAngle = input_hit.getWireAzimuthalAngle();  
+                double wireStereoAngle = input_hit.getWireStereoAngle();  
+                
+                // Direction of the wire: z'
+                TVector3 direction(0,0,1);
+                direction.RotateX(wireStereoAngle);
+                direction.RotateZ(wireAzimuthalAngle);
             
-            // Add placeholder values for additional input dimensions.
-            ListGlobalInputs.push_back(1.0);
-            ListGlobalInputs.push_back(0.0);
-            ListGlobalInputs.push_back(0.0);
-            ListGlobalInputs.push_back(0.0); 
-            
-            // Store the current index in ListHitType_VTXB and increment the global iterator.
-            ListHitType_VTXB.push_back(it);
-            it += 1; 
-            it_1 += 1;                      
-        }
-        // Convert ListHitType_VTXB to a Torch tensor for use in PyTorch models.
-        torch::Tensor ListHitType_VTXB_tensor = torch::from_blob(ListHitType_VTXB.data(), {it_1}, torch::kFloat32);
+                TVector3 z_prime;
+                z_prime = direction.Unit();
 
-        /// Processing hits from the SWB (Silicon Wrapper Barrel).
-        std::vector<float> ListHitType_SWB; 
-        int it_2 = 0; 
-        for (const auto input_hit : inputHits_SWB) {
+                // x' axis, orthogonal to z'
+                TVector3 x_prime(1.0, 0.0, -direction.X() / direction.Z());
+                x_prime = x_prime.Unit();
 
-            // Add the 3D position of the hit to the global input list.
-            ListGlobalInputs.push_back(input_hit.getPosition().x);
-            ListGlobalInputs.push_back(input_hit.getPosition().y);
-            ListGlobalInputs.push_back(input_hit.getPosition().z);
-            
-            // Add placeholder values for additional input dimensions.
-            ListGlobalInputs.push_back(1.0);
-            ListGlobalInputs.push_back(0.0);
-            ListGlobalInputs.push_back(0.0);
-            ListGlobalInputs.push_back(0.0); 
-            
-            // Store the current index in ListHitType_SWB and increment the global iterator.
-            ListHitType_SWB.push_back(it);
-            it += 1; 
-            it_2 += 1;                      
-        }
-        // Convert ListHitType_SWB to a Torch tensor for use in PyTorch models.
-        torch::Tensor ListHitType_SWB_tensor = torch::from_blob(ListHitType_SWB.data(), {it_2}, torch::kFloat32);
+                // y' axis = z' × x'
+                TVector3 y_prime = z_prime.Cross(x_prime);
+                y_prime = y_prime.Unit();
 
-        /// Processing hits from the SWD (Silicon Wrapper Disk).
-        std::vector<float> ListHitType_SWD; 
-        int it_3 = 0; 
-        for (const auto input_hit : inputHits_SWD) {
+                // Define the local left/right positions
+                TVector3 left_local_pos(-distanceToWire, 0.0, 0.0);
+                TVector3 right_local_pos(distanceToWire, 0.0, 0.0);
 
-            // Add the 3D position of the hit to the global input list.
-            ListGlobalInputs.push_back(input_hit.getPosition().x);
-            ListGlobalInputs.push_back(input_hit.getPosition().y);
-            ListGlobalInputs.push_back(input_hit.getPosition().z);
-            
-            // Add placeholder values for additional input dimensions.
-            ListGlobalInputs.push_back(1.0);
-            ListGlobalInputs.push_back(0.0);
-            ListGlobalInputs.push_back(0.0);
-            ListGlobalInputs.push_back(0.0); 
-            
-            // Store the current index in ListHitType_SWD and increment the global iterator.
-            ListHitType_SWD.push_back(it);
-            it += 1; 
-            it_3 += 1;                      
-        }
-        // Convert ListHitType_SWD to a Torch tensor for use in PyTorch models.
-        torch::Tensor ListHitType_SWD_tensor = torch::from_blob(ListHitType_SWD.data(), {it_3}, torch::kFloat32);
+                // Transform to global
 
-        /// Processing hits from the CDC (Central Drift Chamber).
-        std::vector<float> ListHitType_CDC;
-        int it_4 = 0;
-        for (const auto input_hit : inputHits_CDC) {
-            
-            // position along the wire, wire direction and drift distance
-            edm4hep::Vector3d wirePos = input_hit.getPosition();   
-            TVector3 wire_pos(static_cast<float>(wirePos.x),static_cast<float>(wirePos.y),static_cast<float>(wirePos.z));
+                TVector3 left_global_pos = x_prime * left_local_pos.X() + y_prime * left_local_pos.Y() + z_prime * left_local_pos.Z() + wire_pos;
+                TVector3 right_global_pos = x_prime * right_local_pos.X() + y_prime * right_local_pos.Y() + z_prime * right_local_pos.Z() + wire_pos;
+        
+                // Add the 3D position of the left hit to the global input list.
+                ListGlobalInputs.push_back(left_global_pos.X());
+                ListGlobalInputs.push_back(left_global_pos.Y());
+                ListGlobalInputs.push_back(left_global_pos.Z());
+                
+                // Add the difference between the right and left hit positions to the global input list.
+                ListGlobalInputs.push_back(0.0); 
+                ListGlobalInputs.push_back(right_global_pos.X()-left_global_pos.X());
+                ListGlobalInputs.push_back(right_global_pos.y()-left_global_pos.Y());
+                ListGlobalInputs.push_back(right_global_pos.Z()-left_global_pos.Z());
+                
+                // Store the current index in ListHitType_Wire and increment the global iterator.
+                ListHitType_Wire.push_back(globalHitIndex);
 
-            double distanceToWire = input_hit.getDistanceToWire(); 
-            double wireAzimuthalAngle = input_hit.getWireAzimuthalAngle();  
-            double wireStereoAngle = input_hit.getWireStereoAngle();  
-            
-            // Direction of the wire: z'
-            TVector3 direction(0,0,1);
-            direction.RotateX(wireStereoAngle);
-            direction.RotateZ(wireAzimuthalAngle);
-           
-            TVector3 z_prime;
-            z_prime = direction.Unit();
+                ListWireHitIndices.push_back(wireHitCollection_index);
+                ListWireHitIndices.push_back(wireHit_subcollection_index);
 
-            // x' axis, orthogonal to z'
-            TVector3 x_prime(1.0, 0.0, -direction.X() / direction.Z());
-            x_prime = x_prime.Unit();
-
-            // y' axis = z' × x'
-            TVector3 y_prime = z_prime.Cross(x_prime);
-            y_prime = y_prime.Unit();
-
-            // Define the local left/right positions
-            TVector3 left_local_pos(-distanceToWire, 0.0, 0.0);
-            TVector3 right_local_pos(distanceToWire, 0.0, 0.0);
-
-            // Transform to global
-
-            TVector3 left_global_pos = x_prime * left_local_pos.X() + y_prime * left_local_pos.Y() + z_prime * left_local_pos.Z() + wire_pos;
-            TVector3 right_global_pos = x_prime * right_local_pos.X() + y_prime * right_local_pos.Y() + z_prime * right_local_pos.Z() + wire_pos;
-    
-            // Add the 3D position of the left hit to the global input list.
-            ListGlobalInputs.push_back(left_global_pos.X());
-            ListGlobalInputs.push_back(left_global_pos.Y());
-            ListGlobalInputs.push_back(left_global_pos.Z());
-            
-            // Add the difference between the right and left hit positions to the global input list.
-            ListGlobalInputs.push_back(0.0); 
-            ListGlobalInputs.push_back(right_global_pos.X()-left_global_pos.X());
-            ListGlobalInputs.push_back(right_global_pos.y()-left_global_pos.Y());
-            ListGlobalInputs.push_back(right_global_pos.Z()-left_global_pos.Z());
-            
-            // Store the current index in ListHitType_CDC and increment the global iterator.
-            ListHitType_CDC.push_back(it);
-            it += 1; 
-            it_4 += 1;                      
+                globalHitIndex += 1;  
+                wireHit_index += 1;   
+                wireHit_subcollection_index += 1;                  
+            }
         }
         // Convert ListHitType_CDC to a Torch tensor for use in PyTorch models.
-        torch::Tensor ListHitType_CDC_tensor = torch::from_blob(ListHitType_CDC.data(), {it_4}, torch::kFloat32);
+        torch::Tensor ListHitType_Wire_tensor = torch::from_blob(ListHitType_Wire.data(), {wireHit_index}, torch::kFloat32);
+
+        int64_t n_wire_hits = ListWireHitIndices.size() / 2;
+        torch::Tensor ListWireHitIndices_tensor = torch::from_blob(
+            ListWireHitIndices.data(),
+            {n_wire_hits, 2},
+            torch::kInt64
+        );
+
+        torch::Tensor planar_type = torch::zeros({n_planar_hits, 1}, torch::kInt64);
+        torch::Tensor wire_type = torch::ones({n_wire_hits, 1}, torch::kInt64);
+
+        torch::Tensor planar_with_type = torch::cat({planar_type, ListPlanarHitIndices_tensor}, 1);
+        torch::Tensor wire_with_type   = torch::cat({wire_type,   ListWireHitIndices_tensor}, 1);
+
+        torch::Tensor ListHitIndicesGlobal = torch::cat({planar_with_type, wire_with_type}, 0);
 
 
         /////////////////////////////
@@ -374,12 +338,13 @@ struct GGTF_tracking_OC_IDEAv3 final :
         /////////////////////////////
         // Create a new TrackCollection and TrackerHit3DCollection for storing the output tracks and hits
         extension::TrackCollection output_tracks;
-        if (it > 0 && it < 20000)
+        constexpr int kMaxHits = 20000;
+        if (globalHitIndex > 0 && globalHitIndex < kMaxHits)
         {
             // Calculate the total size of the input tensor, based on the number of hits (it) and the 
             // number of features per hit (7: x, y, z, and four placeholders).
-            size_t total_size = it * 7;
-            std::vector<int64_t> tensor_shape = {it, 7};
+            size_t total_size = globalHitIndex * 7;
+            std::vector<int64_t> tensor_shape = {globalHitIndex, 7};
 
             // Create a vector to store the input tensors that will be fed into the ONNX model.
             std::vector<Ort::Value> input_tensors;
@@ -388,13 +353,13 @@ struct GGTF_tracking_OC_IDEAv3 final :
             // Run the ONNX inference session with the provided input tensor.
             auto output_model_tensors = fSession->Run(Ort::RunOptions{nullptr}, fInames.data(), input_tensors.data(), fInames.size(), fOnames.data(), fOnames.size());
             float* floatarr = output_model_tensors.front().GetTensorMutableData<float>();
-            std::vector<float> output_model_vector(floatarr, floatarr + it * 4);
+            std::vector<float> output_model_vector(floatarr, floatarr + globalHitIndex * 4);
 
             /////////////////////////////////////
             ////////// CLUSTERING STEP //////////
             /////////////////////////////////////
 
-            auto clustering = get_clustering(output_model_vector, it,0.6,0.3);
+            auto clustering = get_clustering(output_model_vector, globalHitIndex,0.6,0.3);
             torch::Tensor unique_tensor;
             torch::Tensor inverse_indices;
             std::tie(unique_tensor, inverse_indices) = at::_unique(clustering, true, true);
@@ -428,62 +393,31 @@ struct GGTF_tracking_OC_IDEAv3 final :
                 
                 // Find the indices of the hits that belong to the current track
                 torch::Tensor indices = torch::nonzero(mask);
-                int64_t number_of_hits = indices.numel();
 
-                // Loop through each hit index for the current track
-                for (int j = 0; j < number_of_hits; ++j) {
+                auto ListHitIndicesGlobal_view = ListHitIndicesGlobal.accessor<int64_t, 2>();
+                auto indices_view  = indices.accessor<int64_t, 1>();
 
-                    // Get the current hit index
-                    auto index_id = indices.index({j});
-                    
-                    // Check which detector the hit belongs to (VTXD, VTXB, SWB, SWD, CDC)
-                    torch::Tensor mask_VTXD = (ListHitType_VTXD_tensor == index_id);
-                    torch::Tensor mask_VTXB = (ListHitType_VTXB_tensor == index_id);
-                    torch::Tensor mask_SWB = (ListHitType_SWB_tensor == index_id);
-                    torch::Tensor mask_SWD = (ListHitType_SWD_tensor == index_id);
-                    torch::Tensor mask_CDC = (ListHitType_CDC_tensor == index_id);
+                for (int64_t j = 0; j < indices.size(0); ++j) {
+                    int64_t row = indices_view[j];
+                    int64_t type = ListHitIndicesGlobal_view[row][0];
+                    int64_t idx1 = ListHitIndicesGlobal_view[row][1];
+                    int64_t idx2 = ListHitIndicesGlobal_view[row][2];
 
-                    // If the hit belongs to the VTXD detector
-                    if ((torch::sum(mask_VTXD) > 0).item<bool>()) {
-
-                        auto hit = inputHits_VTXD.at(index_id.item<int>());
+                    if (type == 0) {
+                        // planar hit
+                        auto planar_collection = inputPlanarHits[idx1];
+                        auto hit = (*planar_collection)[idx2];
                         output_track.addToTrackerHits(hit);
-
-                    } 
-                    // If the hit belongs to the VTOB detector
-                    else if ((torch::sum(mask_VTXB) > 0).item<bool>()) {
-                        index_id = index_id - (it_0);
-
-                        auto hit = inputHits_VTXB.at(index_id.item<int>());
+                        
+                    } else {
+                        // wire hit
+                        auto wire_collection = inputWireHits[idx1];
+                        auto hit = (*wire_collection)[idx2];
                         output_track.addToTrackerHits(hit);
-
-                    } 
-                    // If the hit belongs to the SWB detector
-                    if ((torch::sum(mask_SWD) > 0).item<bool>()) {
-                        index_id = index_id - (it_0 + it_1);
-
-
-                        auto hit = inputHits_SWD.at(index_id.item<int>());
-                        output_track.addToTrackerHits(hit);
-
-                    } 
-                    // If the hit belongs to the SWD detector
-                    else if ((torch::sum(mask_SWB) > 0).item<bool>()) {
-                        index_id = index_id - (it_0 + it_1 + it_2);
-
-                        auto hit = inputHits_SWB.at(index_id.item<int>());
-                        output_track.addToTrackerHits(hit);
-
-                    } 
-                    // If the hit belongs to the CDC detector
-                    else if ((torch::sum(mask_CDC) > 0).item<bool>()) {
-                        index_id = index_id - (it_0 + it_1 + it_2 + it_3);
-
-                        auto hit = inputHits_CDC.at(index_id.item<int>());
-                        output_track.addToTrackerHits(hit);
+                        
                     }
-
                 }
+
             }
 
             inverse_indices.reset();
@@ -496,17 +430,16 @@ struct GGTF_tracking_OC_IDEAv3 final :
             
         }
 
-        ListHitType_VTXB_tensor.reset();
-        ListHitType_VTXD_tensor.reset();
-        ListHitType_SWB_tensor.reset();
-        ListHitType_SWD_tensor.reset();
-        ListHitType_CDC_tensor.reset();
+        ListHitType_Planar_tensor.reset();
+        ListPlanarHitIndices_tensor.reset();
+        ListHitType_Wire_tensor.reset();
+        ListWireHitIndices_tensor.reset();
+        
 
-        std::vector<float>().swap(ListHitType_VTXD);
-        std::vector<float>().swap(ListHitType_VTXB);
-        std::vector<float>().swap(ListHitType_SWB);
-        std::vector<float>().swap(ListHitType_SWD);
-        std::vector<float>().swap(ListHitType_CDC);
+        std::vector<int64_t>().swap(ListHitType_Planar);
+        std::vector<int64_t>().swap(ListPlanarHitIndices);
+        std::vector<int64_t>().swap(ListHitType_Wire);
+        std::vector<int64_t>().swap(ListWireHitIndices);
 
         // Return the output collections as a tuple
         return std::make_tuple(std::move(output_tracks));
@@ -544,15 +477,6 @@ struct GGTF_tracking_OC_IDEAv3 final :
         /// This is a configurable property that defines the location of the ONNX model file on the filesystem.
         Gaudi::Property<std::string> modelPath{this, "modelPath", "/eos/experiment/fcc/ee/GGTF_trackFinder/IDEAv3o1_model.onnx", "modelPath"};
 
-        /// Property to configure the step size for the DBSCAN clustering algorithm.
-        /// This parameter controls the maximum distance between points in a cluster.
-        Gaudi::Property<double> step_size{this, "step_size", 0.5, "step_size"};
-
-        /// Property to configure the minimum number of points required to form a cluster in the DBSCAN algorithm.
-        /// This parameter defines the density threshold for identifying clusters.
-        Gaudi::Property<int> min_points{this, "min_points", 10, "min_points"};
-
-
         //------------------------------------------------------------------
         //          machinery for geometry
 
@@ -572,4 +496,4 @@ struct GGTF_tracking_OC_IDEAv3 final :
 
 };
 
-DECLARE_COMPONENT(GGTF_tracking_OC_IDEAv3)
+DECLARE_COMPONENT(GGTF_tracking)
