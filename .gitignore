@@ -58,6 +58,8 @@ CPackConfig.cmake
 cmake_install.cmake
 
 Tracking/components/GenfitTrackFitter_validation.cpp
-/Tracking/components/GGTF_tracking_OC_IDEA_o1_v3.cpp
+Tracking/components/GGTF_tracking_OC_IDEA_o1_v3.cpp
+Tracking/include/DetectorChecksum.hpp
+Tracking/src/DetectorChecksum.cpp
 SteeringFile*
 runIDEA*
