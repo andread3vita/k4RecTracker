@@ -22,7 +22,9 @@
 
 namespace GenfitInterface {
 
-    GenfitTrack::GenfitTrack(const extension::Track& track,const dd4hep::rec::DCH_info* dch_info,const dd4hep::DDSegmentation::BitFieldCoder* decoder, const int particle_hypothesis)
+    GenfitTrack::GenfitTrack(const extension::Track& track,
+                             const dd4hep::rec::DCH_info* dch_info,const dd4hep::DDSegmentation::BitFieldCoder* decoder, 
+                             const int particle_hypothesis, const TVector3& initial_position, const TVector3& initial_momentum)
         :   _particle_hypothesis(particle_hypothesis), 
             _posInit(0., 0., 0.), 
             _momInit(0., 0., 0.), 
@@ -34,7 +36,7 @@ namespace GenfitInterface {
     {   
 
         checkInitialization();
-        init(track);
+        init(track,initial_position,initial_momentum);
     }
 
     GenfitTrack::~GenfitTrack() {}
@@ -79,10 +81,17 @@ namespace GenfitInterface {
     *   - `_momInit`: the initial direction (unit vector from first to second hit).
     *   - `firstHit_referencePoint`: copy of the first hit position.
     *   - `lastHit_referencePoint`: position of the last hit.
-    * 
+    *
     * @param track_init The input track containing tracker hits used for initialization.
+    * @param initial_position Optional initial position for the track. If not provided, the first hit position is used.
+    * @param initial_momentum Optional initial momentum for the track. If not provided, the direction from the first to the second hit is used.
+    *
+    * @note If the initial position or momentum is provided, they are used to set `_posInit` and `_momInit`.
+    * The default values for these two vectors are (-1,-1,-1) for initial_position and (0,0,0) for initial_momentum. 
+    * If these default values are used, the method computes the initial position and momentum based on the first two hits.
+    *
     */
-    void GenfitTrack::init(const extension::Track& track_init) {
+    void GenfitTrack::init(const extension::Track& track_init, const TVector3& initial_position, const TVector3& initial_momentum) {
 
         // Initialize the edm4hepTrack_
         edm4hepTrack_ = extension::MutableTrack();
@@ -133,8 +142,22 @@ namespace GenfitInterface {
             index_loopHit++;
         }
 
-        _posInit = first_hit;
-        _momInit = (second_hit - first_hit).Unit();
+        if (initial_position != TVector3(-1,-1,-1)) {
+            _posInit = initial_position;
+        }
+        else
+        {
+           _posInit = first_hit;
+        }
+
+        if (initial_momentum != TVector3(0,0,0)) {
+            _momInit = initial_momentum;
+        }
+        else
+        {
+            _momInit = (second_hit - first_hit).Unit();
+        }
+       
         firstHit_referencePoint = first_hit;
 
     }

@@ -86,7 +86,7 @@
 // === Project-specific ===
 #include "utils.hpp"
 
-/** @struct GGTF_tracking_OC_IDEAv3
+/** @struct GGTF_tracking
  *
  *  Gaudi MultiTransformer that generates a Track collection by analyzing the digitalized hits through the GGTF_tracking. 
  *  The first step takes the raw hits and it returns a collection of 4-dimensional points inside an embedding space.
@@ -200,6 +200,8 @@ struct GGTF_tracking final :
         ////////// DATA PREPROCESSING //////////
         ////////////////////////////////////////
 
+        info() << "Processing event number: " << index_counter++ << endmsg;
+
         // Vector to store the global input values for all hits.
         // This will contain position and other hit-specific data to be used as input for the model.
         std::vector<float> ListGlobalInputs; int globalHitIndex = 0;
@@ -288,7 +290,6 @@ struct GGTF_tracking final :
                 TVector3 right_local_pos(distanceToWire, 0.0, 0.0);
 
                 // Transform to global
-
                 TVector3 left_global_pos = x_prime * left_local_pos.X() + y_prime * left_local_pos.Y() + z_prime * left_local_pos.Z() + wire_pos;
                 TVector3 right_global_pos = x_prime * right_local_pos.X() + y_prime * right_local_pos.Y() + z_prime * right_local_pos.Z() + wire_pos;
         
@@ -359,7 +360,7 @@ struct GGTF_tracking final :
             ////////// CLUSTERING STEP //////////
             /////////////////////////////////////
 
-            auto clustering = get_clustering(output_model_vector, globalHitIndex,0.6,0.3);
+            auto clustering = get_clustering(output_model_vector, globalHitIndex,tbeta.value(),td.value());
             torch::Tensor unique_tensor;
             torch::Tensor inverse_indices;
             std::tie(unique_tensor, inverse_indices) = at::_unique(clustering, true, true);
@@ -392,7 +393,7 @@ struct GGTF_tracking final :
                 torch::Tensor mask = (clustering == id_of_track);
                 
                 // Find the indices of the hits that belong to the current track
-                torch::Tensor indices = torch::nonzero(mask);
+                torch::Tensor indices = torch::nonzero(mask).flatten();
 
                 auto ListHitIndicesGlobal_view = ListHitIndicesGlobal.accessor<int64_t, 2>();
                 auto indices_view  = indices.accessor<int64_t, 1>();
@@ -406,13 +407,13 @@ struct GGTF_tracking final :
                     if (type == 0) {
                         // planar hit
                         auto planar_collection = inputPlanarHits[idx1];
-                        auto hit = (*planar_collection)[idx2];
+                        auto hit = planar_collection->at(idx2);
                         output_track.addToTrackerHits(hit);
                         
                     } else {
                         // wire hit
                         auto wire_collection = inputWireHits[idx1];
-                        auto hit = (*wire_collection)[idx2];
+                        auto hit = wire_collection->at(idx2);
                         output_track.addToTrackerHits(hit);
                         
                     }
@@ -447,6 +448,21 @@ struct GGTF_tracking final :
 
     } 
 
+    StatusCode finalize() {     
+        
+        info() << "Run report:" << endmsg;
+        info() << "Number of analysed events: " << index_counter << endmsg;
+        info() << "----------------\n" << endmsg;
+
+
+
+        return StatusCode::SUCCESS;
+
+    }
+
+    public:
+        mutable int index_counter = 0;
+
     private:
 
         /// Pointer to the ONNX environment.
@@ -475,7 +491,9 @@ struct GGTF_tracking final :
 
         /// Property to specify the path to the ONNX model file.
         /// This is a configurable property that defines the location of the ONNX model file on the filesystem.
-        Gaudi::Property<std::string> modelPath{this, "modelPath", "/eos/experiment/fcc/ee/GGTF_trackFinder/IDEAv3o1_model.onnx", "modelPath"};
+        Gaudi::Property<std::string> modelPath{this, "modelPath", "", "modelPath"};
+        Gaudi::Property<double> tbeta{this, "tbeta", 0.6, "tbeta"};
+        Gaudi::Property<double> td{this, "td", 0.3, "td"};
 
         //------------------------------------------------------------------
         //          machinery for geometry

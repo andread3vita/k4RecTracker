@@ -74,6 +74,7 @@
 #include <DDSegmentation/BitFieldCoder.h>
 #include "DD4hep/Fields.h"
 #include "DDRec/SurfaceManager.h"
+#include "DDRec/MaterialManager.h"
 
 //=== podio / edm4hep ===
 #include "podio/Frame.h"
@@ -174,10 +175,13 @@ struct GenfitTrackFitter final :
         fieldManager = genfit::FieldManager::getInstance();
         fieldManager->init(m_genfitField);
 
-        m_geoMaterial=GenfitInterface::GenfitMaterialInterface::getInstance(m_detector);        
+        m_geoMaterial=GenfitInterface::GenfitMaterialInterface::getInstance(m_detector);      
         genfit::MaterialEffects::getInstance()->setEnergyLossBrems(false);
         genfit::MaterialEffects::getInstance()->setNoiseBrems(false);
         genfit::MaterialEffects::getInstance()->setMscModel("Highland");
+
+        // genfit::MaterialEffects::getInstance()->setDebugLvl(2); // Set the debug level for material effects
+
 
         // Retrieve the SurfaceManager, ddd4hep::rec::DCH_info and dd4hep::DDSegmentation::BitFieldCoder
         // These object are necessary to extract the drift chamber hits information, such as positions of the wire extremities
@@ -268,7 +272,7 @@ struct GenfitTrackFitter final :
             {
 
                 // Create trackInterface, initialize genfit trakc and fit it
-                GenfitInterface::GenfitTrack track_interface = GenfitInterface::GenfitTrack(track, dch_info, dc_decoder,pdgCode);
+                GenfitInterface::GenfitTrack track_interface = GenfitInterface::GenfitTrack(track, dch_info, dc_decoder,pdgCode,TVector3(m_init_pos_x, m_init_pos_y, m_init_pos_z),TVector3(m_init_mom_x, m_init_mom_y, m_init_mom_z));
                 track_interface.createGenFitTrack(m_debug_lvl);
                 bool isFit = track_interface.fit(m_Beta_init,m_Beta_final,m_Beta_steps, m_Bz); 
                 if (isFit)
@@ -380,8 +384,7 @@ struct GenfitTrackFitter final :
                     debug() << "" << endmsg;
 
                     // Propagation of the track to the calorimeter surface: add atCalorimeter trackState to the track
-		            int charge = getHypotesisCharge(pdgCode);
-                    
+		            int charge = getHypotesisCharge(pdgCode);                   
                     FillTrackWithCalorimeterExtrapolation(
                         edm4hep_track,
                         m_Bz,
@@ -563,6 +566,13 @@ struct GenfitTrackFitter final :
         Gaudi::Property<int> m_Beta_steps{this, "Beta_steps", 10, "Beta number of Steps"};
 
         Gaudi::Property<int> m_debug_lvl{this, "debug_lvl", 0, "Debug level for GenfitTrack"};
+
+        Gaudi::Property<int> m_init_pos_x{this, "init_pos_x", -1, "m_init_pos_x"};
+        Gaudi::Property<int> m_init_pos_y{this, "init_pos_y", -1, "m_init_pos_y"};
+        Gaudi::Property<int> m_init_pos_z{this, "init_pos_z", -1, "m_init_pos_z"};
+        Gaudi::Property<int> m_init_mom_x{this, "init_mom_x", 0, "init_mom_x"};
+        Gaudi::Property<int> m_init_mom_y{this, "init_mom_y", 0, "init_mom_y"};
+        Gaudi::Property<int> m_init_mom_z{this, "init_mom_z", 0, "init_mom_z"};
 
         double c_light = 2.99792458e8;
         double a = c_light * 1e3 * 1e-15;
