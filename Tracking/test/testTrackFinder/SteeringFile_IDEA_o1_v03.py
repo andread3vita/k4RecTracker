@@ -289,7 +289,7 @@ SIM.gun.isotrop = False
 ## Minimal momentum when using distribution (default = 0.0)
 # SIM.gun.momentumMin = 0.0
 SIM.gun.multiplicity = 1
-SIM.gun.particle = "e-"
+SIM.gun.particle = "pi+"
 
 ## Maximal azimuthal angle for random distribution
 SIM.gun.phiMax = None

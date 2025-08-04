@@ -7,7 +7,7 @@ list(APPEND ExternalData_URL_TEMPLATES
   "https://key4hep.web.cern.ch:443/testFiles/k4RecTracker/%(hash)"
 )
 
-#find_package(GenFit)
+find_package(GenFit REQUIRED)
 find_package(MarlinUtil REQUIRED)
 list(APPEND CMAKE_MODULE_PATH $ENV{PANDORAPFA}/cmakemodules)
 FOREACH( pkg  MarlinUtil PandoraSDK )
@@ -17,15 +17,16 @@ FOREACH( pkg  MarlinUtil PandoraSDK )
     ADD_DEFINITIONS ( ${${pkg}_DEFINITIONS} )
   ENDIF()
 ENDFOREACH()
-#if (GenFit_FOUND)
 
 file(GLOB sources
     ${PROJECT_SOURCE_DIR}/src/*.cpp
     ${PROJECT_SOURCE_DIR}/components/*.cpp
+    ${PROJECT_SOURCE_DIR}/src/genfit_interfaces/*.cpp
 )
 
 file(GLOB headers
   ${PROJECT_SOURCE_DIR}/include/*.h
+  ${PROJECT_SOURCE_DIR}/include/genfit_interfaces/*.hpp
 )
 
 gaudi_add_module(${PackageName}
@@ -40,7 +41,7 @@ gaudi_add_module(${PackageName}
   torch
   DD4hep::DDRec
   DD4hep::DDCore
-  #GenFit::genfit2
+  GenFit::genfit2
   ${DELPHES_LIBRARIES}
 )
 
@@ -48,6 +49,7 @@ target_include_directories(${PackageName} PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
   ${MarlinUtil_INCLUDE_DIRS}
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include/genfit_interfaces>
   ${DELPHES_INCLUDE_DIRS}
 )
 
@@ -81,4 +83,8 @@ set_test_env(${test_name})
 set_tests_properties(${test_name} PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 ExternalData_Add_Target(${test_name})
 
-#endif()
+SET(test_name "test_TrackFitter")
+ADD_TEST(NAME ${test_name} COMMAND sh +x test_trackFitter.sh)
+set_test_env(${test_name})
+set_tests_properties(${test_name} PROPERTIES DEPENDS test_TrackFinder)
+set_tests_properties(${test_name} PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/Tracking/test/testTrackFitter")

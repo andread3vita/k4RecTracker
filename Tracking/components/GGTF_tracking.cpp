@@ -84,7 +84,7 @@
 #include "DDSegmentation/BitFieldCoder.h"
 
 // === Project-specific ===
-#include "utils.hpp"
+#include "utils.h"
 
 /** @struct GGTF_tracking
  *

@@ -1,4 +1,4 @@
-#include "utils.hpp"
+#include "utils.h"
 
 dd4hep::rec::LayeredCalorimeterData * getExtension(unsigned int includeFlag, unsigned int excludeFlag) {
 
