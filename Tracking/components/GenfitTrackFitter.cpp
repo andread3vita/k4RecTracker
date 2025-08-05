@@ -272,7 +272,7 @@ struct GenfitTrackFitter final :
             {
 
                 // Create trackInterface, initialize genfit trakc and fit it
-                GenfitInterface::GenfitTrack track_interface = GenfitInterface::GenfitTrack(track, dch_info, dc_decoder,pdgCode,TVector3(m_init_pos_x, m_init_pos_y, m_init_pos_z),TVector3(m_init_mom_x, m_init_mom_y, m_init_mom_z));
+                GenfitInterface::GenfitTrack track_interface = GenfitInterface::GenfitTrack(track, dch_info, dc_decoder,pdgCode);
                 track_interface.createGenFitTrack(m_debug_lvl);
                 bool isFit = track_interface.fit(m_Beta_init,m_Beta_final,m_Beta_steps, m_Bz); 
                 if (isFit)
@@ -398,44 +398,15 @@ struct GenfitTrackFitter final :
                     );
                     
                     // Fill track collections
-                    if (pdgCode == 11)
-                    {
+                    if (std::abs(pdgCode) == 11) {
                         FittedTracks_electron.push_back(edm4hep_track);
-                    }
-                    else if (pdgCode == -11)
-                    {
-                        FittedTracks_electron.push_back(edm4hep_track);
-                    }
-                    else if (pdgCode == 13)
-                    {
+                    } else if (std::abs(pdgCode) == 13) {
                         FittedTracks_muon.push_back(edm4hep_track);
-                    }
-                    else if (pdgCode == -13)
-                    {
-                        FittedTracks_muon.push_back(edm4hep_track);
-                    }
-                    else if (pdgCode == 211)
-                    {
+                    } else if (std::abs(pdgCode) == 211) {
                         FittedTracks_pion.push_back(edm4hep_track);
-                    }
-                    else if (pdgCode == -211)
-                    {
-                        FittedTracks_pion.push_back(edm4hep_track);
-                    }
-                    else if (pdgCode == 321)
-                    {
+                    } else if (std::abs(pdgCode) == 321) {
                         FittedTracks_kaon.push_back(edm4hep_track);
-                    }
-                    else if (pdgCode == -321)
-                    {
-                        FittedTracks_kaon.push_back(edm4hep_track);
-                    }
-                    else if (pdgCode == 2212)
-                    {
-                        FittedTracks_proton.push_back(edm4hep_track);
-                    }
-                    else if (pdgCode == -2212)
-                    {
+                    } else if (std::abs(pdgCode) == 2212) {
                         FittedTracks_proton.push_back(edm4hep_track);
                     }
                        
@@ -443,63 +414,23 @@ struct GenfitTrackFitter final :
                 else
                 {   
                     // If the fit fails, it returns a track with chi2=ndf=-1
-                    if (pdgCode == 11)
-                    {
+                    if (std::abs(pdgCode) == 11) {
                         auto failedTrack = FittedTracks_electron.create();
                         failedTrack.setChi2(-1);
                         failedTrack.setNdf(-1);
-                    }
-                    else if (pdgCode == -11)
-                    {
-                        auto failedTrack = FittedTracks_electron.create();
-                        failedTrack.setChi2(-1);
-                        failedTrack.setNdf(-1);
-
-                    }
-                    else if (pdgCode == 13)
-                    {
-                        auto failedTrack = FittedTracks_muon.create();
-                        failedTrack.setChi2(-1);
-                        failedTrack.setNdf(-1);;
-                    }
-                    else if (pdgCode == -13)
-                    {
+                    } else if (std::abs(pdgCode) == 13) {
                         auto failedTrack = FittedTracks_muon.create();
                         failedTrack.setChi2(-1);
                         failedTrack.setNdf(-1);
-                    }
-                    else if (pdgCode == 211)
-                    {
+                    } else if (std::abs(pdgCode) == 211) {
                         auto failedTrack = FittedTracks_pion.create();
                         failedTrack.setChi2(-1);
                         failedTrack.setNdf(-1);
-                    }
-                    else if (pdgCode == -211)
-                    {
-                        auto failedTrack = FittedTracks_pion.create();
-                        failedTrack.setChi2(-1);
-                        failedTrack.setNdf(-1);
-                    }
-                    else if (pdgCode == 321)
-                    {
+                    } else if (std::abs(pdgCode) == 321) {
                         auto failedTrack = FittedTracks_kaon.create();
                         failedTrack.setChi2(-1);
                         failedTrack.setNdf(-1);
-                    }
-                    else if (pdgCode == -321)
-                    {
-                         auto failedTrack = FittedTracks_kaon.create();
-                        failedTrack.setChi2(-1);
-                        failedTrack.setNdf(-1);
-                    }
-                    else if (pdgCode == 2212)
-                    {
-                        auto failedTrack = FittedTracks_proton.create();
-                        failedTrack.setChi2(-1);
-                        failedTrack.setNdf(-1);
-                    }
-                    else if (pdgCode == -2212)
-                    {
+                    } else if (std::abs(pdgCode) == 2212) {
                         auto failedTrack = FittedTracks_proton.create();
                         failedTrack.setChi2(-1);
                         failedTrack.setNdf(-1);
@@ -530,7 +461,7 @@ struct GenfitTrackFitter final :
     StatusCode finalize() {     
         
         info() << "Run report:" << endmsg;
-        info() << "Number of failed tracks: " << number_failures <<  "/" << num_tracks << endmsg;
+        info() << "Number of successes: " << (num_tracks-number_failures) <<  "/" << num_tracks << endmsg;
         info() << "----------------\n" << endmsg;
 
 
@@ -566,13 +497,6 @@ struct GenfitTrackFitter final :
         Gaudi::Property<int> m_Beta_steps{this, "Beta_steps", 10, "Beta number of Steps"};
 
         Gaudi::Property<int> m_debug_lvl{this, "debug_lvl", 0, "Debug level for GenfitTrack"};
-
-        Gaudi::Property<int> m_init_pos_x{this, "init_pos_x", -1, "m_init_pos_x"};
-        Gaudi::Property<int> m_init_pos_y{this, "init_pos_y", -1, "m_init_pos_y"};
-        Gaudi::Property<int> m_init_pos_z{this, "init_pos_z", -1, "m_init_pos_z"};
-        Gaudi::Property<int> m_init_mom_x{this, "init_mom_x", 0, "init_mom_x"};
-        Gaudi::Property<int> m_init_mom_y{this, "init_mom_y", 0, "init_mom_y"};
-        Gaudi::Property<int> m_init_mom_z{this, "init_mom_z", 0, "init_mom_z"};
 
         double c_light = 2.99792458e8;
         double a = c_light * 1e3 * 1e-15;

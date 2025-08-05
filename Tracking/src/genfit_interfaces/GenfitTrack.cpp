@@ -24,7 +24,7 @@ namespace GenfitInterface {
 
     GenfitTrack::GenfitTrack(const extension::Track& track,
                              const dd4hep::rec::DCH_info* dch_info,const dd4hep::DDSegmentation::BitFieldCoder* decoder, 
-                             const int particle_hypothesis, const TVector3& initial_position, const TVector3& initial_momentum)
+                             const int particle_hypothesis, std::optional<TVector3> initial_position, std::optional<TVector3> initial_momentum)
         :   _particle_hypothesis(particle_hypothesis), 
             _posInit(0., 0., 0.), 
             _momInit(0., 0., 0.), 
@@ -86,12 +86,8 @@ namespace GenfitInterface {
     * @param initial_position Optional initial position for the track. If not provided, the first hit position is used.
     * @param initial_momentum Optional initial momentum for the track. If not provided, the direction from the first to the second hit is used.
     *
-    * @note If the initial position or momentum is provided, they are used to set `_posInit` and `_momInit`.
-    * The default values for these two vectors are (-1,-1,-1) for initial_position and (0,0,0) for initial_momentum. 
-    * If these default values are used, the method computes the initial position and momentum based on the first two hits.
-    *
     */
-    void GenfitTrack::init(const extension::Track& track_init, const TVector3& initial_position, const TVector3& initial_momentum) {
+    void GenfitTrack::init(const extension::Track& track_init, std::optional<TVector3> initial_position, std::optional<TVector3> initial_momentum) {
 
         // Initialize the edm4hepTrack_
         edm4hepTrack_ = extension::MutableTrack();
@@ -117,48 +113,16 @@ namespace GenfitInterface {
         }
 
         // initialize track
-        int index_loopHit = 0;
-        TVector3 first_hit(0,0,0);
-        TVector3 second_hit(0,0,0);
+        auto firstHit_position = edm4hepTrack_.getTrackerHits(0).getPosition();
+        auto secondHit_position = edm4hepTrack_.getTrackerHits(1).getPosition();
+        auto lastHit_position = edm4hepTrack_.getTrackerHits(-1).getPosition();
 
-        auto hits_for_genfit = edm4hepTrack_.getTrackerHits();
-        for (auto hit : hits_for_genfit) {
-            if (index_loopHit == 0) {
-     
-                auto position = hit.getPosition();
-                first_hit = TVector3(dd4hep::mm * position.x, dd4hep::mm * position.y, dd4hep::mm * position.z);
-            }
-            if (index_loopHit == 1) {
+        firstHit_referencePoint = TVector3(dd4hep::mm * firstHit_position.x, dd4hep::mm * firstHit_position.y, dd4hep::mm * firstHit_position.z);
+        TVector3 secondHit_referencePoint = TVector3(dd4hep::mm * secondHit_position.x, dd4hep::mm * secondHit_position.y, dd4hep::mm * secondHit_position.z);
+        lastHit_referencePoint = TVector3(dd4hep::mm * lastHit_position.x, dd4hep::mm * lastHit_position.y, dd4hep::mm * lastHit_position.z);
 
-                auto position = hit.getPosition();
-                second_hit = TVector3(dd4hep::mm * position.x, dd4hep::mm * position.y, dd4hep::mm * position.z);
-            }
-            if (static_cast<size_t>(index_loopHit) == hits_for_genfit.size()-1) {
-
-                auto position = hit.getPosition();
-                lastHit_referencePoint = TVector3(dd4hep::mm * position.x, dd4hep::mm * position.y, dd4hep::mm * position.z);
-
-            }
-            index_loopHit++;
-        }
-
-        if (initial_position != TVector3(-1,-1,-1)) {
-            _posInit = initial_position;
-        }
-        else
-        {
-           _posInit = first_hit;
-        }
-
-        if (initial_momentum != TVector3(0,0,0)) {
-            _momInit = initial_momentum;
-        }
-        else
-        {
-            _momInit = (second_hit - first_hit).Unit();
-        }
-       
-        firstHit_referencePoint = first_hit;
+        _posInit = initial_position.value_or(firstHit_referencePoint);
+        _momInit = initial_momentum.value_or((secondHit_referencePoint - firstHit_referencePoint).Unit());
 
     }
 

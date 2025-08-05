@@ -81,11 +81,11 @@ namespace GenfitInterface {
 
     class GenfitTrack {
     public:
-        GenfitTrack(const extension::Track& track, const dd4hep::rec::DCH_info* dch_info,const dd4hep::DDSegmentation::BitFieldCoder* decoder, const int particle_hypothesis, const TVector3& initial_position = TVector3(-1,-1,-1), const TVector3& initial_momentum = TVector3(-1,-1,-1));
+        GenfitTrack(const extension::Track& track, const dd4hep::rec::DCH_info* dch_info,const dd4hep::DDSegmentation::BitFieldCoder* decoder, const int particle_hypothesis, std::optional<TVector3> initial_position = std::nullopt, std::optional<TVector3> initial_momentum = std::nullopt);
         ~GenfitTrack();
 
         void checkInitialization();
-        void init(const extension::Track& track_init, const TVector3& initial_position = TVector3(-1,-1,-1), const TVector3& initial_momentum = TVector3(0,0,0));
+        void init(const extension::Track& track_init, std::optional<TVector3> initial_position = std::nullopt, std::optional<TVector3> initial_momentum = std::nullopt);
 
         void createGenFitTrack(int debug_lvl);
         bool fit(double Beta_init, double Beta_final, double Beta_steps, double Bz);
