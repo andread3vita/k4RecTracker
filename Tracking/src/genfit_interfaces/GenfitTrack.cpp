@@ -113,13 +113,29 @@ namespace GenfitInterface {
         }
 
         // initialize track
-        auto firstHit_position = edm4hepTrack_.getTrackerHits(0).getPosition();
-        auto secondHit_position = edm4hepTrack_.getTrackerHits(1).getPosition();
-        auto lastHit_position = edm4hepTrack_.getTrackerHits(-1).getPosition();
+        int index_loopHit = 0;
+        TVector3 secondHit_referencePoint(0,0,0);
 
-        firstHit_referencePoint = TVector3(dd4hep::mm * firstHit_position.x, dd4hep::mm * firstHit_position.y, dd4hep::mm * firstHit_position.z);
-        TVector3 secondHit_referencePoint = TVector3(dd4hep::mm * secondHit_position.x, dd4hep::mm * secondHit_position.y, dd4hep::mm * secondHit_position.z);
-        lastHit_referencePoint = TVector3(dd4hep::mm * lastHit_position.x, dd4hep::mm * lastHit_position.y, dd4hep::mm * lastHit_position.z);
+        auto hits_for_genfit = edm4hepTrack_.getTrackerHits();
+        for (auto hit : hits_for_genfit) {
+            if (index_loopHit == 0) {
+     
+                auto position = hit.getPosition();
+                firstHit_referencePoint = TVector3(dd4hep::mm * position.x, dd4hep::mm * position.y, dd4hep::mm * position.z);
+            }
+            if (index_loopHit == 1) {
+
+                auto position = hit.getPosition();
+                secondHit_referencePoint = TVector3(dd4hep::mm * position.x, dd4hep::mm * position.y, dd4hep::mm * position.z);
+            }
+            if (static_cast<size_t>(index_loopHit) == hits_for_genfit.size()-1) {
+
+                auto position = hit.getPosition();
+                lastHit_referencePoint = TVector3(dd4hep::mm * position.x, dd4hep::mm * position.y, dd4hep::mm * position.z);
+
+            }
+            index_loopHit++;
+        }
 
         _posInit = initial_position.value_or(firstHit_referencePoint);
         _momInit = initial_momentum.value_or((secondHit_referencePoint - firstHit_referencePoint).Unit());

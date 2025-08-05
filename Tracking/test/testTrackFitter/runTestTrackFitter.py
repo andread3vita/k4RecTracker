@@ -26,7 +26,7 @@ io_svc.Output = args.outputFile
 # pattern recognition over digitized hits
 from Configurables import GenfitTrackFitter
 
-GGTF = GenfitTrackFitter(
+trackFitter = GenfitTrackFitter(
     "GenfitTrackFitter",
     
     tracks_input=["CDCHTracks"],
@@ -38,10 +38,10 @@ GGTF = GenfitTrackFitter(
     OutputLevel=DEBUG,
 )
 
-GGTF.Beta_init = args.Beta_init
-GGTF.Beta_final = args.Beta_final
-GGTF.Beta_steps = args.Beta_steps
-GGTF.debug_lvl = 0
+trackFitter.Beta_init = args.Beta_init
+trackFitter.Beta_final = args.Beta_final
+trackFitter.Beta_steps = args.Beta_steps
+trackFitter.debug_lvl = 0
 
 # ################ Detector geometry
 from Configurables import GeoSvc
@@ -56,7 +56,7 @@ chra = ChronoAuditor()
 audsvc = AuditorSvc()
 audsvc.Auditors = [chra]
 ApplicationMgr(
-    TopAlg=[GGTF],
+    TopAlg=[trackFitter],
     EvtSel="NONE",
     ExtSvc=[geoservice,EventDataSvc("EventDataSvc"), audsvc],
     StopOnSignal=True,
