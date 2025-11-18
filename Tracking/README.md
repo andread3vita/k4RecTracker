@@ -26,7 +26,7 @@ Its workflow can be summarized as follows:
    - From the hit collections, a 7-dimensional tensor is built.
    - The components are:
      - **[0–2]**: 3D position of the silicon detector hits (e.g., vertex and wrapper).
-     - **[3]**: hit type (`0` = silicon detector hit, `1` = drift chamber hit).
+     - **[3]**: hit type (`1` = silicon detector hit, `0` = drift chamber hit).
      - **[4–6]**: vector components pointing from the left to the right positions along the circles that identify the drift chamber hits (set to `0` for silicon hits).
 
 2. **Machine Learning Step**
@@ -67,8 +67,8 @@ This will return your edm4hep output file with the added `OutputTracksGGTF` coll
 
 ### Retraining a model
 
-When the project is compiled, the latest trained model for **IDEA_o1_v2** is automatically downloaded.
-This model has been trained on **Z → qq** events at 91 GeV without background.
+When the project is compiled, the latest trained model for **IDEA_o1_v3** is automatically downloaded.
+This model has been trained on **Z → ff** events at 91 GeV without background.
 
 It is recommended to re-train the model if:
 
@@ -76,4 +76,4 @@ It is recommended to re-train the model if:
 
 * you wish to include additional physics processes (e.g., background).
 
-To proceed, you need to clone [this repository](https://github.com/andread3vita/Tracking_DC/tree/devBranch), which provides the Python implementation of the model along with instructions for re-training it and converting the resulting checkpoint file (`.ckpt`) into an **ONNX** file. The ONNX file can then be used to load the model for inference.
+To proceed, you need to clone [this repository](https://github.com/andread3vita/GGTF_trackFinder_training), which provides the Python implementation of the model along with instructions for re-training it and converting the resulting checkpoint file (`.ckpt`) into an **ONNX** file. The ONNX file can then be used to load the model for inference.

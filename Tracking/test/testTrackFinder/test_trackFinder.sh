@@ -7,7 +7,11 @@ STEERING_FILE=Tracking/test/testTrackFinder/SteeringFile_IDEA_o1_v03.py
 TBETA=0.6
 TD=0.3
 
-curl -o $STEERING_FILE https://raw.githubusercontent.com/key4hep/k4geo/master/example/SteeringFile_IDEA_o1_v03.py
+src_file="$FCCCONFIG/FullSim/IDEA/IDEA_o1_v03/SteeringFile_IDEA_o1_v03.py"
+cp "$src_file" "$STEERING_FILE"
+sed -i 's/simulateCalo *= *True/simulateCalo = False/' "$STEERING_FILE"
+
+
 
 ddsim --steeringFile $STEERING_FILE \
       --compactFile  $XML_FILE \

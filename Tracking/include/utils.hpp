@@ -17,8 +17,8 @@
 
 //=== edm4hep ===
 #include "edm4hep/TrackState.h"
-#include "extension/MutableTrack.h"
-#include "extension/TrackCollection.h"
+#include "edm4hep/MutableTrack.h"
+#include "edm4hep/TrackCollection.h"
 
 //=== Others ===
 #include <Objects/Helix.h>
@@ -98,7 +98,7 @@ edm4hep::TrackState getExtrapolationAtCalorimeter(const pandora::CartesianVector
  * @param m_eCalEndCapOuterR Outer radius of the endcap calorimeter.
  * @param m_eCalEndCapInnerZ z-position of the inner surface of the endcap calorimeter.
  */
-void FillTrackWithCalorimeterExtrapolation(extension::MutableTrack& edm4hep_track, double m_Bz, int charge, double a,
+void FillTrackWithCalorimeterExtrapolation(edm4hep::MutableTrack& edm4hep_track, double m_Bz, int charge, double a,
                                            double m_eCalBarrelInnerR, double m_eCalBarrelMaxZ,
                                            double m_eCalEndCapInnerR, double m_eCalEndCapOuterR,
                                            double m_eCalEndCapInnerZ);

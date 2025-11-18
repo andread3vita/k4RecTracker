@@ -42,17 +42,11 @@
 #include <torch/torch.h>
 
 // ROOT
-#include "TFile.h"
-#include "TGeoMatrix.h"
-#include "TH1D.h"
-#include "TRandom3.h"
 #include "TVector3.h"
 
 // === Gaudi Framework ===
 #include "Gaudi/Algorithm.h"
 #include "Gaudi/Property.h"
-#include "GaudiKernel/IRndmGenSvc.h"
-#include "GaudiKernel/RndmGenerators.h"
 
 // === k4FWCore / k4Interface ===
 #include "k4FWCore/DataHandle.h"
@@ -61,72 +55,55 @@
 #include "k4Interface/IUniqueIDGenSvc.h"
 
 // === EDM4HEP & PODIO ===
-#include "edm4hep/EventHeaderCollection.h"
 #include "edm4hep/MCParticleCollection.h"
-#include "edm4hep/ParticleIDData.h"
 #include "edm4hep/SimTrackerHitCollection.h"
+#include "edm4hep/TrackCollection.h"
+#include "edm4hep/SenseWireHitCollection.h"
 #include "edm4hep/TrackerHitPlaneCollection.h"
-#include "podio/UserDataCollection.h"
-
-// === EDM4HEP Extensions ===
-#include "extension/DriftChamberDigiCollection.h"
-#include "extension/DriftChamberDigiLocalCollection.h"
-#include "extension/MCRecoDriftChamberDigiAssociationCollection.h"
-#include "extension/SenseWireHitCollection.h"
-#include "extension/SenseWireHitSimTrackerHitLinkCollection.h"
-#include "extension/TrackCollection.h"
-#include "extension/TrackerHit.h"
-
-// === DD4hep ===
-#include "DD4hep/Detector.h"
-#include "DDRec/DCH_info.h"
-#include "DDRec/Vector3D.h"
-#include "DDSegmentation/BitFieldCoder.h"
 
 // === Project-specific ===
 #include "utils.hpp"
 
-/** @struct GGTF_tracking
+/** @struct GGTF_trackFinder
  *
- *  Gaudi MultiTransformer that generates a Track collection by analyzing the digitalized hits through the
- * GGTF_tracking. The first step takes the raw hits and it returns a collection of 4-dimensional points inside an
+ * Gaudi MultiTransformer that generates a Track collection by analyzing the digitalized hits through the
+ * GGTF_trackFinder. The first step takes the raw hits and it returns a collection of 4-dimensional points inside an
  * embedding space. Eeach 4-dim point has 3 geometric coordinates and 1 charge, the meaning of which can be described
  * intuitively by a potential, which attracts hits belonging to the same cluster and drives away those that do not. This
  * collection of 4-dim points is analysed by a clustering step, which groups together hits belonging to the same track.
  *
  *  input:
- *    - digitalized hits from DC (global coordinates) : extension::SenseWireHitCollection
+ *    - digitalized hits from DC (global coordinates) : edm4hep::SenseWireHitCollection
  *    - digitalized hits from vertex (global coordinates) : edm4hep::TrackerHitPlaneCollection
  *    - digitalized hits from silicon wrapper (global coordinates) : edm4hep::TrackerHitPlaneCollection
  *
  *  output:
- *    - Track collection : extension::TrackCollection
+ *    - Track collection : edm4hep::TrackCollection
  *
  *
  *
  *  @author Andrea De Vita, Maria Dolores Garcia, Brieuc Francois
- *  @date   2025-06
+ *  @date   2025-11
  *
  */
 
-struct GGTF_tracking final : k4FWCore::MultiTransformer<std::tuple<extension::TrackCollection>(
+struct GGTF_trackFinder final : k4FWCore::MultiTransformer<std::tuple<edm4hep::TrackCollection>(
                                  const std::vector<const edm4hep::TrackerHitPlaneCollection*>&,
-                                 const std::vector<const extension::SenseWireHitCollection*>&)> {
-  GGTF_tracking(const std::string& name, ISvcLocator* svcLoc)
+                                 const std::vector<const edm4hep::SenseWireHitCollection*>&)> {
+
+  GGTF_trackFinder(const std::string& name, ISvcLocator* svcLoc)
       : MultiTransformer(name, svcLoc,
                          {
 
-                             KeyValues("InputPlanarHitCollections", {"InputPlanarHitCollections"}),
-                             KeyValues("InputWireHitCollections", {"InputWireHitCollections"})
+                            KeyValues("InputPlanarHitCollections", {"InputPlanarHitCollections"}),
+                            KeyValues("InputWireHitCollections", {"InputWireHitCollections"})
 
                          },
                          {
 
-                             KeyValues("OutputTracksGGTF", {"OutputTracksGGTF"})
+                            KeyValues("OutputTracksGGTF", {"OutputTracksGGTF"})
 
-                         }) {
-    m_geoSvc = serviceLocator()->service(m_geoSvcName);
-  }
+                         }) {}
 
   StatusCode initialize() {
 
@@ -171,28 +148,13 @@ struct GGTF_tracking final : k4FWCore::MultiTransformer<std::tuple<extension::Tr
     m_fInames.push_back(inputNames);
     m_fOnames.push_back(outputNames);
 
-    //////////////////////////////
-    ///// Drift Chamber Info /////
-    //////////////////////////////
-
-    // Retrieve the drift chamber information and decoder
-    try {
-
-      dd4hep::DetElement dchDet = m_geoSvc->getDetector()->detectors().at(m_dchName.value().c_str());
-      m_dchInfo = dchDet.extension<dd4hep::rec::DCH_info>();
-      dd4hep::SensitiveDetector dchSens = m_geoSvc->getDetector()->sensitiveDetector(m_dchName.value().c_str());
-      dd4hep::Readout dchRed = dchSens.readout();
-      m_dchDecoder = dchRed.idSpec().decoder();
-
-    } catch (const std::out_of_range& e) {
-    }
-
     return StatusCode::SUCCESS;
+
   }
 
-  std::tuple<extension::TrackCollection>
+  std::tuple<edm4hep::TrackCollection>
   operator()(const std::vector<const edm4hep::TrackerHitPlaneCollection*>& inputPlanarHitCollections,
-             const std::vector<const extension::SenseWireHitCollection*>& inputWireHitCollections) const override {
+             const std::vector<const edm4hep::SenseWireHitCollection*>& inputWireHitCollections) const override {
 
     ////////////////////////////////////////
     ////////// DATA PREPROCESSING //////////
@@ -245,6 +207,7 @@ struct GGTF_tracking final : k4FWCore::MultiTransformer<std::tuple<extension::Tr
 
     torch::Tensor listPlanarHitIndices_tensor =
         torch::from_blob(listPlanarHitIndices.data(), {planarHitIndex, 2}, torch::kInt64);
+
 
     /// Processing hits from gaseous detectors
     std::vector<int64_t> listHitTypeWire;
@@ -330,7 +293,7 @@ struct GGTF_tracking final : k4FWCore::MultiTransformer<std::tuple<extension::Tr
     //////////////////////////////////
 
     // Create a new TrackCollection and TrackerHit3DCollection for storing the output tracks and hits
-    extension::TrackCollection outputTracks;
+    edm4hep::TrackCollection outputTracks;
     constexpr int kMaxHits = 20000;
     if (globalHitIndex > 0 && globalHitIndex < kMaxHits) {
 
@@ -450,6 +413,7 @@ public:
   mutable int m_indexCounter = 0;
 
 private:
+
   /// Pointer to the ONNX environment.
   /// This object manages the global state of the ONNX runtime, such as logging and threading.
   std::unique_ptr<Ort::Env> m_fEnv;
@@ -477,25 +441,12 @@ private:
   /// Property to specify the path to the ONNX model file.
   /// This is a configurable property that defines the location of the ONNX model file on the filesystem.
   Gaudi::Property<std::string> m_modelPath{this, "ModelPath", "", "ModelPath"};
-  Gaudi::Property<double> m_tbeta{this, "Tbeta", 0.6, "tbeta"};
-  Gaudi::Property<double> m_td{this, "Td", 0.3, "td"};
 
-  //------------------------------------------------------------------
-  //          machinery for geometry
+  /// Properties of the clustering step.
+  Gaudi::Property<double> m_tbeta{ this, "Tbeta", 0.6, "tbeta: threshold used to identify core points in clusters (tracks)"};
+  Gaudi::Property<double> m_td{this, "Td", 0.3, "td: radius around a core point used to assign nearby hits to its cluster"};
 
-  /// Geometry service name
-  Gaudi::Property<std::string> m_geoSvcName{this, "GeoSvcName", "GeoSvc", "The name of the GeoSvc instance"};
-  Gaudi::Property<std::string> m_uidSvcName{this, "UidSvcName", "uidSvc", "The name of the UniqueIDGenSvc instance"};
 
-  /// Detector name
-  Gaudi::Property<std::string> m_dchName{this, "DchName", "DCH_v2", "Name of the Drift Chamber detector"};
-
-  /// Pointer to the geometry service
-  SmartIF<IGeoSvc> m_geoSvc;
-
-  /// Pointers to drift chamber information
-  dd4hep::rec::DCH_info* m_dchInfo;
-  dd4hep::DDSegmentation::BitFieldCoder* m_dchDecoder;
 };
 
-DECLARE_COMPONENT(GGTF_tracking)
+DECLARE_COMPONENT(GGTF_trackFinder)

@@ -78,7 +78,7 @@ edm4hep::TrackState getExtrapolationAtCalorimeter(const pandora::CartesianVector
   return trackState_AtCalorimeter;
 }
 
-void FillTrackWithCalorimeterExtrapolation(extension::MutableTrack& edm4hep_track, double m_Bz, int charge, double a,
+void FillTrackWithCalorimeterExtrapolation(edm4hep::MutableTrack& edm4hep_track, double m_Bz, int charge, double a,
                                            double m_eCalBarrelInnerR, double m_eCalBarrelMaxZ,
                                            double m_eCalEndCapInnerR, double m_eCalEndCapOuterR,
                                            double m_eCalEndCapInnerZ) {
