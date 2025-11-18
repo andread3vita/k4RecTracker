@@ -64,10 +64,10 @@
 // === Project-specific ===
 #include "utils.hpp"
 
-/** @struct GGTF_trackFinder
+/** @struct GGTFTrackFinder
  *
  * Gaudi MultiTransformer that generates a Track collection by analyzing the digitalized hits through the
- * GGTF_trackFinder. The first step takes the raw hits and it returns a collection of 4-dimensional points inside an
+ * GGTFTrackFinder. The first step takes the raw hits and it returns a collection of 4-dimensional points inside an
  * embedding space. Eeach 4-dim point has 3 geometric coordinates and 1 charge, the meaning of which can be described
  * intuitively by a potential, which attracts hits belonging to the same cluster and drives away those that do not. This
  * collection of 4-dim points is analysed by a clustering step, which groups together hits belonging to the same track.
@@ -81,17 +81,16 @@
  *    - Track collection : edm4hep::TrackCollection
  *
  *
- *
  *  @author Andrea De Vita, Maria Dolores Garcia, Brieuc Francois
  *  @date   2025-11
  *
  */
 
-struct GGTF_trackFinder final : k4FWCore::MultiTransformer<std::tuple<edm4hep::TrackCollection>(
+struct GGTFTrackFinder final : k4FWCore::MultiTransformer<std::tuple<edm4hep::TrackCollection>(
                                  const std::vector<const edm4hep::TrackerHitPlaneCollection*>&,
                                  const std::vector<const edm4hep::SenseWireHitCollection*>&)> {
 
-  GGTF_trackFinder(const std::string& name, ISvcLocator* svcLoc)
+  GGTFTrackFinder(const std::string& name, ISvcLocator* svcLoc)
       : MultiTransformer(name, svcLoc,
                          {
 
@@ -449,4 +448,4 @@ private:
 
 };
 
-DECLARE_COMPONENT(GGTF_trackFinder)
+DECLARE_COMPONENT(GGTFTrackFinder)

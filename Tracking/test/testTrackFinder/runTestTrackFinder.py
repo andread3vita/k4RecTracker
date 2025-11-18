@@ -113,10 +113,10 @@ dch_digitizer = DCHdigi_v02(
 )
 
 ############## Track Finder
-from Configurables import GGTF_trackFinder
+from Configurables import GGTFTrackFinder
 
-trackFinder = GGTF_trackFinder(
-    "GGTF_trackFinder",
+trackFinder = GGTFTrackFinder(
+    "GGTFTrackFinder",
     InputPlanarHitCollections=["VTXBDigis", "VTXDDigis", "SiWrBDigis", "SiWrDDigis"],
     InputWireHitCollections=["DCH_DigiCollection"],
     OutputTracksGGTF=["CDCHTracks"],
