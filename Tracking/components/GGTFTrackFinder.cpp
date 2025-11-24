@@ -260,7 +260,7 @@ struct GGTFTrackFinder final : k4FWCore::MultiTransformer<std::tuple<edm4hep::Tr
         // Add the difference between the right and left hit positions to the global input list.
         listGlobalInputs.push_back(0.0);
         listGlobalInputs.push_back(rightGlobalPos.X() - leftGlobalPos.X());
-        listGlobalInputs.push_back(rightGlobalPos.y() - leftGlobalPos.Y());
+        listGlobalInputs.push_back(rightGlobalPos.Y() - leftGlobalPos.Y());
         listGlobalInputs.push_back(rightGlobalPos.Z() - leftGlobalPos.Z());
 
         // Store the current index in listHitTypeWire and increment the global iterator.
@@ -309,7 +309,7 @@ struct GGTFTrackFinder final : k4FWCore::MultiTransformer<std::tuple<edm4hep::Tr
       std::vector<Ort::Value> inputModelTensors;
       inputModelTensors.emplace_back(Ort::Value::CreateTensor<float>(
           m_fInfo, listGlobalInputs.data(), inputTensorTotalSize, inputTensorShape.data(), inputTensorShape.size()));
-
+    
       // Run the ONNX inference session with the provided input tensor.
       auto outputModelTensors = m_fSession->Run(Ort::RunOptions{nullptr}, m_fInames.data(), inputModelTensors.data(),
                                                 m_fInames.size(), m_fOnames.data(), m_fOnames.size());
