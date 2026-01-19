@@ -27,20 +27,20 @@ namespace GenfitInterface {
         
         int cellid = hit.getCellID();
 
-        float wireStereoAngle = hit.getWireStereoAngle();
-        float wireAzimuthalAngle = hit.getWireAzimuthalAngle();
+        double wireStereoAngle = hit.getWireStereoAngle();
+        double wireAzimuthalAngle = hit.getWireAzimuthalAngle();
         auto pos = hit.getPosition();
-        TVector3 position(pos.x * dd4hep::mm, pos.y * dd4hep::mm, pos.z * dd4hep::mm);
 
+        TVector3 position(pos.x * dd4hep::mm, pos.y * dd4hep::mm, pos.z * dd4hep::mm);  // cm
         double positionAlongWireError = hit.getPositionAlongWireError() * dd4hep::mm;   // cm
-        float distanceToWire = hit.getDistanceToWire() * dd4hep::mm;                    // cm
-        float distanceToWireError = hit.getDistanceToWireError() * dd4hep::mm;          // cm
+
+        double distanceToWire = hit.getDistanceToWire() * dd4hep::mm;                    // cm
+        double distanceToWireError = hit.getDistanceToWireError() * dd4hep::mm;          // cm
 
         // Wire direction
         TVector3 direction(0,0,1);
         direction.RotateX(wireStereoAngle);
         direction.RotateZ(wireAzimuthalAngle);
-
 
         // Compute wire extremities
         int ilayer          = dch_info->CalculateILayerFromCellIDFields(decoder->get(cellid, "layer"), decoder->get(cellid, "superlayer"));
@@ -68,12 +68,11 @@ namespace GenfitInterface {
         p1.RotateZ(phi_z0);
         p2.RotateZ(phi_z0);
 
-
         // Compute drift distance
-        double Rdrift = distanceToWire;    // cm
+        double Rdrift = distanceToWire;       // cm
 
         // Compute position along the wire in local coordinates: z_reco = distance(left wire extremity, wire_pos)
-        float zreco = std::sqrt(std::pow(p1.x()-position.x(),2)+std::pow(p1.y()-position.y(),2)+std::pow(p1.z()-position.z(),2));  // cm
+        double zreco = (position - p1).Mag();  //cm
 
         // Create the coordinate array (8D): p1_x, p1_y, p1_z, p2_x, p2_y, p2_z, drift distance, position along the wire
         TVectorD rawHitCoords(8);
@@ -87,7 +86,7 @@ namespace GenfitInterface {
         rawHitCoords(7) = zreco;                // zreco
 
         // Create covariance matrix
-        double sigma_wire = 0;                  // 0 because they are fixed positions
+        double sigma_wire = 1e-4;               // almost 0 because they are fixed positions
         double w1_z_sigma = sigma_wire;
         double w1_x_sigma = sigma_wire;
         double w1_y_sigma = sigma_wire;
@@ -97,15 +96,17 @@ namespace GenfitInterface {
 
         double Rdrift_sigma = distanceToWireError;  // cm
 
-        double dz_dx = ( p1.x() - position.x() ) / zreco; // cm
-        double dz_dy = ( p1.y() - position.y() ) / zreco; // cm
-        double dz_dz = ( p1.z() - position.z() ) / zreco; // cm
+        // double dz_dx = ( p1.x() - position.x() ) / zreco; // cm
+        // double dz_dy = ( p1.y() - position.y() ) / zreco; // cm
+        // double dz_dz = ( p1.z() - position.z() ) / zreco; // cms
 
-        double zreco_sigma = std::sqrt(
-            std::pow(dz_dx * positionAlongWireError, 2) +
-            std::pow(dz_dy * positionAlongWireError, 2) +
-            std::pow(dz_dz * positionAlongWireError, 2)
-        ); // cm
+        // double zreco_sigma = std::sqrt(
+        //     std::pow(dz_dx * positionAlongWireError, 2) +
+        //     std::pow(dz_dy * positionAlongWireError, 2) +
+        //     std::pow(dz_dz * positionAlongWireError, 2)
+        // ); // cm
+
+        double zreco_sigma = positionAlongWireError; // cm
 
         TMatrixDSym rawHitCov(8);
         rawHitCov(0, 0) = w1_x_sigma * w1_x_sigma;          // Variance for w1_x
@@ -151,23 +152,36 @@ namespace GenfitInterface {
         rawHitCov(5, 7) = 0;                                // Covariance between w2_z and zreco
 
         rawHitCov(6, 7) = 0;                                // Covariance between Rdrift and zreco
-        
 
+        // // // inflate errors
+        // // double sigmaNoise = 1;
+        // // for (int i = 6; i < 8; ++i) {
+        // //     rawHitCov(i, i) += sigmaNoise * sigmaNoise;
+        // // }
+       
+        // rawHitCov(6, 6) += Rdrift_sigma * 1.5 * Rdrift_sigma * 1.5;
+        // rawHitCov(7, 7) += zreco_sigma * 1.5 * zreco_sigma * 1.5;
 
         // Create the genfit::WirePointMeasurement
         m_genfitHit = new genfit::WirePointMeasurement(rawHitCoords, rawHitCov, det_idx, hit_idx, nullptr);
 
         if (debug_lvl > 0) {
-            std::cout << "Wire measurement created with the following parameters:" << std::endl;
 
-            
+            std::cout << "Wire measurement settings:" << std::endl;
+            std::cout << "Position along the wire [cm]: " << position.X() << " " << position.Y() << " " << position.Z() << std::endl;
+            std::cout << "Position along the wire error [cm]: " << positionAlongWireError << std::endl;
+            std::cout << "Distance to the wire [cm]: " << distanceToWire << std::endl;
+            std::cout << "Distance to the wire error [cm]: " << distanceToWireError << std::endl;
+
             std::cout << "rawHitCoords = [ ";
             for (int i = 0; i < rawHitCoords.GetNrows(); ++i) {
                 std::cout << rawHitCoords[i] << " ,";
             }
             std::cout << "]" << std::endl;    
-            std::cout << "rawHitCov(6, 6): " << Rdrift_sigma * Rdrift_sigma << " [cm] " << Rdrift_sigma / dd4hep::mm * Rdrift_sigma / dd4hep::mm  << " [mm] " << std::endl;
-            std::cout << "rawHitCov(7, 7): " << zreco_sigma * zreco_sigma << " [cm] " << zreco_sigma / dd4hep::mm * zreco_sigma / dd4hep::mm  << " [mm] " << std::endl;
+            std::cout << "Wire position error [cm]: " << sigma_wire << std::endl;
+            std::cout << "Drift distance error [cm]: " << Rdrift_sigma << std::endl;
+            std::cout << "Zreco error [cm]: " << zreco_sigma << std::endl;
+
             std::cout << "detID: " << det_idx << std::endl;
             std::cout << "hitID: " << hit_idx << std::endl;
             std::cout << "" << std::endl;

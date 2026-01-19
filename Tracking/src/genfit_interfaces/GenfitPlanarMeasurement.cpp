@@ -26,9 +26,9 @@ namespace GenfitInterface {
                
         // Create a 2D local measurement from a 3D global measurement
         auto pos_hit = hit.getPosition();                                                                           // mm
-        dd4hep::rec::Vector3D global_pos(dd4hep::mm * pos_hit.x,dd4hep::mm * pos_hit.y,dd4hep::mm * pos_hit.z);     // cm
+        TVector3 global_pos(dd4hep::mm * pos_hit.x,dd4hep::mm * pos_hit.y,dd4hep::mm * pos_hit.z);                  // cm
         dd4hep::rec::Vector2D local_pos(0.,0.);                                                                     // cm
-        TVector3 Origin(global_pos[0],global_pos[1],global_pos[2]);
+        TVector3 Origin(global_pos.X(),global_pos.Y(),global_pos.Z());
 
         TVectorD rawHitCoords(2);
         rawHitCoords[0] = local_pos[0]; //cm
@@ -51,7 +51,9 @@ namespace GenfitInterface {
         rawHitCov(0,1) = 0;
         rawHitCov(1,0) = 0;
         rawHitCov(1,1) = std::pow(dd4hep::mm * sigma_v, 2); // cm^2
-        
+
+        // rawHitCov(0, 0) += dd4hep::mm * sigma_u * 0.5 * dd4hep::mm * sigma_u * 0.5;
+        // rawHitCov(1, 1) += dd4hep::mm * sigma_v * 0.5 * dd4hep::mm * sigma_v * 0.5;
         
         // Create genfit::PlanarMeasurement
         m_genfitHit = new genfit::PlanarMeasurement(rawHitCoords, rawHitCov, det_idx, hit_idx, nullptr);
@@ -62,16 +64,26 @@ namespace GenfitInterface {
         m_genfitHit->setPlane(plane, cellID0);
 
         if (debug_lvl > 0) {
-            std::cout << "Planar measurement created with the following parameters:" << std::endl;
+            std::cout << "Planar measurement settings:\n";
+            std::cout << "Global position [cm]: "
+                    << global_pos.X() << " "
+                    << global_pos.Y() << " "
+                    << global_pos.Z() << std::endl;
 
-            std::cout << "rawHitCoords: " << rawHitCoords[0] << "," << rawHitCoords[1] << std::endl;
-            std::cout << "rawHitCov: " << std::pow(dd4hep::mm * sigma_u, 2) << "," << std::pow(dd4hep::mm * sigma_v, 2) << std::endl;
-            std::cout << "detId: " << det_idx << std::endl;
-            std::cout << "hitID: " << hit_idx << std::endl;
+            std::cout << "rawHitCoords [cm]:" << std::endl;
+            rawHitCoords.Print();
+
+            std::cout << "rawHitCov [cm]:" << std::endl;
+            rawHitCov.Print();
+
             std::cout << "O: " << Origin[0] <<" , " << Origin[1] <<" , " << Origin[2] << std::endl;
             std::cout << "U: " << U[0] <<" , " << U[1] <<" , " << U[2] << std::endl;
             std::cout << "V: " << V[0] <<" , " << V[1] <<" , " << V[2] << std::endl;
+
+            std::cout << "detId: " << det_idx << std::endl;
+            std::cout << "hitID: " << hit_idx << std::endl;
             std::cout << "PlaneID: " << cellID0 << std::endl;
+            
             std::cout << "" << std::endl;
         }
 
