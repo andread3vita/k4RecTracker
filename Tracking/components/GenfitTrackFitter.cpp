@@ -927,7 +927,7 @@ struct GenfitTrackFitter final :
                         m_eCalEndCapInnerZ
                     );
                     
-                    Fill track collections
+                    // Fill track collections
                     if (std::abs(pdgCode) == 11) {
                         FittedTracks_electron.push_back(edm4hep_track);
                     } else if (std::abs(pdgCode) == 13) {
