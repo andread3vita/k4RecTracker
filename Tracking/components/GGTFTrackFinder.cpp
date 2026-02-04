@@ -62,7 +62,7 @@
 #include "edm4hep/TrackerHitPlaneCollection.h"
 
 // === Project-specific ===
-#include "utils.hpp"
+#include "utils.h"
 
 /** @struct GGTFTrackFinder
  *
@@ -111,21 +111,17 @@ struct GGTFTrackFinder final : k4FWCore::MultiTransformer<std::tuple<edm4hep::Tr
     ///////////////////////////////
 
     // Initialize the ONNX memory info object for CPU memory allocation.
-    // This specifies that the memory will be allocated using the Arena Allocator on the CPU.
     m_fInfo = std::make_unique<Ort::MemoryInfo>(Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault));
 
     // Create and initialize the ONNX environment with a logging level set to WARNING.
-    // This environment handles logging and runtime configuration for the ONNX session.
     auto envLocal = std::make_unique<Ort::Env>(ORT_LOGGING_LEVEL_WARNING, "ONNX_Runtime");
     m_fEnv = std::move(envLocal);
 
     // Set the session options to configure the ONNX inference session.
-    // Set the number of threads used for intra-op parallelism to 1 (single-threaded execution).
     m_fSessionOptions.SetIntraOpNumThreads(1);
 
     // Disable all graph optimizations to keep the model execution as close to the original as possible.
     m_fSessionOptions.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_DISABLE_ALL);
-    // fSessionOptions.DisableMemPattern();
 
     // Create an ONNX inference session using the configured environment and session options.
     // The session is used to load the model specified by the `modelPath`.
@@ -136,9 +132,7 @@ struct GGTFTrackFinder final : k4FWCore::MultiTransformer<std::tuple<edm4hep::Tr
     Ort::AllocatorWithDefaultOptions allocator;
 
     // Get the name of the first input node (index i) from the ONNX model and store it.
-    // This retrieves the name from the model and releases the memory after storing it in fInames.
     // Get the name of the first output node (index i) from the ONNX model and store it.
-    // This retrieves the name from the model and releases the memory after storing it in fOnames.
     std::size_t i = 0;
     const auto inputNames = m_fSession->GetInputNameAllocated(i, allocator).release();
     const auto outputNames = m_fSession->GetOutputNameAllocated(i, allocator).release();
@@ -413,38 +407,36 @@ public:
 
 private:
 
-  /// Pointer to the ONNX environment.
-  /// This object manages the global state of the ONNX runtime, such as logging and threading.
+  // Pointer to the ONNX environment.
+  // This object manages the global state of the ONNX runtime, such as logging and threading.
   std::unique_ptr<Ort::Env> m_fEnv;
 
-  /// Pointer to the ONNX inference session.
-  /// This session is used to execute the model for inference.
+  // Pointer to the ONNX inference session.
+  // This session is used to execute the model for inference.
   std::unique_ptr<Ort::Session> m_fSession;
 
-  /// ONNX session options.
-  /// These settings control the behavior of the inference session, such as optimization level,
-  /// execution providers, and other configuration parameters.
+  // ONNX session options.
   Ort::SessionOptions m_fSessionOptions;
 
-  /// ONNX memory info.
-  /// This object provides information about memory allocation and is used during the creation of
-  /// ONNX tensors. It specifies the memory type and device (e.g., CPU, GPU).
+  // ONNX memory info.
+  // This object provides information about memory allocation and is used during the creation of
+  // ONNX tensors. It specifies the memory type and device (e.g., CPU, GPU).
   std::unique_ptr<Ort::MemoryInfo> m_fInfo;
 
-  /// Stores the input and output names for the ONNX model.
-  /// These vectors contain the names of the inputs (fInames) and outputs (fOnames) that the model expects.
+  // Stores the input and output names for the ONNX model.
+  // These vectors contain the names of the inputs (fInames) and outputs (fOnames) that the model expects.
   std::vector<const char*> m_fInames;
   std::vector<const char*> m_fOnames;
 
-  /// Property to specify the path to the ONNX model file.
-  /// This is a configurable property that defines the location of the ONNX model file on the filesystem.
+  // Property to specify the path to the ONNX model file.
+  // This is a configurable property that defines the location of the ONNX model file on the filesystem.
   Gaudi::Property<std::string> m_modelPath{this, "ModelPath", "", "ModelPath"};
 
-  /// Properties of the clustering step.
+  // Properties of the clustering step.
   Gaudi::Property<double> m_tbeta{ this, "Tbeta", 0.6, "tbeta: threshold used to identify core points in clusters (tracks)"};
   Gaudi::Property<double> m_td{this, "Td", 0.3, "td: radius around a core point used to assign nearby hits to its cluster"};
 
 
 };
 
-DECLARE_COMPONENT(GGTF_tracking)
+DECLARE_COMPONENT(GGTFTrackFinder)

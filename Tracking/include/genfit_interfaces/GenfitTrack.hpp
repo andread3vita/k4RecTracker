@@ -53,7 +53,7 @@
 #include "edm4hep/TrackCollection.h"
 
 // Local
-#include "utils.hpp"
+#include "utils.h"
 
 /** @class GenfitTrack
  *

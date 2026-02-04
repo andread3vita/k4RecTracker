@@ -797,7 +797,11 @@ namespace GenfitInterface {
                 debug_lvl_fit = 2;
             }
 
+           
+
             m_genfitFitter->setDebugLvl(debug_lvl_fit);
+
+            debug_lvl_fit = 2;
 
             // Process track
             genfit::Track genfitTrack = *m_genfitTrack;

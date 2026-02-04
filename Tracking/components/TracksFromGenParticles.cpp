@@ -26,7 +26,7 @@
 // C++
 #include <string>
 
-#include <utils.hpp>
+#include <utils.h>
 
 using SimTrackerHitColl = std::vector<const edm4hep::SimTrackerHitCollection*>;
 
@@ -371,7 +371,7 @@ struct TracksFromGenParticles final
           // by default, store extrapolation with lower arrival time
           // get extrapolated position
           edm4hep::TrackState trackState_AtCalorimeter =
-              getExtrapolationAtCalorimeter(bestECalProjection, helixAtLastHit, m_Bz);
+              getExtrapolationAtCalorimeterGenParticle(bestECalProjection, helixAtLastHit, m_Bz);
 
           // attach the TrackState to the track
           trackFromGen.addToTrackStates(trackState_AtCalorimeter);
@@ -379,7 +379,7 @@ struct TracksFromGenParticles final
           // attach second extrapolation if desired
           if (!m_keepOnlyBestExtrapolation and hasBarrelProjection and hasEndCapProjection) {
             edm4hep::TrackState trackState_AtCalorimeter_2 =
-                getExtrapolationAtCalorimeter(secondBestECalProjection, helixAtLastHit, m_Bz);
+                getExtrapolationAtCalorimeterGenParticle(secondBestECalProjection, helixAtLastHit, m_Bz);
             trackState_AtCalorimeter_2.location = edm4hep::TrackState::AtOther;
             trackFromGen.addToTrackStates(trackState_AtCalorimeter_2);
           }

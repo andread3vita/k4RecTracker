@@ -105,8 +105,8 @@
 // Define collection types
 #include "podio/UserDataCollection.h"
 
-#include "utils.hpp"
-#include "FastCircleSeed.hpp"
+#include "utils.h"
+#include "FastCircleSeed.h"
 
 #include "TCanvas.h"
 #include "TGraph.h"
@@ -168,7 +168,8 @@ std::vector<Point3D> preparePoints(const edm4hep::Track& track, int dir = 1)
 
     // Find hits with minimum and maximum z
     for (const auto& hit : hits) {
-        const auto& p = hit.getPosition();
+
+        const auto p = hit.getPosition();
 
         if (p.z < zMin) {
             zMin = p.z;
@@ -217,7 +218,7 @@ std::vector<Point3D> preparePoints(const edm4hep::Track& track, int dir = 1)
     distIndex.reserve(hits.size());
 
     for (std::size_t i = 0; i < hits.size(); ++i) {
-        const auto& p = hits[i].getPosition();
+        const auto p = hits[i].getPosition();
         const float d = std::hypot(p.x - firstX, p.y - firstY, p.z - firstZ);
         distIndex.emplace_back(d, i);
     }
@@ -230,7 +231,7 @@ std::vector<Point3D> preparePoints(const edm4hep::Track& track, int dir = 1)
     xyzPoints.reserve(hits.size());
 
     for (const auto& [_, idx] : distIndex) {
-        const auto& p = hits[idx].getPosition();
+        const auto p = hits[idx].getPosition();
         xyzPoints.push_back({p.x, p.y, p.z});
     }
 
@@ -281,7 +282,6 @@ int findFirstExtremum(const std::vector<Point3D>& points,
 
     return -1; // no extremum found
 }
-
 
 TrackInitialState inizialize_seed(std::vector<Point3D> points_raw, int maxHit = 50, double B = 2.0)
 {
@@ -497,23 +497,21 @@ struct GenfitTrackFitter final :
             if (m_skip_background && track.getType() == 0) 
             {
                 num_skip += 1;
-                warning() << "Track " << num_tracks - 1<< ": background track (type = 0), skipping fit." << endmsg;
-                warning() << "" << endmsg;
+                warning() << "Track " << num_tracks - 1<< ": background track (type = 0), skipping fit.\n" << endmsg;
                 continue;        // skip background        
             } 
             
             if (track.getTrackerHits().size() <= 3) 
             {   
                 num_skip += 1;
-                warning() << "Track " << num_tracks - 1 << ": less than 3 hits, skipping fit." << endmsg;
-                warning() << "" << endmsg;
+                warning() << "Track " << num_tracks - 1 << ": less than 3 hits, skipping fit.\n" << endmsg;
                 continue;        // skip empty tracks and tracks with less then 3 hits (seed initialization needs 3 hits)
             }
 
-            if (num_tracks > 3)
-            {
-                continue;
-            }
+            // if (num_tracks > 3)
+            // {
+            //     continue;
+            // }
 
             // Prepare the points for the extremum finding
             debug() << "Forward track " << num_tracks - 1 << " with " << track.getTrackerHits().size() << " hits summary:" << endmsg;
@@ -582,12 +580,36 @@ struct GenfitTrackFitter final :
                     auto edm4hep_track = track_interface.getTrack_edm4hep();
 
                     // Propagate to calorimeter and store the state at calorimeter
-                    FillTrackWithCalorimeterExtrapolation(edm4hep_track, m_Bz, charge, m_eCalBarrelInnerR, m_eCalBarrelMaxZ,
-                                                                                m_eCalEndCapInnerR, m_eCalEndCapOuterR,
-                                                                                m_eCalEndCapInnerZ, m_eCalEndCapOuterZ);
-                   
+                    FillTrackWithCalorimeterExtrapolation(  edm4hep_track, m_Bz, charge, 
+                                                            m_eCalBarrelInnerR, m_eCalBarrelMaxZ, m_eCalEndCapInnerR, m_eCalEndCapOuterR, m_eCalEndCapInnerZ);
+                    
+                                                            
+                    if (m_debug_lvl > 1)
+                    {   
+                        auto trackStates = edm4hep_track.getTrackStates();
+                        edm4hep::TrackState trackStateCalo;
+                        for (const auto& ts : trackStates)
+                        {
+                            if (ts.location == edm4hep::TrackState::AtCalorimeter)
+                            {
+                                trackStateCalo = ts;
+                                break;
+                            }
+                        }
+
+                        std::cout << "GenfitTrackFitter    DEBUG : TrackState at Calo: " << std::endl;
+                        std::cout << "  D0: " << trackStateCalo.D0 << " mm" << std::endl;
+                        std::cout << "  Z0: " << trackStateCalo.Z0 << " mm" << std::endl;
+                        std::cout << "  phi: " << trackStateCalo.phi << " rad" << std::endl;
+                        std::cout << "  omega: " << trackStateCalo.omega << " a.u." << std::endl;
+                        std::cout << "  tanLambda: " << trackStateCalo.tanLambda << std::endl;
+                        std::cout << "  location: " << trackStateCalo.location << std::endl;
+                        std::cout << "  reference point: (" << trackStateCalo.referencePoint.x << ", " << trackStateCalo.referencePoint.y << ", " << trackStateCalo.referencePoint.z << ") mm" << std::endl;
+                        
+                    }
 
                     // Add the fitted track to the output collection
+                    edm4hep_track.setType(pdg_with_charge);
                     FittedTracks.push_back(edm4hep_track);
 
                 }
@@ -692,13 +714,37 @@ struct GenfitTrackFitter final :
                 
                 auto edm4hep_track = track_interface.getTrack_edm4hep();
 
-                // Propagate to calorimeter and store the state at calorimeter
-                FillTrackWithCalorimeterExtrapolation(edm4hep_track, m_Bz, charge, m_eCalBarrelInnerR, m_eCalBarrelMaxZ,
-                                                                            m_eCalEndCapInnerR, m_eCalEndCapOuterR,
-                                                                            m_eCalEndCapInnerZ, m_eCalEndCapOuterZ);
-               
 
+                // Propagate to calorimeter and store the state at calorimeter
+                FillTrackWithCalorimeterExtrapolation(  edm4hep_track, m_Bz, charge, 
+                                                        m_eCalBarrelInnerR, m_eCalBarrelMaxZ, m_eCalEndCapInnerR, m_eCalEndCapOuterR, m_eCalEndCapInnerZ);
+
+                if (m_debug_lvl > 1)
+                {   
+                    auto trackStates = edm4hep_track.getTrackStates();
+                    edm4hep::TrackState trackStateCalo;
+                    for (const auto& ts : trackStates)
+                    {
+                        if (ts.location == edm4hep::TrackState::AtCalorimeter)
+                        {
+                            trackStateCalo = ts;
+                            break;
+                        }
+                    }
+
+                    std::cout << "GenfitTrackFitter    DEBUG : TrackState at Calo: " << std::endl;
+                    std::cout << "  D0: " << trackStateCalo.D0 << " mm" << std::endl;
+                    std::cout << "  Z0: " << trackStateCalo.Z0 << " mm" << std::endl;
+                    std::cout << "  phi: " << trackStateCalo.phi << " rad" << std::endl;
+                    std::cout << "  omega: " << trackStateCalo.omega << " a.u." << std::endl;
+                    std::cout << "  tanLambda: " << trackStateCalo.tanLambda << std::endl;
+                    std::cout << "  location: " << trackStateCalo.location << std::endl;
+                    std::cout << "  reference point: (" << trackStateCalo.referencePoint.x << ", " << trackStateCalo.referencePoint.y << ", " << trackStateCalo.referencePoint.z << ") mm" << std::endl;
+                        
+                }
+                
                 // Add the fitted track to the output collection
+                edm4hep_track.setType(winning_hypothesis);
                 FittedTracks.push_back(edm4hep_track);
 
             }

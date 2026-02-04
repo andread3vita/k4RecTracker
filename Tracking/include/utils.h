@@ -67,11 +67,15 @@ dd4hep::rec::LayeredCalorimeterData* getExtension(unsigned int includeFlag, unsi
  * @param ecalProjection CartesianVector representing the track position at the calorimeter.
  * @param helixAtLastHit HelixClass_double instance describing the track at the last hit point.
  * @param Bz Magnetic field value along the z-axis in the detector region.
+ * @param charge Electric charge of the particle track.
  *
  * @return edm4hep::TrackState The extrapolated track state at the calorimeter surface.
  */
 edm4hep::TrackState getExtrapolationAtCalorimeter(const pandora::CartesianVector& ecalProjection,
-                                                  const HelixClass_double& helixAtLastHit, double m_Bz);
+                                                  const HelixClass_double& helixAtLastHit, double m_Bz, int charge);
+
+edm4hep::TrackState getExtrapolationAtCalorimeterGenParticle(const pandora::CartesianVector& ecalProjection,
+                                                  const HelixClass_double& helixAtLastHit, double m_Bz);                                                  
 
 /**
  * @brief Extrapolates the track parameters to the calorimeter surface and updates the track with this information.
@@ -91,17 +95,16 @@ edm4hep::TrackState getExtrapolationAtCalorimeter(const pandora::CartesianVector
  * @param edm4hep_track MutableTrack object to be updated with calorimeter extrapolation.
  * @param m_Bz Magnetic field component along the z-axis.
  * @param charge Electric charge of the particle track.
- * @param a Conversion constant relating curvature to momentum (e.g., 0.299792458 GeV/(T*m)).
  * @param m_eCalBarrelInnerR Inner radius of the barrel calorimeter.
  * @param m_eCalBarrelMaxZ Maximum half-length (z) of the barrel calorimeter.
  * @param m_eCalEndCapInnerR Inner radius of the endcap calorimeter.
  * @param m_eCalEndCapOuterR Outer radius of the endcap calorimeter.
  * @param m_eCalEndCapInnerZ z-position of the inner surface of the endcap calorimeter.
  */
-void FillTrackWithCalorimeterExtrapolation(edm4hep::MutableTrack& edm4hep_track, double m_Bz, int charge, double a,
-                                           double m_eCalBarrelInnerR, double m_eCalBarrelMaxZ,
-                                           double m_eCalEndCapInnerR, double m_eCalEndCapOuterR,
-                                           double m_eCalEndCapInnerZ);
+void FillTrackWithCalorimeterExtrapolation(edm4hep::MutableTrack& edm4hep_track, double m_Bz, int charge, 
+                                            double m_eCalBarrelInnerR, double m_eCalBarrelMaxZ,
+                                            double m_eCalEndCapInnerR, double m_eCalEndCapOuterR,
+                                            double m_eCalEndCapInnerZ);
 
 ////////////////////////////
 /// Clustering Utilities ///
