@@ -80,71 +80,56 @@ namespace GenfitInterface {
     class GenfitTrack {
     public:
 
-        GenfitTrack(const edm4hep::Track& track, const dd4hep::rec::DCH_info* dch_info, const dd4hep::DDSegmentation::BitFieldCoder* decoder, const int particle_hypothesis, std::optional<int> maxHitForLoopers = std::nullopt, std::optional<int> maxHitForLoopers_back = std::nullopt, std::optional<TVector3> initial_position = std::nullopt, std::optional<TVector3> initial_momentum = std::nullopt, std::optional<TVector3> initial_position_back = std::nullopt, std::optional<TVector3> initial_momentum_back = std::nullopt);
+       GenfitTrack(
+                    const edm4hep::Track& track, const int dir,
+                    const int particle_hypothesis,
+
+                    const dd4hep::rec::DCH_info* dch_info = nullptr,
+                    const dd4hep::DDSegmentation::BitFieldCoder* decoder = nullptr,
+
+                    std::optional<int> maxHitForLoopers = std::nullopt,
+                    std::optional<TVector3> initial_position = std::nullopt,
+                    std::optional<TVector3> initial_momentum = std::nullopt
+                    
+                );
+
         ~GenfitTrack();
 
         void checkInitialization();
-        void init(const edm4hep::Track& track_init, std::optional<int> maxHitForLoopers = std::nullopt, std::optional<int> maxHitForLoopers_back = std::nullopt, std::optional<TVector3> initial_position = std::nullopt, std::optional<TVector3> initial_momentum = std::nullopt, std::optional<TVector3> initial_position_back = std::nullopt, std::optional<TVector3> initial_momentum_back = std::nullopt);
-        
-        void createGenFitTrack(int dir, int debug_lvl, std::optional<double> pz_initial = std::nullopt, std::optional<double> pT_initial = std::nullopt);
-        bool fit(int dir, double Beta_init, double Beta_final, double Beta_steps, double Bz, int debug_lvl);
+        void init(const edm4hep::Track& track_init, int direction, std::optional<int> maxHitForLoopers = std::nullopt, std::optional<TVector3> initial_position = std::nullopt, std::optional<TVector3> initial_momentum = std::nullopt);
+
+        void createGenFitTrack(bool preFitInizialization,int debug_lvl);
+        bool fit(int charge, double Beta_init, double Beta_final, double Beta_steps, double Bz, int debug_lvl);
 
         genfit::Track* getTrack_genfit() { return m_genfitTrack; }
         genfit::AbsTrackRep* getRep_genfit() { return m_genfitTrackRep; }
 
-        edm4hep::MutableTrack& getTrack_edm4hep(int dir = 1) { 
-            
-            if (dir > 0) return m_edm4hepTrack;
-            else  return m_edm4hepTrack_back;
- }
+        edm4hep::MutableTrack& getTrack_edm4hep() { return m_edm4hepTrack; }
 
-        void getTrack_init(int dir = 1) { 
+        void PrintTrack_init() { 
 
+            std::cout << "GENFIT Initial position: (" << m_posInit.X() << ", " << m_posInit.Y() << ", " << m_posInit.Z() << ")" << std::endl;
+            std::cout << "GENFIT Initial momentum: (" << m_momInit.X() << ", " << m_momInit.Y() << ", " << m_momInit.Z() << ")" << std::endl;
 
-            if (dir > 0) {
-                std::cout << "GENFIT Initial position: (" << m_posInit.X() << ", " << m_posInit.Y() << ", " << m_posInit.Z() << ")" << std::endl;
-                std::cout << "GENFIT Initial momentum: (" << m_momInit.X() << ", " << m_momInit.Y() << ", " << m_momInit.Z() << ")" << std::endl;
-            }
-            else
-            {
-                std::cout << "GENFIT Initial position (backward): (" << m_posInit_back.X() << ", " << m_posInit_back.Y() << ", " << m_posInit_back.Z() << ")" << std::endl;
-                std::cout << "GENFIT Initial momentum (backward): (" << m_momInit_back.X() << ", " << m_momInit_back.Y() << ", " << m_momInit_back.Z() << ")" << std::endl;
-            }
         }
 
     private:
 
         int m_particle_hypothesis;
+        int m_direction;
+
         TVector3 m_posInit{0., 0., 0.};
         TVector3 m_momInit{0., 0., 0.};
-
         genfit::AbsTrackRep* m_genfitTrackRep;    
         genfit::Track* m_genfitTrack;
-        
         edm4hep::MutableTrack m_edm4hepTrack;  
-
-        const dd4hep::rec::DCH_info* m_dch_info;
-        const dd4hep::DDSegmentation::BitFieldCoder* m_dc_decoder;
 
         TVector3 m_IP_referencePoint{0., 0., 0.};
         TVector3 m_firstHit_referencePoint;
         TVector3 m_lastHit_referencePoint;
 
-
-        TVector3 m_posInit_back{0., 0., 0.};
-        TVector3 m_momInit_back{0., 0., 0.};
-
-        genfit::AbsTrackRep* m_genfitTrackRep_back;    
-        genfit::Track* m_genfitTrack_back;
-        
-        edm4hep::MutableTrack m_edm4hepTrack_back;  
-
-        const dd4hep::rec::DCH_info* m_dch_info_back;
-        const dd4hep::DDSegmentation::BitFieldCoder* m_dc_decoder_back;
-
-        TVector3 m_IP_referencePoint_back{0., 0., 0.};
-        TVector3 m_firstHit_referencePoint_back;
-        TVector3 m_lastHit_referencePoint_back;
+        const dd4hep::rec::DCH_info* m_dch_info;
+        const dd4hep::DDSegmentation::BitFieldCoder* m_dc_decoder;
 
     };
 

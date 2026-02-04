@@ -8,7 +8,7 @@
 #include <iostream>
 
 // Simple point structure (x,y)
-struct Point2D {
+struct Point2D_xy {
     double x;
     double y;
 };
@@ -29,7 +29,7 @@ class FastCircleFit {
 
 public:
 
-    FastCircleFit(const std::vector<Point2D>& points)// , const std::vector<HitError>& errors = {} )
+    FastCircleFit(const std::vector<Point2D_xy>& points)// , const std::vector<HitError>& errors = {} )
     {
         size_t N = points.size();
         std::vector<double> x(N), y(N), z(N), w(N);
@@ -38,7 +38,7 @@ public:
     }
 
 
-    Point2D closestPointTo(const Point2D& hit) const
+    Point2D_xy closestPointTo(const Point2D_xy& hit) const
     {
         // vector from circle center to hit
         double ux = hit.x - x0_;
@@ -49,22 +49,22 @@ public:
         // if the hit is exactly at the center (degenerate)
         if (r == 0) {
             // return arbitrary point on the circle
-            return Point2D{x0_ + rho_, y0_};
+            return Point2D_xy{x0_ + rho_, y0_};
         }
 
         double scale = rho_ / r;
 
         // closest point on circle
-        return Point2D{
+        return Point2D_xy{
             x0_ + scale * ux,
             y0_ + scale * uy
         };
     }
 
-    Point2D tangentAtPCA(const Point2D& pca, const Point2D& nextHit) const
+    Point2D_xy tangentAtPCA(const Point2D_xy& pca, const Point2D_xy& nextHit) const
     {
 
-        Point2D tangent;
+        Point2D_xy tangent;
 
         double dx = pca.x - x0_;
         double dy = pca.y - y0_;
@@ -101,10 +101,10 @@ public:
 private:
 
     template <typename C>
-    // void calculate(const std::vector<Point2D>& pts,
+    // void calculate(const std::vector<Point2D_xy>& pts,
     //                const std::vector<HitError>& errs,
     //                C& x, C& y, C& z, C& weight)
-    void calculate(const std::vector<Point2D>& pts, C& x, C& y, C& z, C& weight)
+    void calculate(const std::vector<Point2D_xy>& pts, C& x, C& y, C& z, C& weight)
     {
         const size_t N = pts.size();
 

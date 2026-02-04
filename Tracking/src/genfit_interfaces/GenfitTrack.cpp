@@ -70,12 +70,12 @@ void helixToCartesianAndCov(
     TVector3 gen_position, TVector3 gen_momentum, int charge,
     const std::array<double,25>& C_helix,    
     double Bz,
-    double Prx_mm, double Pry_mm, 
+    double Prx_cm, double Pry_cm, 
     std::array<double,36>& C_cart)     
 {   
 
-    double x0_PCA = gen_position.X() / dd4hep::mm;
-    double y0_PCA = gen_position.Y() / dd4hep::mm;
+    double x0_PCA = gen_position.X();
+    double y0_PCA = gen_position.Y();
     double pt = gen_momentum.Perp(); 
     double px = gen_momentum.X();
     double py = gen_momentum.Y();
@@ -84,7 +84,7 @@ void helixToCartesianAndCov(
     double phi0 = gen_momentum.Phi();  
     double tanLambda = pz / pt;
     double omega = charge * Bz / pt;
-    double d0 = - (Prx_mm - x0_PCA) * sin(phi0) + (Pry_mm - y0_PCA) * cos(phi0);
+    double d0 = - (Prx_cm - x0_PCA) * sin(phi0) + (Pry_cm - y0_PCA) * cos(phi0);
 
     // std::cout << "\nHelix parameters:\n";
     // std::cout << "d0: " << d0 << " mm\n";
@@ -109,7 +109,7 @@ void helixToCartesianAndCov(
     J[0][0] =  1.0 / s;  
     // dx / dd0
 
-    J[0][1] = c / (s * s) * d0 - (y0_PCA - Pry_mm) / (c * c * std::tan(phi0) * std::tan(phi0));
+    J[0][1] = c / (s * s) * d0 - (y0_PCA - Pry_cm) / (c * c * std::tan(phi0) * std::tan(phi0));
     // dx / dphi0
 
     J[0][2] =  0.0;  
@@ -128,7 +128,7 @@ void helixToCartesianAndCov(
     J[1][0] = - 1.0 / c;  
     // dy / dd0
 
-    J[1][1] =  -s / (c * c) * d0 - (Prx_mm - x0_PCA) / (c * c);
+    J[1][1] =  -s / (c * c) * d0 - (Prx_cm - x0_PCA) / (c * c);
     // dy / dphi0
 
     J[1][2] =  0.0;  
@@ -248,35 +248,137 @@ bool isPositiveSemiDefinite(const TMatrixDSym& M, double tol = 1e-10)
     return true;
 }
 
+std::pair<TVector3, double> computeD0(TVector3 position, TVector3 momentum, int charge, TVector3 refPoint, double Bz)
+{
+    // -------------------------------
+    // INPUTS (assumed to be defined)
+    // -------------------------------
+    // TVector3 position;   // point on the trajectory
+    // TVector3 momentum;   // momentum at that point
+    // int charge;          // particle charge (+1 or -1)
+    // TVector3 refPoint;   // reference point (e.g. beam line)
+    // double Bz;           // magnetic field along +z (Bz > 0)
+
+    // -------------------------------
+    // 1. Transverse momentum
+    // -------------------------------
+    double px = momentum.X();
+    double py = momentum.Y();
+    double pt = momentum.Perp();
+
+    if (pt == 0.0) {
+        throw std::runtime_error("Transverse momentum is zero");
+    }
+
+    // -------------------------------
+    // 2. Radius of curvature
+    // -------------------------------
+    double R = pt / (std::abs(charge) * Bz);
+
+    // -------------------------------
+    // 3. Curvature direction
+    // -------------------------------
+    // For Bz > 0:
+    //  - positive charge → counter-clockwise motion
+    //  - negative charge → clockwise motion
+    double sign = (charge > 0 ? +1.0 : -1.0);
+
+    // Unit vector perpendicular to momentum in the XY plane
+    TVector3 normal(
+        -sign * py / pt,
+        sign * px / pt,
+        0.0
+    );
+
+    // -------------------------------
+    // 4. Circle center in the XY plane
+    // -------------------------------
+    TVector3 center = position + R * normal;
+
+    // Circle equation:
+    // (x - center.X())^2 + (y - center.Y())^2 = R^2
+
+    // -------------------------------
+    // 5. Closest point on the circle
+    //    to the reference point
+    // -------------------------------
+    TVector3 v = refPoint - center;
+
+    // Distance in the transverse plane
+    double vxy = std::sqrt(v.X()*v.X() + v.Y()*v.Y());
+
+    if (vxy == 0.0) {
+        throw std::runtime_error("Reference point coincides with circle center");
+    }
+
+    // Radial unit vector from center to refPoint
+    TVector3 u(v.X()/vxy, v.Y()/vxy, 0.0);
+
+    // Point on the circle closest to refPoint
+    TVector3 closestPoint = center + R * u;
+
+    // -------------------------------
+    // 6. Tangent to the circle
+    //    at the closest point
+    // -------------------------------
+    // Radius vector at the closest point
+    TVector3 r = closestPoint - center;
+
+    // Tangent is perpendicular to the radius
+    // Direction follows the particle motion
+    TVector3 tangent(
+        -sign * r.Y(),
+        sign * r.X(),
+        0.0
+    );
+
+    tangent = tangent.Unit();
+
+    // -------------------------------
+    // 7. Angle between the tangent
+    //    and the x-axis
+    // -------------------------------
+    // Oriented angle in the range [-pi, pi]
+    double angleToX = std::atan2(tangent.Y(), tangent.X());
+
+    // -------------------------------
+    // Outputs:
+    // -------------------------------
+    // TVector3 center        -> circle center
+    // double   R             -> radius
+    // TVector3 closestPoint  -> point of closest approach to refPoint
+    // TVector3 tangent       -> tangent direction at that point
+    // double   angleToX      -> angle between tangent and x-axis (rad)
+
+    return std::make_pair(closestPoint, angleToX);
+
+}
+
 namespace GenfitInterface {
 
-    GenfitTrack::GenfitTrack(const edm4hep::Track& track,
-                             const dd4hep::rec::DCH_info* dch_info,const dd4hep::DDSegmentation::BitFieldCoder* decoder, 
-                             const int particle_hypothesis, std::optional<int> maxHitForLoopers, std::optional<int> maxHitForLoopers_back, std::optional<TVector3> initial_position, std::optional<TVector3> initial_momentum, std::optional<TVector3> initial_position_back, std::optional<TVector3> initial_momentum_back)
+    GenfitTrack::GenfitTrack(   const edm4hep::Track& track, const int dir, 
+                                const int particle_hypothesis, 
+                                const dd4hep::rec::DCH_info* dch_info, const dd4hep::DDSegmentation::BitFieldCoder* decoder,
+                                std::optional<int> maxHitForLoopers,
+                                std::optional<TVector3> initial_position, std::optional<TVector3> initial_momentum)
 
         :   m_particle_hypothesis(particle_hypothesis), 
+            m_direction(dir),
+
             m_posInit(0., 0., 0.), 
             m_momInit(0., 0., 0.), 
             m_genfitTrackRep(nullptr), 
             m_genfitTrack(nullptr), 
-            m_edm4hepTrack(), 
-            m_dch_info(dch_info),
-            m_dc_decoder(decoder),
+            m_edm4hepTrack(),
 
-            m_posInit_back(0., 0., 0.),
-            m_momInit_back(0., 0., 0.),
-            m_genfitTrackRep_back(nullptr),
-            m_genfitTrack_back(nullptr),
-            m_edm4hepTrack_back(),
-            m_dch_info_back(dch_info),
-            m_dc_decoder_back(decoder)
+            m_dch_info(dch_info),
+            m_dc_decoder(decoder)
 
             
     {   
 
         checkInitialization();
-        init(track, maxHitForLoopers, maxHitForLoopers_back, initial_position, initial_momentum, initial_position_back, initial_momentum_back);
-
+        init(track, dir, maxHitForLoopers, initial_position, initial_momentum);
     }
 
     GenfitTrack::~GenfitTrack() {}
@@ -328,38 +430,10 @@ namespace GenfitInterface {
     * @param maxHitForLoopers Optional maximum number of hits to consider for looper tracks. If not provided, all hits are used.
     *
     */
-    void GenfitTrack::init(const edm4hep::Track& track_init, std::optional<int> maxHitForLoopers, std::optional<int> maxHitForLoopers_back, std::optional<TVector3> initial_position, std::optional<TVector3> initial_momentum, std::optional<TVector3> initial_position_back, std::optional<TVector3> initial_momentum_back) {
+    void GenfitTrack::init(const edm4hep::Track& track_init, int dir, std::optional<int> maxHitForLoopers, std::optional<TVector3> initial_position /*cm*/, std::optional<TVector3> initial_momentum /*GeV/c*/) {
 
         // Initialize the m_edm4hepTrack
         m_edm4hepTrack = edm4hep::MutableTrack();
-
-        // // Sort the hits by distance from the origin
-        // std::vector<std::pair<float, int>> hitDistIndices{};
-        // int index = 0;
-
-        // auto hits_in_track = track_init.getTrackerHits();
-        // for (auto hit : hits_in_track) {
-
-        //     const auto pos_siHit = hit.getPosition();
-        //     const auto distance = std::sqrt(pos_siHit.x * pos_siHit.x + pos_siHit.y * pos_siHit.y + pos_siHit.z * pos_siHit.z);
-        //     hitDistIndices.emplace_back(distance, index++);
-
-        // }
-        
-        // // Fill the internal track with sorted hits
-        // std::ranges::sort(hitDistIndices, {}, &std::pair<float, int>::first);
-        // int idx_fill_track = 0;
-        // int maxHit = maxHitForLoopers.value_or(hits_in_track.size());
-        // for (const auto& [_, idx] : hitDistIndices) {
-
-        //     if (idx_fill_track >= maxHit)
-        //     {
-        //         break;
-        //     }
-
-        //     m_edm4hepTrack.addToTrackerHits(hits_in_track[idx]);
-        //     idx_fill_track++;
-        // }
 
         auto hits_in_track = track_init.getTrackerHits();
         double z_max = -1e9; double x_withZmax = 0.0; double y_withZmax = 0.0;
@@ -370,6 +444,7 @@ namespace GenfitInterface {
 
             const auto pos_Hit = hit.getPosition();
             if (pos_Hit.z > z_max) {
+
                 z_max = pos_Hit.z;
                 x_withZmax = pos_Hit.x;
                 y_withZmax = pos_Hit.y;
@@ -391,15 +466,30 @@ namespace GenfitInterface {
         //Take x y z correspoding to the Z which is closer to zero
         if (std::abs(z_min) < std::abs(z_max)) {
 
-            first_x = x_withZmin;
-            first_y = y_withZmin;
-            first_z = z_min;
+            if (dir > 0) {
+                first_x = x_withZmin;
+                first_y = y_withZmin;
+                first_z = z_min;
+            }
+            else {
+                first_x = x_withZmax;
+                first_y = y_withZmax;
+                first_z = z_max;
+            }
 
         } else {
 
-            first_x = x_withZmax;
-            first_y = y_withZmax;
-            first_z = z_max;
+            if (dir > 0) {
+                first_x = x_withZmax;
+                first_y = y_withZmax;
+                first_z = z_max;
+            }
+            else {
+
+                first_x = x_withZmin;
+                first_y = y_withZmin;
+                first_z = z_min;
+            }
 
         }
 
@@ -413,16 +503,34 @@ namespace GenfitInterface {
             double z_max_R = std::sqrt( x_withZmax * x_withZmax + y_withZmax * y_withZmax + z_max * z_max);
 
             if (z_min_R < z_max_R)
-            {
-                first_x = x_withZmin;
-                first_y = y_withZmin;
-                first_z = z_min;
+            {   
+                if (dir > 0) {
+                    first_x = x_withZmin;
+                    first_y = y_withZmin;
+                    first_z = z_min;
+                }
+                else
+                {
+                    first_x = x_withZmax;
+                    first_y = y_withZmax;
+                    first_z = z_max;
+                }
+           
             }
             else
-            {
-                first_x = x_withZmax;
-                first_y = y_withZmax;
-                first_z = z_max;
+            {   
+                if (dir > 0) {
+                    first_x = x_withZmax;
+                    first_y = y_withZmax;
+                    first_z = z_max;
+                }
+                else
+                {
+                    first_x = x_withZmin;
+                    first_y = y_withZmin;
+                    first_z = z_min;
+                }
+               
             }
             
         }
@@ -434,14 +542,12 @@ namespace GenfitInterface {
             const auto pos_siHit = hit.getPosition();
             const auto distance = std::sqrt(std::pow(pos_siHit.x - first_x, 2) + std::pow(pos_siHit.y - first_y, 2) + std::pow(pos_siHit.z - first_z, 2));
 
-            std::cout << "Hit " << index << ": pos = " << pos_siHit.x << ", " << pos_siHit.y << ", " << pos_siHit.z << " | distance to first hit = " << distance << std::endl;
             hitDistIndices.emplace_back(distance, index++);
 
         }
         
         // Fill the internal track with sorted hits
         std::ranges::sort(hitDistIndices, {}, &std::pair<float, int>::first);
-        // std::ranges::reverse(hitDistIndices);
 
         int idx_fill_track = 0;
         int maxHit = maxHitForLoopers.value_or(hits_in_track.size());
@@ -458,127 +564,35 @@ namespace GenfitInterface {
 
         // initialize track
         int index_loopHit = 0;
-        TVector3 m_secondHit_referencePoint(0,0,0);
+        TVector3 secondHit_referencePoint(0,0,0);
 
         auto hits_for_genfit = m_edm4hepTrack.getTrackerHits();
         for (auto hit : hits_for_genfit) {
             if (index_loopHit == 0) {
      
                 auto position = hit.getPosition();
-                m_firstHit_referencePoint = TVector3(dd4hep::mm * position.x, dd4hep::mm * position.y, dd4hep::mm * position.z);
+                m_firstHit_referencePoint = TVector3(dd4hep::mm * position.x, dd4hep::mm * position.y, dd4hep::mm * position.z); // cm
             }
             if (index_loopHit == 1) {
 
                 auto position = hit.getPosition();
-                m_secondHit_referencePoint = TVector3(dd4hep::mm * position.x, dd4hep::mm * position.y, dd4hep::mm * position.z);
-            }
-            if (static_cast<size_t>(index_loopHit) == hits_for_genfit.size() - 1) {
-
-                auto position = hit.getPosition();
-                m_lastHit_referencePoint = TVector3(dd4hep::mm * position.x, dd4hep::mm * position.y, dd4hep::mm * position.z);
-
-            }
-            index_loopHit++;
-        }
-
-        m_posInit = initial_position.value_or( m_firstHit_referencePoint );
-        m_momInit = initial_momentum.value_or((m_secondHit_referencePoint - m_firstHit_referencePoint).Unit());
-
-        // Do the same for the backward track
-        m_edm4hepTrack_back = edm4hep::MutableTrack();
-
-        if (first_x == x_withZmin)
-        {
-            first_x = x_withZmax;
-            first_y = y_withZmax;
-            first_z = z_max;
-        }
-        else if (first_x == x_withZmax)
-        {
-            first_x = x_withZmin;
-            first_y = y_withZmin;
-            first_z = z_min;
-        }
-        else
-        {
-            std::exit(EXIT_FAILURE);
-        }
-
-        if ( std::abs(cos_theta) < 0.01 ) {
-
-            double z_min_R = std::sqrt( x_withZmin * x_withZmin + y_withZmin * y_withZmin + z_min * z_min);
-            double z_max_R = std::sqrt( x_withZmax * x_withZmax + y_withZmax * y_withZmax + z_max * z_max);
-
-            if (z_min_R > z_max_R)
-            {
-                first_x = x_withZmin;
-                first_y = y_withZmin;
-                first_z = z_min;
-            }
-            else
-            {
-                first_x = x_withZmax;
-                first_y = y_withZmax;
-                first_z = z_max;
-            }
+                secondHit_referencePoint = TVector3(dd4hep::mm * position.x, dd4hep::mm * position.y, dd4hep::mm * position.z); // cm
             
-        }
-
-        std::vector<std::pair<float, int>> hitDistIndices_back{};
-        index = 0;
-        for (auto hit : hits_in_track) {
-
-            const auto pos_siHit = hit.getPosition();
-            const auto distance = std::sqrt(std::pow(pos_siHit.x - first_x, 2) + std::pow(pos_siHit.y - first_y, 2) + std::pow(pos_siHit.z - first_z, 2));
-            hitDistIndices_back.emplace_back(distance, index++);
-
-        }
-        
-        // Fill the internal track with sorted hits
-        std::ranges::sort(hitDistIndices_back, {}, &std::pair<float, int>::first);
-        // std::ranges::reverse(hitDistIndices);
-
-        idx_fill_track = 0;
-        maxHit = maxHitForLoopers_back.value_or(hits_in_track.size());
-        for (const auto& [_, idx] : hitDistIndices_back) {
-
-            if (idx_fill_track >= maxHit)
-            {
-                break;
-            }
-
-            m_edm4hepTrack_back.addToTrackerHits(hits_in_track[idx]);
-            idx_fill_track++;
-        }
-
-        // initialize track
-        index_loopHit = 0;
-        TVector3 m_secondHit_referencePoint_back(0,0,0);
-
-        hits_for_genfit = m_edm4hepTrack_back.getTrackerHits();
-        for (auto hit : hits_for_genfit) {
-            if (index_loopHit == 0) {
-     
-                auto position = hit.getPosition();
-                m_firstHit_referencePoint_back = TVector3(dd4hep::mm * position.x, dd4hep::mm * position.y, dd4hep::mm * position.z);   // cm
-            }
-            if (index_loopHit == 1) {
-
-                auto position = hit.getPosition();
-                m_secondHit_referencePoint_back = TVector3(dd4hep::mm * position.x, dd4hep::mm * position.y, dd4hep::mm * position.z);  // cm
             }
             if (static_cast<size_t>(index_loopHit) == hits_for_genfit.size() - 1) {
 
                 auto position = hit.getPosition();
-                m_lastHit_referencePoint_back = TVector3(dd4hep::mm * position.x, dd4hep::mm * position.y, dd4hep::mm * position.z);    // cm
+
+                if (dir > 0)
+                m_lastHit_referencePoint = TVector3(dd4hep::mm * position.x, dd4hep::mm * position.y, dd4hep::mm * position.z); // cm
 
             }
             index_loopHit++;
         }
 
-        m_posInit_back = initial_position_back.value_or( m_firstHit_referencePoint_back );
-        m_momInit_back = initial_momentum_back.value_or((m_secondHit_referencePoint_back - m_firstHit_referencePoint_back).Unit());
-
+        m_posInit = initial_position.value_or( m_firstHit_referencePoint );                                     // cm
+        m_momInit = initial_momentum.value_or((secondHit_referencePoint - m_firstHit_referencePoint).Unit());   // GeV/c
+       
     }
 
     /**
@@ -606,41 +620,18 @@ namespace GenfitInterface {
     * @warning The method will terminate the program with `std::exit(EXIT_FAILURE)` if it encounters
     * an unknown hit type.
     */
-    void GenfitTrack::createGenFitTrack(int dir, int debug_lvl, std::optional<double> pz_initial, std::optional<double> pT_initial) {
+    void GenfitTrack::createGenFitTrack(bool preFitInizialization, int debug_lvl) {
 
-        if (dir > 0)
-        {
-            delete m_genfitTrackRep;
-            delete m_genfitTrack;
-        }
-        else
-        {
-            delete m_genfitTrackRep_back;
-            delete m_genfitTrack_back;
-        }
-        
+        delete m_genfitTrackRep;
+        delete m_genfitTrack;
 
         TMatrixDSym covState(6);
-        if ( pT_initial.has_value() && pz_initial.has_value()) {
-
-            // if (m_momInit.Mag() < 1.0) {
-                
-            //     TVector3 dir_init = m_momInit.Unit();
-            //     pT_initial = dir_init.Perp();
-            //     pz_initial = dir_init.Z();
-
-            // }
-
-
-	        // m_momInit.Print();
+        if ( preFitInizialization ) {
 
             // Reference point
-            double Prx = m_firstHit_referencePoint.X() / dd4hep::mm;
-            double Pry = m_firstHit_referencePoint.Y() / dd4hep::mm;
-            double Prz = m_firstHit_referencePoint.Z() / dd4hep::mm;
-
-            // Magnetic field constants
-           
+            double Prx = m_firstHit_referencePoint.X(); // cm
+            double Pry = m_firstHit_referencePoint.Y(); // cm
+            double Prz = m_firstHit_referencePoint.Z(); // cm
 
             std::array<double,25> C_helix{};
             C_helix.fill(0.0);
@@ -652,8 +643,14 @@ namespace GenfitInterface {
             
             double Bz = 2.;     
             double pt = m_momInit.Perp();    
-            int charge = getHypotesisCharge(m_particle_hypothesis);  
-            double omega = charge * Bz / pt;                        // -> 1/mm 1/(mm**2 * s)
+            
+            int charge = 0;
+            if (std::abs(m_particle_hypothesis) == 11 || std::abs(m_particle_hypothesis) == 13)
+                charge = (m_particle_hypothesis > 0) ? -1 : +1;
+            else
+                charge = (m_particle_hypothesis > 0) ? +1 : -1;
+
+            double omega = charge * Bz / pt;                        // q * Bz / pt -> CHECK SIGN OF THE CHARGE
 
             C_helix[2*5 + 2] = std::pow(0.5 * omega, 2);            // omega : 0.5*omega 
             C_helix[3*5 + 3] = std::pow(0.1 * Prz, 2);              // z0 : 0.1*z0 
@@ -670,7 +667,7 @@ namespace GenfitInterface {
 
             for (int i = 0; i < 6; ++i) {
                 for (int j = 0; j < 6; ++j) {
-                    covState(i,j) = C_cart[i*6 + j]; // * 1000;
+                    covState(i,j) = C_cart[i*6 + j];
                 }
             }
 
@@ -693,19 +690,10 @@ namespace GenfitInterface {
         if (!isPositiveSemiDefinite(covState)) {
 
             std::cerr << "Track Covariance Matrix is not positive definite!" << std::endl;
-            // std::exit(EXIT_FAILURE);
-	    
-	        // covState(0, 0) = 1000.0 * 10.0;  // sigma_x^2
-            // covState(1, 1) = 100.0 * 100.0;  // sigma_y^2
-            // covState(2, 2) = 100.0 * 100.0;  // sigma_z^2
-            // covState(3, 3) = 10.0 * 10.0;    // sigma_px^2
-            // covState(4, 4) = 10.0 * 10.0;    // sigma_py^2
-            // covState(5, 5) = 10.0 * 10.0;    // sigma_pz^2
+            std::exit(EXIT_FAILURE);
 
         
         }
-
-	    // covState.Print();
 
         // Create stateVec
         TVectorD stateVec(6);
@@ -715,62 +703,15 @@ namespace GenfitInterface {
         stateVec[1] = m_posInit.Y();
         stateVec[2] = m_posInit.Z();
 
-        // mom
-        if (pT_initial.has_value() && pz_initial.has_value()) {
+        stateVec[3] = m_momInit.X();
+        stateVec[4] = m_momInit.Y();
+        stateVec[5] = m_momInit.Z();
 
-            // if (m_momInit.Mag() < 1.0) {
 
-            //     TVector3 dir_init = m_momInit.Unit();
-            //     pT_initial = dir_init.Perp();
-            //     pz_initial = dir_init.Z();
-
-            //     stateVec[3] = dir_init.X();
-            //     stateVec[4] = dir_init.Y();
-            //     stateVec[5] = dir_init.Z();
-
-            //     m_momInit = dir_init;
-
-            // }
-            // else
-            // {
-
-                stateVec[3] = m_momInit.X();
-                stateVec[4] = m_momInit.Y();
-                stateVec[5] = m_momInit.Z();
-
-            // }
-
-        }
-        else {
-
-            stateVec[3] = m_momInit.X();
-            stateVec[4] = m_momInit.Y();
-            stateVec[5] = m_momInit.Z();
-
-        }
-
-        // stateVec.Print();
-
-        if (dir > 0)
-        {
-            m_genfitTrackRep = new genfit::RKTrackRep(m_particle_hypothesis);
-            m_genfitTrack = new genfit::Track(m_genfitTrackRep, stateVec, covState);
-        }
-        else
-        {
-            m_genfitTrackRep_back = new genfit::RKTrackRep(m_particle_hypothesis);
-            m_genfitTrack_back = new genfit::Track(m_genfitTrackRep_back, stateVec, covState);
-        }
+        m_genfitTrackRep = new genfit::RKTrackRep(m_particle_hypothesis);
+        m_genfitTrack = new genfit::Track(m_genfitTrackRep, stateVec, covState);
 
         auto hits_for_genfit = m_edm4hepTrack.getTrackerHits();
-        if (dir > 0)
-        {
-            hits_for_genfit = m_edm4hepTrack.getTrackerHits();
-        }
-        else
-        {
-            hits_for_genfit = m_edm4hepTrack_back.getTrackerHits();
-        }
  
         int hit_idx(0);
         int detID(-1);
@@ -796,100 +737,15 @@ namespace GenfitInterface {
                
                 auto planar_hit =  hit.as<edm4hep::TrackerHitPlane>();
                 GenfitInterface::PlanarMeasurement measurement = GenfitInterface::PlanarMeasurement(planar_hit, detID, ++hit_idx, debug_lvl);
-
-                if (dir > 0)
-                {
-                    m_genfitTrack->insertPoint(new genfit::TrackPoint(measurement.getGenFit(), m_genfitTrack));
-                }
-                else
-                {
-                    m_genfitTrack_back->insertPoint(new genfit::TrackPoint(measurement.getGenFit(), m_genfitTrack_back));
-                }
+                m_genfitTrack->insertPoint(new genfit::TrackPoint(measurement.getGenFit(), m_genfitTrack));
                 
             }
             else if (hit.isA<edm4hep::SenseWireHit>()) 
             {
                 
                 auto wire_hit =  hit.as<edm4hep::SenseWireHit>();
-
-
-                // int cellid = wire_hit.getCellID();
-
-                // float wireStereoAngle = wire_hit.getWireStereoAngle();
-                // float wireAzimuthalAngle = wire_hit.getWireAzimuthalAngle();
-                
-                // // Wire hit
-                // auto pos = wire_hit.getPosition();
-                // TVector3 position(pos.x * dd4hep::mm, pos.y * dd4hep::mm, pos.z * dd4hep::mm);   // cm
-
-                // // Wire direction
-                // TVector3 direction(0,0,1);
-                // direction.RotateX(wireStereoAngle);
-                // direction.RotateZ(wireAzimuthalAngle);
-
-                // double Zplane_right = 200.0;       //  -20.0
-                // double Zplane_left = -200.0;       //  20.0
-
-                // if (direction.Z() == 0) {
-                //     std::cout << "Direction is orthogonal to Z" << std::endl;
-                // } else {
-
-                //     double t = (Zplane_right - position.Z()) / direction.Z();
-                //     TVector3 Pint = position + t * direction;
-                //     std::cout << "Intersection at 200 cm: "
-                //             << Pint.X() << " "
-                //             << Pint.Y() << " "
-                //             << Pint.Z() << std::endl;
-
-                //     t = (Zplane_left - position.Z()) / direction.Z();
-                //     Pint = position + t * direction;
-                //     std::cout << "Intersection at -200 cm: "
-                //             << Pint.X() << " "
-                //             << Pint.Y() << " "
-                //             << Pint.Z() << std::endl;
-                // }
-
-                // // Compute wire extremities
-                // int ilayer          = m_dch_info->CalculateILayerFromCellIDFields(m_dc_decoder->get(cellid, "layer"), m_dc_decoder->get(cellid, "superlayer"));
-                // int nphi            = m_dc_decoder->get(cellid, "nphi");
-                // auto& l             = m_dch_info->database.at(ilayer);
-                // int stereosign      = l.StereoSign();
-                // double rz0          = l.radius_sw_z0;
-                // double dphi         = m_dch_info->twist_angle;
-                // double kappa        = (1. / m_dch_info->Lhalf) * tan(dphi / 2);
-                
-                // // point 1
-                // double x1 = rz0;                                          // cm
-                // double y1 = -stereosign * rz0 * kappa * m_dch_info->Lhalf;  // cm
-                // double z1 = -m_dch_info->Lhalf;                             // cm
-                // TVector3 p1(x1, y1, z1);
-                
-                // // point 2
-                // double x2 = rz0;                                         // cm
-                // double y2 = stereosign * rz0 * kappa * m_dch_info->Lhalf;  // cm
-                // double z2 = m_dch_info->Lhalf;                             // cm
-                // TVector3 p2(x2, y2, z2);
-                
-                // // calculate phi rotation of whole twisted tube, ie, rotation at z=0
-                // double phi_z0 = m_dch_info->Calculate_wire_phi_z0(ilayer, nphi);
-                // p1.RotateZ(phi_z0);
-                // p2.RotateZ(phi_z0);
-
-                // std::cout << "Wire extremities: " << std::endl;
-                // std::cout << "Point 1: " << p1.X() << " " << p1.Y() << " " << p1.Z() << std::endl;
-                // std::cout << "Point 2: " << p2.X() << " " << p2.Y() << " " << p2.Z() << std::endl;
-
-
-
                 GenfitInterface::WireMeasurement measurement = GenfitInterface::WireMeasurement(wire_hit, m_dch_info, m_dc_decoder, detID, ++hit_idx, debug_lvl);
-                if (dir > 0)
-                {
-                    m_genfitTrack->insertPoint(new genfit::TrackPoint(measurement.getGenFit(), m_genfitTrack));
-                }
-                else
-                {
-                    m_genfitTrack_back->insertPoint(new genfit::TrackPoint(measurement.getGenFit(), m_genfitTrack_back));
-                }
+                m_genfitTrack->insertPoint(new genfit::TrackPoint(measurement.getGenFit(), m_genfitTrack));
 
                        
             } 
@@ -919,9 +775,9 @@ namespace GenfitInterface {
     * 
     * @return true if the fit was successful, false otherwise.
     */
-    bool GenfitTrack::fit(int dir = 1, double Beta_init = 100., double Beta_final=0.1, double Beta_steps=10, double Bz = 2., int debug_lvl = 0) {
+    bool GenfitTrack::fit(int charge, double Beta_init = 100., double Beta_final=0.1, double Beta_steps=10, double Bz = 2., int debug_lvl = 0) {
 
-        edm4hep::Track Track_temp = (dir > 0) ? m_edm4hepTrack : m_edm4hepTrack_back;
+        edm4hep::Track Track_temp = m_edm4hepTrack;
         for (size_t i = 0; i < Track_temp.trackStates_size(); ++i) {
 
             Track_temp.getTrackStates(i) = edm4hep::TrackState();
@@ -934,173 +790,20 @@ namespace GenfitInterface {
             m_genfitFitter->setAnnealingScheme(Beta_init,Beta_final,Beta_steps);
             m_genfitFitter->setProbCut(1e-5);
             m_genfitFitter->setConvergenceDeltaWeight(1e-2); 
-            m_genfitFitter->setDebugLvl(debug_lvl);
-            
-            // Process forward fit
-            genfit::Track forwardTrack = *m_genfitTrack;
-            genfit::AbsTrackRep* forwardRep = forwardTrack.getTrackRep(0);
-            
-            // auto list_of_points = forwardTrack.getPoints();
-            // int idx2 = 0;
-            // for (auto pt : list_of_points)
-            // {   
-            //     if (idx2 == 10)
-            //     {   
-            //         auto RAWmeas = pt->getRawMeasurement(0);
 
-            //         std::cout << "Before fitting, TrackPoint n° " << idx2 << " measurements: " << std::endl;
-            //         RAWmeas->Print();
-            //     }
-            //     ++idx2;
-               
-            // }
+            int debug_lvl_fit = 0;
+            if (debug_lvl > 1)
+            {
+                debug_lvl_fit = 2;
+            }
 
-            m_genfitFitter->processTrackWithRep(&forwardTrack, forwardRep);
+            m_genfitFitter->setDebugLvl(debug_lvl_fit);
 
-            // int numPoints = forwardTrack.getNumPoints();
-            // for (int idx = 0; idx < numPoints; idx++)
-            // {
+            // Process track
+            genfit::Track genfitTrack = *m_genfitTrack;
+            genfit::AbsTrackRep* trackRep = genfitTrack.getTrackRep(0);
+            m_genfitFitter->processTrackWithRep(&genfitTrack, trackRep);
 
-            //     auto pt = forwardTrack.getPoint(idx);
-            //     auto fitterInfo = pt->getFitterInfo(forwardRep);
-            //     genfit::KalmanFitterInfo* kfi = static_cast<genfit::KalmanFitterInfo*>(fitterInfo);
-                                    
-            //     unsigned int nMeas = kfi->getNumMeasurements();
-            //     if (1)
-            //     {
-
-            //         for(unsigned int j=0; j<nMeas; j++) {
-                        
-            //             if ( idx==10 )
-            //             {
-            //                 genfit::MeasurementOnPlane *mop = kfi->getMeasurementOnPlane(j);
-            //                 std::cout << "Measurement n° " << idx << " weight: " << mop->getWeight() << std::endl;
-
-            //                 // TVector3 posMeas = mop->getPos();
-            //                 // // TMatrixDSym cov(6);
-            //                 // // mop->getPosMomCov(pos, mom, cov);
-
-            //                 // std::cout << "Measurement n° " << idx << " pos: " << posMeas.X() << " " << posMeas.Y() << " " << posMeas.Z() << std::endl;
-
-            //                 mop->Print();
-
-            //                 // if (mop->getWeight() < 10e-5)
-            //                 // {
-            //                 //     isWeightLow.push_back(-1);
-            //                 // }
-            //                 // else
-            //                 // {
-            //                 //     isWeightLow.push_back(1);
-            //                 // }
-            //             }
-                        
-
-            //         }
-        
-
-
-            //     }
-            //     std::cout << "---------" << std::endl;
-
-            // }
-
-            // for (auto el : idx_to_remove)
-            // {
-            //     fitTrack.deletePoint(el);
-            // }
-
-         
-            // if (!m_genfitFitter->isTrackFitted(&forwardTrack, forwardRep)) {
-            //     return false;
-            // }
-
-            // int numPoints = forwardTrack.getNumPoints();
-            // std::cout << numPoints << std::endl;
-            // for (int idx = 0; idx < numPoints; idx++)
-            // {
-            //     std::cout << "here" << std::endl;
-            //     auto pt = forwardTrack.getPoint(idx);
-            //     auto rawMeas = pt->getRawMeasurements();
-            //     const genfit::MeasuredStateOnPlane& measuredState = forwardTrack.getFittedState(idx);
-
-            //     std::cout << typeid(rawMeas).name() << std::endl;
-            //     for (size_t i = 0; i < rawMeas.size(); ++i) {
-                    
-
-            //         auto* meas = rawMeas[i];
-            //         if (!meas) continue;
-
-            //         std::cout << "rawMeas[" << i << "] type = "
-            //                 << typeid(*meas).name()
-            //                 << std::endl;
-            //     }
-                
-            //     for (auto el : rawMeas)
-            //     {
-
-            //         std::vector<genfit::MeasurementOnPlane*> measPlanes = el->constructMeasurementsOnPlane(measuredState);
-
-            //         for (auto el1: measPlanes)
-            //         {
-            //             std::cout << el1->getWeight() << std::endl;
-            //         }
-
-            //     }
-            
-
-                
-            //     // std::cout << rawMeas.size() << std::endl;
-               
-
-                
-
-            //     // for (size_t i = 0; i < rawMeas.size(); ++i) {
-                    
-            //     //     auto* meas = rawMeas[i];
-            //     //     if (!meas) continue;
-            //     //     auto test = meas->constructMeasurementsOnPlane(state);
-            //     //     for (auto el : test)
-            //     //     {
-            //     //         auto weight = el->getWeight();
-            //     //         std::cout << weight << std::endl;
-            //     //     }
-            //     //     std::cout << "--" << std::endl;
-            //     // }
-            // }
-
-
-            // int numPoints = forwardTrack.getNumPoints();
-            // for (int idx = 0; idx < numPoints; idx++)
-            // {
-
-            //     auto pt = forwardTrack.getPoint(idx);
-            //     auto fitterInfo = pt->getFitterInfo(forwardRep);
-            //     genfit::KalmanFitterInfo* kfi = static_cast<genfit::KalmanFitterInfo*>(fitterInfo);
-            
-            //     unsigned int nMeas = kfi->getNumMeasurements();
-
-            //     for(unsigned int j=0; j<nMeas; j++) {
-
-            //         genfit::MeasurementOnPlane *mop = kfi->getMeasurementOnPlane(j);
-            //         double chi2 = 9999;
-            //         double residual = 9999;
-
-            //         std::cout << mop->getWeight() << std::endl;
-
-            //     }
-            //     std::cout << "---------" << std::endl;
-
-            // }
-
-            // // Process backward fit
-            // genfit::Track backwardTrack = forwardTrack;
-            // backwardTrack.reverseTrack();
-            // m_genfitFitter->processTrack(&backwardTrack);
-            // genfit::AbsTrackRep* backwardRep = backwardTrack.getTrackRep(0);
-            // if (!m_genfitFitter->isTrackFitted(&backwardTrack, backwardRep)) {
-            //     return false;
-            // }
-            
             // Update edm4hep track state
             genfit::MeasuredStateOnPlane fittedState;
             TVector3 gen_position, gen_momentum;
@@ -1109,97 +812,122 @@ namespace GenfitInterface {
             double x0_PCA;
             double y0_PCA;
             double z0_PCA; 
-            double pz;  
 
+            double pz;  
             double pt;
 
-            double phi0;
-            double tanLambda;
             double d0;
             double z0;
-            double omega;  
 
-            double c_light = 2.99792458e8;
-            double a = c_light * 1e3 * 1e-15;
+            double phi;
+            double omega;  
+            double tanLambda; 
             
-            int charge = getHypotesisCharge(m_particle_hypothesis);
-            if (m_genfitFitter->isTrackFitted(&forwardTrack, forwardRep))
+            if (m_genfitFitter->isTrackFitted(&genfitTrack, trackRep))
             {
 
+            
                 // trackState First Hit
-                fittedState = forwardTrack.getFittedState();
+                fittedState = genfitTrack.getFittedState();
                 fittedState.getPosMomCov(gen_position, gen_momentum, covariancePosMom);
                 auto stateVecFirstHit = fittedState.getState();
                 
                 edm4hep::TrackState trackStateFirstHit;
-                x0_PCA = gen_position.X() / dd4hep::mm;
-                y0_PCA = gen_position.Y() / dd4hep::mm;
-                z0_PCA = gen_position.Z() / dd4hep::mm;
-                pz = gen_momentum.Z();      
-                pt = gen_momentum.Perp(); 
-
-                phi0 = gen_momentum.Phi();  
-                tanLambda = pz / pt;
-                omega = (charge < 0) ? -a * Bz / abs(pt) : a * Bz / abs(pt);
-
-                d0 = -(m_firstHit_referencePoint.X() / dd4hep::mm - x0_PCA)*sin(phi0) + (m_firstHit_referencePoint.Y() / dd4hep::mm - y0_PCA)*cos(phi0);
-                z0 = z0_PCA - m_firstHit_referencePoint.Z() / dd4hep::mm;
-               
+                x0_PCA = gen_position.X();     // cm
+                y0_PCA = gen_position.Y();     // cm
+                z0_PCA = gen_position.Z();     // cm
+                pz = gen_momentum.Z();         // gev
+                pt = gen_momentum.Perp();      // gev
+            
+                auto infoComputeD0 = computeD0(TVector3(x0_PCA, y0_PCA, z0_PCA), gen_momentum, charge, m_IP_referencePoint, Bz);
                 
+                d0 = ( - (m_IP_referencePoint.X() - infoComputeD0.first.X() )*sin(infoComputeD0.second) + (m_IP_referencePoint.Y() - infoComputeD0.first.Y())*cos(infoComputeD0.second) ) / dd4hep::mm; // mm
+                z0 = ( infoComputeD0.first.Z() - m_IP_referencePoint.Z() ) / dd4hep::mm;   
+                phi = gen_momentum.Phi();      // rad                                                                                                             // mm
+                tanLambda = pz / pt;
+                omega =  charge * Bz / abs(pt); // a.u. because I am not multiplying by c
+
                 trackStateFirstHit.D0 = d0;
                 trackStateFirstHit.Z0 = z0;
-                trackStateFirstHit.phi = phi0;
+                trackStateFirstHit.phi = phi;
                 trackStateFirstHit.omega = omega;
                 trackStateFirstHit.tanLambda = tanLambda;
-                // trackStateFirstHit.time = time;
-                // TVectorD trackStateGenfit(x0_PCA,y0_PCA,Z0_PCA,px,py,pz):
-                // TVectorD params(omega, phi0,d0,z0,tanLambda,time);
-                // trackStateFirstHit.covMatrix = computeTrackStateCovMatrix(trackStateGenfit, params, m_firstHit_referencePoint, timeError, covariancePosMom);
-                trackStateFirstHit.referencePoint = edm4hep::Vector3f(m_firstHit_referencePoint.X() / dd4hep::mm, m_firstHit_referencePoint.Y() / dd4hep::mm, m_firstHit_referencePoint.Z() / dd4hep::mm);
+                // trackStateFirstHit.time = 0.;
+
+                trackStateFirstHit.referencePoint = edm4hep::Vector3f(x0_PCA / dd4hep::mm, y0_PCA / dd4hep::mm, z0_PCA / dd4hep::mm);
                 trackStateFirstHit.location = edm4hep::TrackState::AtFirstHit;
 
+                if (debug_lvl_fit > 1)
+                {
+                    std::cout << "GenfitTrackFitter    DEBUG : TrackState at First Hit: " << std::endl;
+                    std::cout << "  D0: " << trackStateFirstHit.D0 << " mm" << std::endl;
+                    std::cout << "  Z0: " << trackStateFirstHit.Z0 << " mm" << std::endl;
+                    std::cout << "  phi: " << trackStateFirstHit.phi << " rad" << std::endl;
+                    std::cout << "  omega: " << trackStateFirstHit.omega << " a.u." << std::endl;
+                    std::cout << "  tanLambda: " << trackStateFirstHit.tanLambda << std::endl;
+                    std::cout << "  location: " << trackStateFirstHit.location << std::endl;
+                    std::cout << "  reference point: (" << trackStateFirstHit.referencePoint.x << ", " << trackStateFirstHit.referencePoint.y << ", " << trackStateFirstHit.referencePoint.z << ") mm" << std::endl;
+                    std::cout << "  PCA point: (" << infoComputeD0.first.X() << ", " << infoComputeD0.first.Y() << ", " << infoComputeD0.first.Z() << ") mm" << std::endl;
+                }
+
                 // trackState lastHit
-                fittedState = forwardTrack.getFittedState(forwardTrack.getNumPoints()-1);
+                fittedState = genfitTrack.getFittedState(genfitTrack.getNumPoints()-1);
                 fittedState.getPosMomCov(gen_position, gen_momentum, covariancePosMom);
                 auto stateVecLastHit = fittedState.getState();
                 
                 edm4hep::TrackState trackStateLastHit;
-                x0_PCA = gen_position.X() / dd4hep::mm;
-                y0_PCA = gen_position.Y() / dd4hep::mm;
-                z0_PCA = gen_position.Z() / dd4hep::mm;
-                pz = gen_momentum.Z();      
-                pt = gen_momentum.Perp(); 
+                x0_PCA = gen_position.X();     // cm
+                y0_PCA = gen_position.Y();     // cm
+                z0_PCA = gen_position.Z();     // cm
+                pz = gen_momentum.Z();         // gev
+                pt = gen_momentum.Perp();      // gev
 
-                phi0 = gen_momentum.Phi();  
-                tanLambda = pz / pt;
-                omega = (charge < 0) ? -a * Bz / abs(pt) : a * Bz / abs(pt);
-
-                d0 = -(m_lastHit_referencePoint.X() / dd4hep::mm - x0_PCA)*sin(phi0) + (m_lastHit_referencePoint.Y() / dd4hep::mm - y0_PCA)*cos(phi0);
-                z0 = z0_PCA - m_lastHit_referencePoint.Z() / dd4hep::mm;
+                auto infoComputeD0_lastHit = computeD0(TVector3(x0_PCA, y0_PCA, z0_PCA), gen_momentum, charge, m_IP_referencePoint, Bz);
+                d0 = ( - (m_IP_referencePoint.X() - infoComputeD0_lastHit.first.X() )*sin(infoComputeD0_lastHit.second) + (m_IP_referencePoint.Y() - infoComputeD0_lastHit.first.Y())*cos(infoComputeD0_lastHit.second) ) / dd4hep::mm; // mm
+                z0 = ( infoComputeD0_lastHit.first.Z() - m_IP_referencePoint.Z() ) / dd4hep::mm;                                                                                                                                        // mm
+                phi = gen_momentum.Phi();      // rad
+                tanLambda = pz / pt;    
+                omega =  charge * Bz / abs(pt); // a.u. because I am not multiplying by c
 
                 trackStateLastHit.D0 = d0;
                 trackStateLastHit.Z0 = z0;
-                trackStateLastHit.phi = phi0;
+                trackStateLastHit.phi = phi;
                 trackStateLastHit.omega = omega;
                 trackStateLastHit.tanLambda = tanLambda;
-                // trackStateLastHit.time = time;
-                // TVectorD trackStateGenfit(x0_PCA,y0_PCA,Z0_PCA,px,py,pz):
-                // TVectorD params(omega, phi0,d0,z0,tanLambda,time);
-                // trackStateLastHit.covMatrix = computeTrackStateCovMatrix(trackStateGenfit, params, m_lastHit_referencePoint, timeError, covariancePosMom);
-                trackStateLastHit.referencePoint = edm4hep::Vector3f(m_lastHit_referencePoint.X() / dd4hep::mm, m_lastHit_referencePoint.Y() / dd4hep::mm, m_lastHit_referencePoint.Z() / dd4hep::mm);
+                // trackStateLastHit.time = 0.;
+                
+                trackStateLastHit.referencePoint = edm4hep::Vector3f(x0_PCA / dd4hep::mm, y0_PCA / dd4hep::mm, z0_PCA / dd4hep::mm);
                 trackStateLastHit.location = edm4hep::TrackState::AtLastHit;
-
-                // propagate to IP
-                if(dir>0)
+                
+                if (debug_lvl_fit > 1)
                 {
-                    forwardTrack.reverseTrack();
+                    std::cout << "GenfitTrackFitter    DEBUG : TrackState at Last Hit: " << std::endl;
+                    std::cout << "  D0: " << trackStateLastHit.D0 << " mm" << std::endl;
+                    std::cout << "  Z0: " << trackStateLastHit.Z0 << " mm" << std::endl;
+                    std::cout << "  phi: " << trackStateLastHit.phi << " rad" << std::endl;
+                    std::cout << "  omega: " << trackStateLastHit.omega << " a.u." << std::endl;
+                    std::cout << "  tanLambda: " << trackStateLastHit.tanLambda << std::endl;
+                    std::cout << "  location: " << trackStateLastHit.location << std::endl;
+                    std::cout << "  reference point: (" << trackStateLastHit.referencePoint.x << ", " << trackStateLastHit.referencePoint.y << ", " << trackStateLastHit.referencePoint.z << ") mm" << std::endl;
+                    std::cout << "  PCA point: (" << infoComputeD0_lastHit.first.X() << ", " << infoComputeD0_lastHit.first.Y() << ", " << infoComputeD0_lastHit.first.Z() << ") mm" << std::endl;
                 }
-                m_genfitFitter->processTrackWithRep(&forwardTrack, forwardRep);
+
+                if (m_direction < 0)
+                {
+                    trackRep->setPropDir(-1);
+                    
+                }
+                
+                //take first fitted point
+                genfit::TrackPoint* tp = genfitTrack.getPointWithFitterInfo(0);
+                if (tp == NULL) {std::cout << "Track has no TrackPoint with fitterInfo!(but fitstatus ok?)"<<std::endl;}
+                auto* fi = static_cast<genfit::KalmanFitterInfo*>(tp->getFitterInfo(trackRep));
+
+                //extrapolate rep to target plane
                 try{
 
-                    TVector3 IP(0, 0, 0);
-                    fittedState = forwardTrack.getFittedState(forwardTrack.getNumPoints()-1);
-                    forwardRep->extrapolateToPoint(fittedState, IP);
+                    fittedState=fi->getFittedState(true);
+                    trackRep->extrapolateToLine(fittedState,TVector3(0,0,0),TVector3(0,0,1));
 
                     fittedState.getPosMomCov(gen_position, gen_momentum, covariancePosMom);
                     auto stateVecIP = fittedState.getState();
@@ -1209,60 +937,56 @@ namespace GenfitInterface {
                     gen_momentum.SetZ(-gen_momentum.Z());
                     
                     edm4hep::TrackState trackStateIP;
-                    x0_PCA = gen_position.X() / dd4hep::mm;
-                    y0_PCA = gen_position.Y() / dd4hep::mm;
-                    z0_PCA = gen_position.Z() / dd4hep::mm;
-                    pz = gen_momentum.Z();      
-                    pt = gen_momentum.Perp(); 
+                    x0_PCA = gen_position.X();     // cm
+                    y0_PCA = gen_position.Y();     // cm
+                    z0_PCA = gen_position.Z();     // cm
+                    pz = gen_momentum.Z();         // gev
+                    pt = gen_momentum.Perp();      // gev
 
-                    phi0 = gen_momentum.Phi();  
-                    tanLambda = pz / pt;
-                    omega = (charge < 0) ? -a * Bz / abs(pt) : a * Bz / abs(pt);
-
-                    d0 = -(m_IP_referencePoint.X() / dd4hep::mm - x0_PCA)*sin(phi0) + (m_IP_referencePoint.Y() / dd4hep::mm - y0_PCA)*cos(phi0);
-                    z0 = z0_PCA - m_IP_referencePoint.Z() / dd4hep::mm;
+                    auto infoComputeD0_IP = computeD0(TVector3(x0_PCA, y0_PCA, z0_PCA), gen_momentum, charge, m_IP_referencePoint, Bz);
+                    d0 = ( - (m_IP_referencePoint.X() - infoComputeD0_IP.first.X() )*sin(infoComputeD0_IP.second) + (m_IP_referencePoint.Y() - infoComputeD0_IP.first.Y())*cos(infoComputeD0_IP.second) ) / dd4hep::mm; // mm
+                    z0 = ( infoComputeD0_IP.first.Z() - m_IP_referencePoint.Z() ) / dd4hep::mm;                                                                                                                         // mm
+                    phi = gen_momentum.Phi();      // rad
+                    tanLambda = pz / pt;    
+                    omega =  charge * Bz / abs(pt); // a.u. because I am not multiplying by c   
 
                     trackStateIP.D0 = d0;
                     trackStateIP.Z0 = z0;
-                    trackStateIP.phi = phi0;
+                    trackStateIP.phi = phi;
                     trackStateIP.omega = omega;
                     trackStateIP.tanLambda = tanLambda;
-                    // trackStateIP.time = time;
-                    // TVectorD trackStateGenfit(x0_PCA,y0_PCA,Z0_PCA,px,py,pz):
-                    // TVectorD params(omega, phi0,d0,z0,tanLambda,time);
-                    // trackStateIP.covMatrix = computeTrackStateCovMatrix(trackStateGenfit, params, m_IP_referencePoint, timeError, covariancePosMom);
-                    trackStateIP.referencePoint = edm4hep::Vector3f(m_IP_referencePoint.X() / dd4hep::mm, m_IP_referencePoint.Y() / dd4hep::mm, m_IP_referencePoint.Z() / dd4hep::mm);
+                    // trackStateIP.time = 0.;
+                    
+                    trackStateIP.referencePoint = edm4hep::Vector3f(x0_PCA / dd4hep::mm, y0_PCA / dd4hep::mm, z0_PCA / dd4hep::mm);
                     trackStateIP.location = edm4hep::TrackState::AtIP;
-                    
-                    if (dir>0)
-                    {
-                        m_edm4hepTrack.addToTrackStates(trackStateIP);
-                        m_edm4hepTrack.addToTrackStates(trackStateFirstHit);
-                        m_edm4hepTrack.addToTrackStates(trackStateLastHit);
-                    }
-                    else
-                    {
-                        m_edm4hepTrack_back.addToTrackStates(trackStateIP);
-                        m_edm4hepTrack_back.addToTrackStates(trackStateFirstHit);
-                        m_edm4hepTrack_back.addToTrackStates(trackStateLastHit);
-                    }
-                   
 
-                }
-                catch(...)
-                {
+                    if (debug_lvl_fit > 1)
+                    {
+                        std::cout << "GenfitTrackFitter    DEBUG : TrackState at IP: " << std::endl;
+                        std::cout << "  D0: " << trackStateIP.D0 << " mm" << std::endl;
+                        std::cout << "  Z0: " << trackStateIP.Z0 << " mm" << std::endl;
+                        std::cout << "  phi: " << trackStateIP.phi << " rad" << std::endl;
+                        std::cout << "  omega: " << trackStateIP.omega << " a.u." << std::endl;
+                        std::cout << "  tanLambda: " << trackStateIP.tanLambda << std::endl;
+                        std::cout << "  location: " << trackStateIP.location << std::endl;
+                        std::cout << "  reference point: (" << trackStateIP.referencePoint.x << ", " << trackStateIP.referencePoint.y << ", " << trackStateIP.referencePoint.z << ") mm" << std::endl;
+                        std::cout << "  PCA point: (" << infoComputeD0_IP.first.X() << ", " << infoComputeD0_IP.first.Y() << ", " << infoComputeD0_IP.first.Z() << ") mm" << std::endl;
+                    }
+
+                    m_edm4hepTrack.addToTrackStates(trackStateIP);
+                    m_edm4hepTrack.addToTrackStates(trackStateFirstHit);
+                    m_edm4hepTrack.addToTrackStates(trackStateLastHit);
+
+                }catch(...){
+
                     return false;
                 }
 
-                if (!m_genfitFitter->isTrackFitted(&forwardTrack, forwardRep)) {
-                    return false;
-                }
-                
-                if (m_genfitFitter->isTrackFitted(&forwardTrack,forwardRep))
+                if (m_genfitFitter->isTrackFitted(&genfitTrack, trackRep))
                 {
                     
-                    m_edm4hepTrack.setChi2(forwardTrack.getFitStatus()->getChi2());
-                    m_edm4hepTrack.setNdf(forwardTrack.getFitStatus()->getNdf());
+                    m_edm4hepTrack.setChi2(genfitTrack.getFitStatus()->getChi2());
+                    m_edm4hepTrack.setNdf(genfitTrack.getFitStatus()->getNdf());
 
                 }
                 else
@@ -1270,6 +994,7 @@ namespace GenfitInterface {
 
                     m_edm4hepTrack.setChi2(-1);
                     m_edm4hepTrack.setNdf(-1);
+                    return false;
 
                 }
 
@@ -1279,10 +1004,11 @@ namespace GenfitInterface {
 
                 m_edm4hepTrack.setChi2(-1);
                 m_edm4hepTrack.setNdf(-1);
+                return false;
 
             }
 
-            return m_genfitFitter->isTrackFitted(&forwardTrack,forwardRep);
+            return m_genfitFitter->isTrackFitted(&genfitTrack, trackRep);
             
         }
         catch(...)

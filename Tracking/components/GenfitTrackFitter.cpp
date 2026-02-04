@@ -108,6 +108,12 @@
 #include "utils.hpp"
 #include "FastCircleSeed.hpp"
 
+#include "TCanvas.h"
+#include "TGraph.h"
+#include "TAxis.h"
+#include "TFile.h"
+
+
 /** @struct GenfitTrackFitter
  *
  *  Gaudi MultiTransformer that refines the parameters of the reconstructed tracks using the GENFIT library.  
@@ -134,12 +140,10 @@
  *
 */
 
-struct Point3D
-{
+struct Point3D {
     double x;
     double y;
     double z;
-
 };
 
 struct TrackInitialState
@@ -151,407 +155,158 @@ struct TrackInitialState
    
 };
 
-std::vector<double> smooth(const std::vector<double>& v, int window = 5) {
-    
-    std::vector<double> out(v.size()); 
-    int W = window / 2;
-    for (size_t i = 0; i < v.size(); ++i) {
-        double sum = 0;
-        int count = 0;
-        for (int k = -W; k <= W; ++k) {
-            int j = i + k;
-            if (j >= 0 && j < (int)v.size()) {
-                sum += v[j];
-                count++;
-            }
+std::vector<Point3D> preparePoints(const edm4hep::Track& track, int dir = 1)
+{
+    const auto hits = track.getTrackerHits();
+
+    // Track endpoints in z
+    double zMin =  std::numeric_limits<double>::max();
+    double zMax = -std::numeric_limits<double>::max();
+
+    double xAtZMin = 0., yAtZMin = 0.;
+    double xAtZMax = 0., yAtZMax = 0.;
+
+    // Find hits with minimum and maximum z
+    for (const auto& hit : hits) {
+        const auto& p = hit.getPosition();
+
+        if (p.z < zMin) {
+            zMin = p.z;
+            xAtZMin = p.x;
+            yAtZMin = p.y;
         }
-        out[i] = sum / count;
+        if (p.z > zMax) {
+            zMax = p.z;
+            xAtZMax = p.x;
+            yAtZMax = p.y;
+        }
     }
-    return out;
+
+    // Choose the starting point:
+    // - by default, the hit closer to z = 0
+    // - reversed if dir < 0
+    const bool minCloserToZero = std::abs(zMin) < std::abs(zMax);
+    const bool takeMin = (dir > 0) ? minCloserToZero : !minCloserToZero;
+
+    double firstX = takeMin ? xAtZMin : xAtZMax;
+    double firstY = takeMin ? yAtZMin : yAtZMax;
+    double firstZ = takeMin ? zMin    : zMax;
+
+    // Estimate track inclination in the yz-plane
+    const double dy = std::abs(yAtZMax - yAtZMin);
+    const double dz = std::abs(zMax    - zMin);
+    const double cosTheta = dz / std::hypot(dy, dz);
+
+    // If the track is almost perpendicular to z,
+    // fall back to the hit with smaller radius
+    if (std::abs(cosTheta) < 0.01) {
+        const double rMin = std::hypot(xAtZMin, yAtZMin, zMin);
+        const double rMax = std::hypot(xAtZMax, yAtZMax, zMax);
+
+        const bool minHasSmallerR = (dir > 0) ? (rMin < rMax) : (rMin > rMax);
+
+        firstX = minHasSmallerR ? xAtZMin : xAtZMax;
+        firstY = minHasSmallerR ? yAtZMin : yAtZMax;
+        firstZ = minHasSmallerR ? zMin    : zMax;
+    }
+
+    std::cout<< "GenfitTrackFitter    DEBUG First point chosen at (x, y, z) = (" << firstX << ", " << firstY << ", " << firstZ << ")" << std::endl;
+
+    // Compute distances from the chosen starting point
+    std::vector<std::pair<float, std::size_t>> distIndex;
+    distIndex.reserve(hits.size());
+
+    for (std::size_t i = 0; i < hits.size(); ++i) {
+        const auto& p = hits[i].getPosition();
+        const float d = std::hypot(p.x - firstX, p.y - firstY, p.z - firstZ);
+        distIndex.emplace_back(d, i);
+    }
+
+    // Sort hits along the track
+    std::ranges::sort(distIndex, {}, &std::pair<float, std::size_t>::first);
+
+    // Build (z, y) points in track order
+    std::vector<Point3D> xyzPoints;
+    xyzPoints.reserve(hits.size());
+
+    for (const auto& [_, idx] : distIndex) {
+        const auto& p = hits[idx].getPosition();
+        xyzPoints.push_back({p.x, p.y, p.z});
+    }
+
+    return xyzPoints;
 }
 
-int findFirstExtremum(const std::vector<Point2D>& p,
+int findFirstExtremum(const std::vector<Point3D>& points,
                       double epsilon = 0.05,
                       int smoothWindow = 5)
 {
-    int n = p.size();
-    if (n < smoothWindow) return -1;
+    int n = points.size();
+    if (n < smoothWindow || n < 3) return -1; // not enough points
 
-    std::vector<double> y(n);
-    for (int i = 0; i < n; ++i) y[i] = p[i].y;
+    int W = smoothWindow / 2;
 
-    std::vector<double> ys = smooth(y, smoothWindow);
+    // Compute smoothed y-values
+    std::vector<double> ys(n, 0.0);
+    for (int i = 0; i < n; ++i) {
+        double sum = 0.0;
+        int count = 0;
+        for (int k = -W; k <= W; ++k) {
+            int j = i + k;
+            if (j >= 0 && j < n) {
+                sum += points[j].y;
+                count++;
+            }
+        }
+        ys[i] = sum / count;
+    }
 
-    // std::cout << "Smoothed x y values:\n";
-    // for (auto k = 0; k < n; k++)
-    // {
-    //     std::cout << "Points: " << p[k].x << " " << ys[k] << std::endl;
-    // }
-
-
+    // Compute approximate derivative along x
     std::vector<double> d(n, 0.0);
     for (int i = 1; i < n - 1; ++i) {
-        double dz = p[i+1].x - p[i-1].x;
-        if (dz != 0)
-        {
+        double dz = points[i+1].z - points[i-1].z;
+        if (dz != 0.0) {
             d[i] = (ys[i+1] - ys[i-1]) / dz;
-            // std::cout << "d[" << i << "] = " << d[i] << std::endl;
         }
     }
 
+    // Find first zero-crossing of derivative above threshold
     for (int i = 1; i < n - 1; ++i) {
-
-        if (d[i-1] >  epsilon && d[i] < -epsilon)
+        if ((d[i-1] >  epsilon && d[i] < -epsilon) ||  // local max
+            (d[i-1] < -epsilon && d[i] >  epsilon))    // local min
+        {
             return i;
-
-        if (d[i-1] < -epsilon && d[i] >  epsilon)
-            return i;
+        }
     }
 
-    return -1;
+    return -1; // no extremum found
 }
 
-int findLooperLimit(const std::vector<Point2D>& p)
-{
-    if (p.size() < 3)
-        return -1;
 
-    constexpr int W = 1;
-
-    for (size_t i = W; i + W < p.size(); ++i) {
-
-        // direzione smooth
-        double vx = p[i+W].x - p[i-W].x;
-        double vy = p[i+W].y - p[i-W].y;
-
-        // vettore radiale
-        double rx = p[i].x;
-        double ry = p[i].y;
-
-        double dot = vx * rx + vy * ry;
-
-        if (dot < 0.0) {
-            return static_cast<int>(i);
-        }
-    }
-
-    return -1;
-}
-
-const std::vector<Point2D> preparePoints(const edm4hep::Track& track, int dir = 1)
+TrackInitialState inizialize_seed(std::vector<Point3D> points_raw, int maxHit = 50, double B = 2.0)
 {
 
-    // // Sort the hits by distance from the origin
-    // std::vector<std::pair<float, int>> hitDistIndices{};
-    // int index = 0;
-    // auto hits_in_track = track.getTrackerHits();
-    // for (auto hit : hits_in_track) {
-
-    //     const auto pos_siHit = hit.getPosition();
-    //     const auto distance = std::sqrt(pos_siHit.x * pos_siHit.x + pos_siHit.y * pos_siHit.y + pos_siHit.z * pos_siHit.z);
-    //     hitDistIndices.emplace_back(distance, index++);
-
-    // }
-
-    // std::ranges::sort(hitDistIndices, {}, &std::pair<float, int>::first);
-
-    auto hits_in_track = track.getTrackerHits();
-    double z_max = -1e9; double x_withZmax = 0.0; double y_withZmax = 0.0;
-    double z_min = 1e9; double x_withZmin = 0.0; double y_withZmin = 0.0;
-
-    auto index = 0;
-    for (auto hit : hits_in_track) {
-
-        const auto pos_Hit = hit.getPosition();
-        if (pos_Hit.z > z_max) {
-            
-            z_max = pos_Hit.z;
-            x_withZmax = pos_Hit.x;
-            y_withZmax = pos_Hit.y;
-        }
-        if (pos_Hit.z < z_min) {
-                
-            z_min = pos_Hit.z;
-            x_withZmin = pos_Hit.x;
-            y_withZmin = pos_Hit.y;
-
-        }
-        index++;
-
-    }
-
-
-    double first_x = 0;
-    double first_y = 0;
-    double first_z = 0;
-
-    // Take x y z correspoding to the Z which is closer to zero
-    if (std::abs(z_min) < std::abs(z_max)) {
-        
-        if (dir > 0) {
-            first_x = x_withZmin;
-            first_y = y_withZmin;
-            first_z = z_min;
-        }
-        else {
-            first_x = x_withZmax;
-            first_y = y_withZmax;
-            first_z = z_max;
-        }
-        
-    } else {
-        
-        if (dir > 0) {
-            first_x = x_withZmax;
-            first_y = y_withZmax;
-            first_z = z_max;
-        }
-        else {
-            first_x = x_withZmin;
-            first_y = y_withZmin;
-            first_z = z_min;
-        }
-        
-    }
-
-    double delta_y = std::abs(y_withZmax - y_withZmin);
-    double delta_z = std::abs(z_max - z_min);
-    double cos_theta = delta_z / std::sqrt(std::pow(delta_y,2) + std::pow(delta_z,2));
-
-    if ( std::abs(cos_theta) < 0.01 ) {
-
-        double z_min_R = std::sqrt( x_withZmin * x_withZmin + y_withZmin * y_withZmin + z_min * z_min);
-        double z_max_R = std::sqrt( x_withZmax * x_withZmax + y_withZmax * y_withZmax + z_max * z_max);
-
-        if (z_min_R < z_max_R)
-        {   
-            if (dir > 0) {
-                first_x = x_withZmin;
-                first_y = y_withZmin;
-                first_z = z_min;
-            }
-            else
-            {
-                first_x = x_withZmax;
-                first_y = y_withZmax;
-                first_z = z_max;
-            }
-        }
-        else
-        {   
-            if (dir > 0) {
-                first_x = x_withZmax;
-                first_y = y_withZmax;
-                first_z = z_max;
-            }
-            else
-            {
-                first_x = x_withZmin;
-                first_y = y_withZmin;
-                first_z = z_min;
-            }
-        }
-            
-    }
-
-
-    std::vector<std::pair<float, int>> hitDistIndices{};
-    index = 0;
-    for (auto hit : hits_in_track) {
-
-        const auto pos_siHit = hit.getPosition();
-        const auto distance = std::sqrt(std::pow(pos_siHit.x - first_x, 2) + std::pow(pos_siHit.y - first_y, 2) + std::pow(pos_siHit.z - first_z, 2));
-        hitDistIndices.emplace_back(distance, index++);
-
-    }
-        
-    // Fill the internal track with sorted hits
-    std::ranges::sort(hitDistIndices, {}, &std::pair<float, int>::first);
-    // std::ranges::reverse(hitDistIndices);
-
-    // limit track to one round (for loopers)
-    std::vector<Point2D> zy_pos;
-    for (const auto& [_, idx] : hitDistIndices) {
-
-        auto hit = hits_in_track[idx];
-        const auto pos_siHit = hit.getPosition();
-
-        Point2D posForMax;
-        posForMax.x = pos_siHit.z;
-        posForMax.y = pos_siHit.y;
-
-        // std::cout << pos_siHit.z << " " << pos_siHit.y << std::endl;
-
-        zy_pos.push_back(posForMax);
-
-    }
-
-    return zy_pos;
-
-}
-
-TrackInitialState inizialize_seed(edm4hep::Track track, int dir, int maxHit = 50, double B = 2.0)
-{
-
-    // // Sort the hits by distance from the origin
-    // std::vector<std::pair<float, int>> hitDistIndices{};
-    // int index = 0;
-
-    // auto hits_in_track = track.getTrackerHits();
-    // for (auto hit : hits_in_track) {
-
-    //     const auto pos_siHit = hit.getPosition();
-    //     const auto distance = std::sqrt(pos_siHit.x * pos_siHit.x + pos_siHit.y * pos_siHit.y + pos_siHit.z * pos_siHit.z);
-    //     hitDistIndices.emplace_back(distance, index++);
-
-    // }
-
-    // std::ranges::sort(hitDistIndices, {}, &std::pair<float, int>::first);
-
-    auto hits_in_track = track.getTrackerHits();
-    double z_max = -1e9; double x_withZmax = 0.0; double y_withZmax = 0.0;
-    double z_min = 1e9; double x_withZmin = 0.0; double y_withZmin = 0.0;
-
-    auto index = 0;
-    for (auto hit : hits_in_track) {
-
-        const auto pos_Hit = hit.getPosition();
-        if (pos_Hit.z > z_max) {
-            
-            z_max = pos_Hit.z;
-            x_withZmax = pos_Hit.x;
-            y_withZmax = pos_Hit.y;
-        }
-        if (pos_Hit.z < z_min) {
-                
-            z_min = pos_Hit.z;
-            x_withZmin = pos_Hit.x;
-            y_withZmin = pos_Hit.y;
-
-        }
-        index++;
-
-    }
-
-
-    double first_x = 0;
-    double first_y = 0;
-    double first_z = 0;
-
-    // Take x y z correspoding to the Z which is closer to zero
-    if (std::abs(z_min) < std::abs(z_max)) {
-        
-        if (dir > 0) {
-            first_x = x_withZmin;
-            first_y = y_withZmin;
-            first_z = z_min;
-        }
-        else {
-            first_x = x_withZmax;
-            first_y = y_withZmax;
-            first_z = z_max;
-        }
-        
-    } else {
-        
-        if (dir > 0) {
-            first_x = x_withZmax;
-            first_y = y_withZmax;
-            first_z = z_max;
-        }
-        else {
-            first_x = x_withZmin;
-            first_y = y_withZmin;
-            first_z = z_min;
-        }
-        
-    }
-
-    double delta_y = std::abs(y_withZmax - y_withZmin);
-    double delta_z = std::abs(z_max - z_min);
-    double cos_theta = delta_z / std::sqrt(std::pow(delta_y,2) + std::pow(delta_z,2));
-
-    if ( std::abs(cos_theta) < 0.01 ) {
-
-        double z_min_R = std::sqrt( x_withZmin * x_withZmin + y_withZmin * y_withZmin + z_min * z_min);
-        double z_max_R = std::sqrt( x_withZmax * x_withZmax + y_withZmax * y_withZmax + z_max * z_max);
-
-        if (z_min_R < z_max_R)
-        {   
-            if (dir > 0) {
-                first_x = x_withZmin;
-                first_y = y_withZmin;
-                first_z = z_min;
-            }
-            else
-            {
-                first_x = x_withZmax;
-                first_y = y_withZmax;
-                first_z = z_max;
-            }
-        }
-        else
-        {   
-            if (dir > 0) {
-                first_x = x_withZmax;
-                first_y = y_withZmax;
-                first_z = z_max;
-            }
-            else
-            {
-                first_x = x_withZmin;
-                first_y = y_withZmin;
-                first_z = z_min;
-            }
-        }
-            
-    }
-
-
-    std::vector<std::pair<float, int>> hitDistIndices{};
-    index = 0;
-    for (auto hit : hits_in_track) {
-
-        const auto pos_siHit = hit.getPosition();
-        const auto distance = std::sqrt(std::pow(pos_siHit.x - first_x, 2) + std::pow(pos_siHit.y - first_y, 2) + std::pow(pos_siHit.z - first_z, 2));
-        hitDistIndices.emplace_back(distance, index++);
-
-    }
-        
-    // Fill the internal track with sorted hits
-    std::ranges::sort(hitDistIndices, {}, &std::pair<float, int>::first);
-
-    // limit track to one round (for loopers)
+    // FIT CIRCLE TO XY PROJECTION
     std::vector<Point3D> points;
-    std::vector<HitError> errors;
+
     int idx_fill = 0;
-    for (const auto& [_, idx] : hitDistIndices) {
-
-        idx_fill +=1;
-      
-
-        auto hit = hits_in_track[idx];
-        auto pos = hit.getPosition();
-
-        // if (idx_fill > 50) continue;
-        // std::cout << "Hit position: " << pos.x << " " << pos.y << " " << pos.z << std::endl;
-
-        if (idx_fill > maxHit) continue;
-
-       
-        points.push_back(Point3D(pos.x, pos.y, pos.z));
+    for (const auto& p : points_raw) {
         
+        if (idx_fill > maxHit) continue;
+        idx_fill +=1;
+
+        points.push_back(Point3D(p.x, p.y, p.z));
     }
 
-    std::vector<Point2D> points_xy;
+    std::vector<Point2D_xy> points_xy;
     for (const auto& p : points) {
-        points_xy.push_back(Point2D(p.x, p.y));
+        points_xy.push_back(Point2D_xy(p.x, p.y));
     }
 
     // FIT CIRCLE TO XY PROJECTION
     FastCircleFit circle(points_xy);
-    Point2D closestPoint = circle.closestPointTo(points_xy[0]);
-    Point2D tangent_xy = circle.tangentAtPCA(closestPoint, points_xy[1]);
+    Point2D_xy closestPoint = circle.closestPointTo(points_xy[0]);
+    Point2D_xy tangent_xy = circle.tangentAtPCA(closestPoint, points_xy[1]);
 
     double rho = circle.rho();
     double init_pT = std::abs(rho * 0.3 * B) / 1000; 
@@ -609,16 +364,12 @@ TrackInitialState inizialize_seed(edm4hep::Track track, int dir, int maxHit = 50
     int charge = (lorentzDir.Dot(curvDir) > 0) ? +1 : -1;
 
 
-    return TrackInitialState{TVector3(closestPoint.x / 10, closestPoint.y / 10, points[0].z / 10), init_mom, charge};
+    return TrackInitialState{TVector3(closestPoint.x, closestPoint.y, points[0].z), init_mom, charge};
 
 };
 
 struct GenfitTrackFitter final : 
-        k4FWCore::MultiTransformer< std::tuple< edm4hep::TrackCollection,
-                                                edm4hep::TrackCollection,
-                                                edm4hep::TrackCollection,
-                                                edm4hep::TrackCollection,
-                                                edm4hep::TrackCollection>(const edm4hep::TrackCollection&)>                                                                         
+        k4FWCore::MultiTransformer< std::tuple< edm4hep::TrackCollection>(const edm4hep::TrackCollection&)>                                                                         
 {
     GenfitTrackFitter(const std::string& name, ISvcLocator* svcLoc) : 
         MultiTransformer ( name, svcLoc,
@@ -628,12 +379,9 @@ struct GenfitTrackFitter final :
                 
             },
             {   
-                KeyValues("OutputFittedTracksElectronHypotesis", {"Fitted_tracks"}),
-                KeyValues("OutputFittedTracksMuonHypotesis", {"Fitted_tracks"}),
-                KeyValues("OutputFittedTracksPionHypotesis", {"Fitted_tracks"}),
-                KeyValues("OutputFittedTracksKaonHypotesis", {"Fitted_tracks"}),
-                KeyValues("OutputFittedTracksProtonHypotesis", {"Fitted_tracks"})
-            
+
+                KeyValues("OutputFittedTracks", {"Fitted_tracks"})
+
             }) {}
     
             
@@ -649,35 +397,36 @@ struct GenfitTrackFitter final :
         m_field = m_detector->field();
         m_genfitField=new GenfitInterface::GenfitField(m_field);
 
-        fieldManager = genfit::FieldManager::getInstance();
-        fieldManager->init(m_genfitField);
+        m_fieldManager = genfit::FieldManager::getInstance();
+        m_fieldManager->init(m_genfitField);
 
         m_geoMaterial=GenfitInterface::GenfitMaterialInterface::getInstance(m_detector);      
-        genfit::MaterialEffects::getInstance()->setEnergyLossBrems(true);
-        genfit::MaterialEffects::getInstance()->setNoiseBrems(true);
-        genfit::MaterialEffects::getInstance()->setMscModel("Highland");
-        genfit::MaterialEffects::getInstance()->setDebugLvl(m_debug_lvl);           
+        // genfit::MaterialEffects::getInstance()->setEnergyLossBrems(true);
+        // genfit::MaterialEffects::getInstance()->setNoiseBrems(true);
+        // genfit::MaterialEffects::getInstance()->setMscModel("Highland");
+
+        genfit::MaterialEffects::getInstance()->setEnergyLossBrems(false);
+        genfit::MaterialEffects::getInstance()->setNoiseBrems(false);   
+
+        int debug_lvl_material = 0;
+        if (m_debug_lvl > 2)
+        {
+            debug_lvl_material = 2;
+        }
+        genfit::MaterialEffects::getInstance()->setDebugLvl(debug_lvl_material);         
 
         // Retrieve the SurfaceManager, ddd4hep::rec::DCH_info and dd4hep::DDSegmentation::BitFieldCoder
         // These object are necessary to extract the drift chamber hits information, such as positions of the wire extremities
-        surfMan = m_geoSvc->getDetector()->extension<dd4hep::rec::SurfaceManager>();
-
+        m_surfMan = m_geoSvc->getDetector()->extension<dd4hep::rec::SurfaceManager>();
         // If the detector doesn't have a drift chamber, this part will be skipped
         try {
             std::string DCH_name("DCH_v2");
             dd4hep::DetElement DCH_DE = m_geoSvc->getDetector()->detectors().at(DCH_name);
-            dch_info = DCH_DE.extension<dd4hep::rec::DCH_info>();
+            m_dch_info = DCH_DE.extension<dd4hep::rec::DCH_info>();
             dd4hep::SensitiveDetector dch_sd = m_geoSvc->getDetector()->sensitiveDetector("DCH_v2");
             dd4hep::Readout dch_readout = dch_sd.readout();
-            dc_decoder = dch_readout.idSpec().decoder();
+            m_dc_decoder = dch_readout.idSpec().decoder();
         } catch (const std::out_of_range& e) {}
-
-        // Z-component of the magnetic field at the center of the detector
-        // This component is used to propagate the track to the calorimeter surface, but it is also necessary to
-        // compute the pt component given omega
-        dd4hep::Position center(0, 0, 0);
-        dd4hep::Direction bfield = m_field.magneticField(center);
-        m_Bz = bfield.z() / dd4hep::tesla;
 
         // Retrive calorimeter information
         // These parameters are necessary to propagate the track to the calorimeter surface
@@ -688,461 +437,275 @@ struct GenfitTrackFitter final :
 
             const dd4hep::rec::LayeredCalorimeterData * DualReadoutExtension = getExtension( ( dd4hep::DetType::CALORIMETER | dd4hep::DetType::ELECTROMAGNETIC | dd4hep::DetType::BARREL),( dd4hep::DetType::AUXILIARY  |  dd4hep::DetType::FORWARD ));
 
-            m_eCalBarrelInnerR = DualReadoutExtension->extent[0] / dd4hep::mm;     // barrel rmin
-            m_eCalBarrelMaxZ = DualReadoutExtension->extent[2] / dd4hep::mm;       // barrel zmax == endcap zmin
+            // mm (dd4hep::mm = 0.1)
+            m_eCalBarrelInnerR  = DualReadoutExtension->extent[0] / dd4hep::mm;         // barrel rmin
+            m_eCalBarrelMaxZ    = DualReadoutExtension->extent[2] / dd4hep::mm;         // barrel zmax == endcap zmin
 
-            m_eCalEndCapInnerR = DualReadoutExtension->extent[4] / dd4hep::mm;     // endcap rmin
-            m_eCalEndCapOuterR = DualReadoutExtension->extent[5] / dd4hep::mm;     // endcap rmax
-            m_eCalEndCapInnerZ = DualReadoutExtension->extent[2] / dd4hep::mm;     // endcap zmin
-            m_eCalEndCapOuterZ = DualReadoutExtension->extent[3] / dd4hep::mm;     // endcap zmax
+            m_eCalEndCapInnerR  = DualReadoutExtension->extent[4] / dd4hep::mm;         // endcap rmin
+            m_eCalEndCapOuterR  = DualReadoutExtension->extent[5] / dd4hep::mm;         // endcap rmax
+            m_eCalEndCapInnerZ  = DualReadoutExtension->extent[2] / dd4hep::mm;         // endcap zmin
+            m_eCalEndCapOuterZ  = DualReadoutExtension->extent[3] / dd4hep::mm;         // endcap zmax
         }
         else
         {
             const dd4hep::rec::LayeredCalorimeterData * eCalBarrelExtension = getExtension( ( dd4hep::DetType::CALORIMETER | dd4hep::DetType::ELECTROMAGNETIC | dd4hep::DetType::BARREL),
                                                                                               ( dd4hep::DetType::AUXILIARY  |  dd4hep::DetType::FORWARD ));
+
+            // mm (dd4hep::mm = 0.1)                                                                                  
             m_eCalBarrelInnerR = eCalBarrelExtension->extent[0] / dd4hep::mm;
             m_eCalBarrelMaxZ = eCalBarrelExtension->extent[3] / dd4hep::mm;
                     
             const dd4hep::rec::LayeredCalorimeterData * eCalEndCapExtension = getExtension( ( dd4hep::DetType::CALORIMETER | dd4hep::DetType::ELECTROMAGNETIC | dd4hep::DetType::ENDCAP),
                                                                                               ( dd4hep::DetType::AUXILIARY  |  dd4hep::DetType::FORWARD ));
+
+
+            // mm (dd4hep::mm = 0.1)                                                                                  
             m_eCalEndCapInnerR = eCalEndCapExtension->extent[0] / dd4hep::mm;
             m_eCalEndCapOuterR = eCalEndCapExtension->extent[1] / dd4hep::mm;
             m_eCalEndCapInnerZ = eCalEndCapExtension->extent[2] / dd4hep::mm;
             m_eCalEndCapOuterZ = eCalEndCapExtension->extent[3] / dd4hep::mm;
         }
 
-        // std::cout << m_eCalBarrelInnerR << " " << m_eCalBarrelMaxZ << " " << m_eCalEndCapInnerR << " " << m_eCalEndCapOuterR << " " << m_eCalEndCapInnerZ << " " << m_eCalEndCapOuterZ << std::endl;
+        // N.B. we are assuming that the magnetic field is uniform and along the z direction
+        // Z-component of the magnetic field at the center of the detector
+        // This component is used to propagate the track to the calorimeter surface, but it is also necessary to
+        // compute the pt component given omega
+        dd4hep::Position center(0, 0, 0);
+        dd4hep::Direction bfield = m_field.magneticField(center);
+        m_Bz = bfield.z() / dd4hep::tesla;
+
         return StatusCode::SUCCESS;
 
     }
     
-    std::tuple< edm4hep::TrackCollection,
-                edm4hep::TrackCollection,
-                edm4hep::TrackCollection,
-                edm4hep::TrackCollection,
-                edm4hep::TrackCollection> operator()( const edm4hep::TrackCollection& tracks_input) const override                                                 
+    std::tuple<edm4hep::TrackCollection> operator()( const edm4hep::TrackCollection& tracks_input) const override                                                 
     {
         
         // These 5 collections store the output of the fit for 5 particle hypotesis: e, mu, pi, K, p
-        edm4hep::TrackCollection FittedTracks_electron;
-        edm4hep::TrackCollection FittedTracks_muon;
-        edm4hep::TrackCollection FittedTracks_pion;
-        edm4hep::TrackCollection FittedTracks_kaon;
-        edm4hep::TrackCollection FittedTracks_proton;
+        edm4hep::TrackCollection FittedTracks;
 
-        info() << "Event number: " << index_counter++ << endmsg;
+        info() << "Event number: " << event_counter++ << endmsg;
             
         // Loop over the tracks created by the pattern recognition step
         for (const auto& track : tracks_input)
         {
-            
-            if (track.getType() == 0) 
-            {
-                num_skip += 1;
-                warning() << "Track " << num_tracks << ": background track (type = 0), skipping fit." << endmsg;
-                warning() << "" << endmsg;
-                continue;        // skip background        
-            }    
 
             num_tracks  +=1;
+
+            // Skip background tracks if the option is enabled
+            // Consider background tracks those with type = 0
+            if (m_skip_background && track.getType() == 0) 
+            {
+                num_skip += 1;
+                warning() << "Track " << num_tracks - 1<< ": background track (type = 0), skipping fit." << endmsg;
+                warning() << "" << endmsg;
+                continue;        // skip background        
+            } 
             
             if (track.getTrackerHits().size() <= 3) 
             {   
                 num_skip += 1;
-                warning() << "Track " << num_tracks << ": less than 3 hits, skipping fit." << endmsg;
+                warning() << "Track " << num_tracks - 1 << ": less than 3 hits, skipping fit." << endmsg;
                 warning() << "" << endmsg;
                 continue;        // skip empty tracks and tracks with less then 3 hits (seed initialization needs 3 hits)
             }
 
-            // if (num_tracks != 1)
-            // {
-            //     continue;
-            // }
-
-            /////////////////
-            //// FORWARD ////
-            /////////////////
+            if (num_tracks > 3)
+            {
+                continue;
+            }
 
             // Prepare the points for the extremum finding
-            auto zy_pos = preparePoints(track, 1);
-            int maxHitForLoopers = findFirstExtremum(zy_pos, 0.01); // - 12;
+            debug() << "Forward track " << num_tracks - 1 << " with " << track.getTrackerHits().size() << " hits summary:" << endmsg;
+            auto xyzPoints = preparePoints(track, 1);
+
+            int maxHitForLoopers = findFirstExtremum(xyzPoints, 0.01);
             if (maxHitForLoopers < 0) maxHitForLoopers = track.getTrackerHits().size();
 
-            TrackInitialState init_seed_temp = inizialize_seed(track, 1, maxHitForLoopers);
-            TVector3 init_pos_temp = init_seed_temp.init_pos;
-            TVector3 init_mom_temp = init_seed_temp.init_mom;
+            TrackInitialState init_seed_temp = inizialize_seed(xyzPoints, maxHitForLoopers);
+            TVector3 init_mom_temp = init_seed_temp.init_mom;   // GeV/c
 
             if (init_mom_temp.Perp() > 1)
             {
                 maxHitForLoopers = track.getTrackerHits().size();
             }
-            info() << "Fitting forward track " << num_tracks << " with " << track.getTrackerHits().size() << " hits, maxHitForLoopers = " << maxHitForLoopers << endmsg;
 
             // Compute seed for initial position and inizial momentum
-            TrackInitialState init_seed = inizialize_seed(track, 1, maxHitForLoopers);
-            TVector3 init_pos = init_seed.init_pos;
-            TVector3 init_mom = init_seed.init_mom;
+            TrackInitialState init_seed = inizialize_seed(xyzPoints, maxHitForLoopers);
+            TVector3 init_pos = init_seed.init_pos;             // mm
+            TVector3 init_mom = init_seed.init_mom;             // GeV/c
 
-            //////////////////
-            //// BACKWARD ////
-            //////////////////
+            TVector3 init_pos_cm(
+                init_seed.init_pos.X() * 0.1,
+                init_seed.init_pos.Y() * 0.1,
+                init_seed.init_pos.Z() * 0.1
+            ); // cm
+            TVector3 init_mom_gev = init_seed.init_mom;         // GeV/c
 
-            // Prepare the points for the extremum finding
-            auto zy_pos_back = preparePoints(track, -1);
-            int maxHitForLoopers_back = findFirstExtremum(zy_pos_back, 0.01); // - 12;
-            if (maxHitForLoopers_back < 0) maxHitForLoopers_back = track.getTrackerHits().size();
+            // Summary
+            debug() << "  Initial position: (" << init_pos.x() << ", " << init_pos.y() << ", " << init_pos.z() << ")" << endmsg;
+            debug() << "  Initial momentum: (" << init_mom.x() << ", " << init_mom.y() << ", " << init_mom.z() << ")" << endmsg;
+            debug() << "  Charge hypothesis: " << init_seed.charge << endmsg;
+            debug() << "  Max hit for loopers: " << maxHitForLoopers << endmsg;
+            debug() << "\n" << endmsg;
 
-            TrackInitialState init_seed_back_temp = inizialize_seed(track, -1, maxHitForLoopers_back);
-            TVector3 init_pos_back_temp = init_seed_back_temp.init_pos;
-            TVector3 init_mom_back_temp = init_seed_back_temp.init_mom;
-
-            if (init_mom_back_temp.Perp() > 1)
-            {
-                maxHitForLoopers_back = track.getTrackerHits().size();
-            }
-            info() << "Fitting backward track " << num_tracks << " with " << track.getTrackerHits().size() << " hits, maxHitForLoopers_back = " << maxHitForLoopers_back << endmsg;
-
-            // Compute seed for initial position and inizial momentum
-            TrackInitialState init_seed_back = inizialize_seed(track, -1, maxHitForLoopers_back);
-            TVector3 init_pos_back = init_seed_back.init_pos;
-            TVector3 init_mom_back = init_seed_back.init_mom;
-
-            // Loop over the particle hypotesis
             num_processed_tracks += 1;
-            for (int pdgCode : m_particleHypotesis)
-            {
 
-                // Create trackInterface, initialize genfit track and fit it
+            if (m_singleEvaluation)
+            {
+                int pdgCode = m_particleHypotesis[0];
+
                 int pdg_with_charge = pdgCode;
+                int charge = 0;
                 if (pdgCode == 11 || pdgCode == 13)
                 {
                     pdg_with_charge = - init_seed.charge * pdgCode;
+                    charge = - init_seed.charge;
                 }
                 else
                 {   
                     pdg_with_charge = init_seed.charge * pdgCode;
+                    charge = init_seed.charge;
                 }
 
-                GenfitInterface::GenfitTrack track_interface = GenfitInterface::GenfitTrack(track, dch_info, dc_decoder, pdg_with_charge, maxHitForLoopers, maxHitForLoopers_back, init_pos, init_mom, init_pos_back, init_mom_back); 
-                track_interface.createGenFitTrack(1, m_debug_lvl, init_mom.Z(), init_mom.Perp());
-                // track_interface.createGenFitTrack(-1, m_debug_lvl, init_mom_back.Z(), init_mom_back.Perp());
+                GenfitInterface::GenfitTrack track_interface = GenfitInterface::GenfitTrack(    track, 1,
+                                                                                                pdg_with_charge, 
+                                                                                                m_dch_info, m_dc_decoder, 
+                                                                                                maxHitForLoopers, 
+                                                                                                init_pos_cm, init_mom_gev); 
+                
+                track_interface.createGenFitTrack(true, m_debug_lvl);
+                bool isFit = track_interface.fit(charge, m_Beta_init, m_Beta_final, m_Beta_steps, m_Bz, m_debug_lvl);     
+                
+                if (isFit)
+                {
+                    auto edm4hep_track = track_interface.getTrack_edm4hep();
 
-                bool isFit = track_interface.fit(1, m_Beta_init, m_Beta_final, m_Beta_steps, m_Bz, m_debug_lvl); 
-                // bool isFit_back = track_interface.fit(-1, m_Beta_init, m_Beta_final, m_Beta_steps, m_Bz, m_debug_lvl); 
-                // std::cout << "isFit forward: " << isFit << ", isFit backward: " << isFit_back << std::endl;
+                    // Propagate to calorimeter and store the state at calorimeter
+                    FillTrackWithCalorimeterExtrapolation(edm4hep_track, m_Bz, charge, m_eCalBarrelInnerR, m_eCalBarrelMaxZ,
+                                                                                m_eCalEndCapInnerR, m_eCalEndCapOuterR,
+                                                                                m_eCalEndCapInnerZ, m_eCalEndCapOuterZ);
+                   
 
+                    // Add the fitted track to the output collection
+                    FittedTracks.push_back(edm4hep_track);
+
+                }
+                else
+                {
+
+                    debug() << "Track " << num_tracks - 1 << ": fit failed for single evaluation hypothesis, skipping track." << endmsg;
+                    number_failures += 1;
+
+                    auto failedTrack = FittedTracks.create();
+                    failedTrack.setChi2(-1);
+                    failedTrack.setNdf(-1);
+                    continue;
+                }
+
+            }
+
+            int winning_hypothesis = -1; double winning_chi2_ndf = std::numeric_limits<double>::max();
+            for (int pdgCode : m_particleHypotesis)
+            {
+
+                //Create trackInterface, initialize genfit track and fit it
+                int pdg_with_charge = pdgCode;
+                int charge = 0;
+                if (pdgCode == 11 || pdgCode == 13)
+                {
+                    pdg_with_charge = - init_seed.charge * pdgCode;
+                    charge = - init_seed.charge;
+                }
+                else
+                {   
+                    pdg_with_charge = init_seed.charge * pdgCode;
+                    charge = init_seed.charge;
+                }
+
+                GenfitInterface::GenfitTrack track_interface = GenfitInterface::GenfitTrack(    track, 1,
+                                                                                                pdg_with_charge, 
+                                                                                                m_dch_info, m_dc_decoder, 
+                                                                                                maxHitForLoopers, 
+                                                                                                init_pos_cm, init_mom_gev); 
+
+                track_interface.createGenFitTrack(true, 0);
+                bool isFit = track_interface.fit(charge, m_Beta_init, m_Beta_final, m_Beta_steps, m_Bz, 0); 
+                
+                
                 if (isFit)
                 {
 
                     auto edm4hep_track = track_interface.getTrack_edm4hep();
-                    auto genfit_trackstate = edm4hep_track.getTrackStates()[0];
-                    
-                    double genfit_omega = genfit_trackstate.omega;
-                    double genfit_pt_val = a * m_Bz / abs(genfit_omega);
-                    double genfit_phi_val = genfit_trackstate.phi;
-                    double genfit_pz = genfit_trackstate.tanLambda * genfit_pt_val;
-                    double genfit_px = genfit_pt_val * std::cos(genfit_phi_val);
-                    double genfit_py = genfit_pt_val * std::sin(genfit_phi_val);
-                    double genfit_p = std::sqrt(genfit_px * genfit_px + genfit_py * genfit_py + genfit_pz * genfit_pz);
-                    TVector3 genfit_mom = TVector3(genfit_px, genfit_py, genfit_pz);
-
                     float genfit_chi2_val = edm4hep_track.getChi2();
                     int genfit_ndf_val = edm4hep_track.getNdf();
 
-                    // If the fitter suppresses the hits (ndf or chi2 <= 0) the fit is considered as failed
-                    if (genfit_chi2_val <= 0 || genfit_ndf_val <= 0) {
-                        
-                        number_failures++;
-                        // if (pdgCode == 11)
-                        // {
-                        //     auto failedTrack = FittedTracks_electron.create();
-                        //     failedTrack.setChi2(-1);
-                        //     failedTrack.setNdf(-1);
-                        // }
-                        // else if (pdgCode == 13)
-                        // {
-                        //     auto failedTrack = FittedTracks_muon.create();
-                        //     failedTrack.setChi2(-1);
-                        //     failedTrack.setNdf(-1);;
-                        // }
-                        // else if (pdgCode == 211)
-                        // {
-                        //     auto failedTrack = FittedTracks_pion.create();
-                        //     failedTrack.setChi2(-1);
-                        //     failedTrack.setNdf(-1);
-                        // }
-                        // else if (pdgCode == 321)
-                        // {
-                        //     auto failedTrack = FittedTracks_kaon.create();
-                        //     failedTrack.setChi2(-1);
-                        //     failedTrack.setNdf(-1);
-                        // }
-                        // else if (pdgCode == 2212)
-                        // {
-                        //     auto failedTrack = FittedTracks_proton.create();
-                        //     failedTrack.setChi2(-1);
-                        //     failedTrack.setNdf(-1);
-                        // }
-
-                        debug() << "Number of hits in the track: " << track.getTrackerHits().size() << endmsg;
-                        debug() << "GENFIT PDG: " << pdg_with_charge << endmsg;
-                        debug() << "GENFIT Chi2: " << -1 << ", GENFIT NDF: " << -1 << ", GENFIT Chi2/NDF: " << -1 << endmsg;
-                        debug() << "" << endmsg;
-                        continue; 
-
-                    }
-
-                    double genfit_chi2_ndf_val = genfit_chi2_val / genfit_ndf_val;
-                    auto genfit_hits_in_track = edm4hep_track.getTrackerHits();
-
-                    debug() << "Number of hits in the track: " << track.getTrackerHits().size() << endmsg;
-                    debug() << "GENFIT Initialization: CMS" << endmsg;
-                  
-                    track_interface.getTrack_init();
-
-                    debug() << "GENFIT PDG: " << pdg_with_charge << endmsg;
-                    debug() << "GENFIT Omega: " << genfit_omega << endmsg;
-                    debug() << "GENFIT Phi: " << genfit_phi_val << endmsg;
-                    debug() << "GENFIT tanLambda: " << genfit_trackstate.tanLambda << endmsg;
-
-                    debug() << "GENFIT Momentum: " << "[ " << genfit_mom.X() << " " << genfit_mom.Y() << " " << genfit_mom.Z() << " ] -> " << genfit_p << endmsg;
-                    debug() << "GENFIT pt: " << genfit_mom.Pt() << endmsg;
-                    debug() << "GENFIT cosTheta: " << genfit_mom.CosTheta() << endmsg;
-
-                    debug() << "GENFIT Chi2: " << genfit_chi2_val << ", GENFIT NDF: " << genfit_ndf_val << ", GENFIT Chi2/NDF: " << genfit_chi2_ndf_val << endmsg;
-                    debug() << "Number of hits in GENFIT track: " << genfit_hits_in_track.size() << endmsg;
-                    debug() << "" << endmsg;
-
-                    // Propagation of the track to the calorimeter surface: add atCalorimeter trackState to the track
-		            int charge = getHypotesisCharge(pdg_with_charge);                   
-                    FillTrackWithCalorimeterExtrapolation(
-                        edm4hep_track,
-                        m_Bz,
-                        charge,
-                        a,
-                        m_eCalBarrelInnerR,
-                        m_eCalBarrelMaxZ,
-                        m_eCalEndCapInnerR,
-                        m_eCalEndCapOuterR,
-                        m_eCalEndCapInnerZ
-                    );
+                    if (genfit_chi2_val <= 0 || genfit_ndf_val <= 0)  continue; // skip invalid fits
                     
-                    // Fill track collections
-                    if (std::abs(pdgCode) == 11) {
-                        FittedTracks_electron.push_back(edm4hep_track);
-                    } else if (std::abs(pdgCode) == 13) {
-                        FittedTracks_muon.push_back(edm4hep_track);
-                    } else if (std::abs(pdgCode) == 211) {
-                        FittedTracks_pion.push_back(edm4hep_track);
-                    } else if (std::abs(pdgCode) == 321) {
-                        FittedTracks_kaon.push_back(edm4hep_track);
-                    } else if (std::abs(pdgCode) == 2212) {
-                        FittedTracks_proton.push_back(edm4hep_track);
-                    }     
-
-                } else {  
-                    
-
-                    // If the fit fails, it returns a track with chi2=ndf=-1
-                    if (std::abs(pdgCode) == 11) {
-                        auto failedTrack = FittedTracks_electron.create();
-                        failedTrack.setChi2(-1);
-                        failedTrack.setNdf(-1);
-                    } else if (std::abs(pdgCode) == 13) {
-                        auto failedTrack = FittedTracks_muon.create();
-                        failedTrack.setChi2(-1);
-                        failedTrack.setNdf(-1);
-                    } else if (std::abs(pdgCode) == 211) {
-                        auto failedTrack = FittedTracks_pion.create();
-                        failedTrack.setChi2(-1);
-                        failedTrack.setNdf(-1);
-                    } else if (std::abs(pdgCode) == 321) {
-                        auto failedTrack = FittedTracks_kaon.create();
-                        failedTrack.setChi2(-1);
-                        failedTrack.setNdf(-1);
-                    } else if (std::abs(pdgCode) == 2212) {
-                        auto failedTrack = FittedTracks_proton.create();
-                        failedTrack.setChi2(-1);
-                        failedTrack.setNdf(-1);
+                    double chi2_ndf = genfit_chi2_val / genfit_ndf_val;
+                    if (chi2_ndf < winning_chi2_ndf)
+                    {
+                        winning_chi2_ndf = chi2_ndf;
+                        winning_hypothesis = pdgCode;
                     }
-
-                        
-                    debug() << "Number of hits in the track: " << track.getTrackerHits().size() << endmsg;
-                    debug() << "GENFIT Initialization: CMS" << endmsg; 
-                    track_interface.getTrack_init();
-
-                    debug() << "GENFIT PDG: " << pdg_with_charge << endmsg;
-                    debug() << "GENFIT Chi2: " << -1 << ", GENFIT NDF: " << -1 << ", GENFIT Chi2/NDF: " << -1 << endmsg;
-                    debug() << "" << endmsg;
-
-                    number_failures++;
-
+                
                 }
 
-                // if (isFit_back)
-                // {
-
-                //     auto edm4hep_track = track_interface.getTrack_edm4hep(-1);
-                //     auto genfit_trackstate = edm4hep_track.getTrackStates()[0];
-                    
-                //     double genfit_omega = genfit_trackstate.omega;
-                //     double genfit_pt_val = a * m_Bz / abs(genfit_omega);
-                //     double genfit_phi_val = genfit_trackstate.phi;
-                //     double genfit_pz = genfit_trackstate.tanLambda * genfit_pt_val;
-                //     double genfit_px = genfit_pt_val * std::cos(genfit_phi_val);
-                //     double genfit_py = genfit_pt_val * std::sin(genfit_phi_val);
-                //     double genfit_p = std::sqrt(genfit_px * genfit_px + genfit_py * genfit_py + genfit_pz * genfit_pz);
-                //     TVector3 genfit_mom = TVector3(genfit_px, genfit_py, genfit_pz);
-
-                //     float genfit_chi2_val = edm4hep_track.getChi2();
-                //     int genfit_ndf_val = edm4hep_track.getNdf();
-
-                //     // If the fitter suppresses the hits (ndf or chi2 <= 0) the fit is considered as failed
-                //     if (genfit_chi2_val <= 0 || genfit_ndf_val <= 0) {
-                        
-                //     //     number_failures++;
-                //     //     if (pdgCode == 11)
-                //     //     {
-                //     //         auto failedTrack = FittedTracks_electron.create();
-                //     //         failedTrack.setChi2(-1);
-                //     //         failedTrack.setNdf(-1);
-                //     //     }
-                //     //     else if (pdgCode == 13)
-                //     //     {
-                //     //         auto failedTrack = FittedTracks_muon.create();
-                //     //         failedTrack.setChi2(-1);
-                //     //         failedTrack.setNdf(-1);;
-                //     //     }
-                //     //     else if (pdgCode == 211)
-                //     //     {
-                //     //         auto failedTrack = FittedTracks_pion.create();
-                //     //         failedTrack.setChi2(-1);
-                //     //         failedTrack.setNdf(-1);
-                //     //     }
-                //     //     else if (pdgCode == 321)
-                //     //     {
-                //     //         auto failedTrack = FittedTracks_kaon.create();
-                //     //         failedTrack.setChi2(-1);
-                //     //         failedTrack.setNdf(-1);
-                //     //     }
-                //     //     else if (pdgCode == 2212)
-                //     //     {
-                //     //         auto failedTrack = FittedTracks_proton.create();
-                //     //         failedTrack.setChi2(-1);
-                //     //         failedTrack.setNdf(-1);
-                //     //     }
-
-                //         debug() << "Number of hits in the track: " << track.getTrackerHits().size() << endmsg;
-                //         debug() << "GENFIT PDG: " << pdg_with_charge << endmsg;
-                //         debug() << "GENFIT Initialization: CMS" << endmsg;
-                //         track_interface.getTrack_init(-1);
-                //         debug() << "GENFIT Chi2: " << -1 << ", GENFIT NDF: " << -1 << ", GENFIT Chi2/NDF: " << -1 << endmsg;
-                //         debug() << "" << endmsg;
-                //         continue; 
-                //     }
-
-                //     double genfit_chi2_ndf_val = genfit_chi2_val / genfit_ndf_val;
-                //     auto genfit_hits_in_track = edm4hep_track.getTrackerHits();
-
-                //     debug() << "Number of hits in the track: " << track.getTrackerHits().size() << endmsg;
-                //     debug() << "GENFIT Initialization: CMS" << endmsg;
-                  
-                //     track_interface.getTrack_init(-1);
-
-                //     debug() << "GENFIT PDG: " << pdg_with_charge << endmsg;
-                //     debug() << "GENFIT Omega: " << genfit_omega << endmsg;
-                //     debug() << "GENFIT Phi: " << genfit_phi_val << endmsg;
-                //     debug() << "GENFIT tanLambda: " << genfit_trackstate.tanLambda << endmsg;
-
-                //     debug() << "GENFIT Momentum: " << "[ " << genfit_mom.X() << " " << genfit_mom.Y() << " " << genfit_mom.Z() << " ] -> " << genfit_p << endmsg;
-                //     debug() << "GENFIT pt: " << genfit_mom.Pt() << endmsg;
-                //     debug() << "GENFIT cosTheta: " << genfit_mom.CosTheta() << endmsg;
-
-                //     debug() << "GENFIT Chi2: " << genfit_chi2_val << ", GENFIT NDF: " << genfit_ndf_val << ", GENFIT Chi2/NDF: " << genfit_chi2_ndf_val << endmsg;
-                //     debug() << "Number of hits in GENFIT track: " << genfit_hits_in_track.size() << endmsg;
-                //     debug() << "" << endmsg;
-
-                //     // // // Propagation of the track to the calorimeter surface: add atCalorimeter trackState to the track
-		        //     // // int charge = getHypotesisCharge(pdg_with_charge);                   
-                //     // // FillTrackWithCalorimeterExtrapolation(
-                //     // //     edm4hep_track,
-                //     // //     m_Bz,
-                //     // //     charge,
-                //     // //     a,
-                //     // //     m_eCalBarrelInnerR,
-                //     // //     m_eCalBarrelMaxZ,
-                //     // //     m_eCalEndCapInnerR,
-                //     // //     m_eCalEndCapOuterR,
-                //     // //     m_eCalEndCapInnerZ
-                //     // // );
-                    
-                //     // // Fill track collections
-                //     // if (std::abs(pdgCode) == 11) {
-                //     //     FittedTracks_electron.push_back(edm4hep_track);
-                //     // } else if (std::abs(pdgCode) == 13) {
-                //     //     FittedTracks_muon.push_back(edm4hep_track);
-                //     // } else if (std::abs(pdgCode) == 211) {
-                //     //     FittedTracks_pion.push_back(edm4hep_track);
-                //     // } else if (std::abs(pdgCode) == 321) {
-                //     //     FittedTracks_kaon.push_back(edm4hep_track);
-                //     // } else if (std::abs(pdgCode) == 2212) {
-                //     //     FittedTracks_proton.push_back(edm4hep_track);
-                //     // }     
-
-                // } else {  
-
-                //     // If the fit fails, it returns a track with chi2=ndf=-1
-                //     // if (std::abs(pdgCode) == 11) {
-
-                //     //     auto failedTrack = FittedTracks_electron.create();
-                //     //     failedTrack.setChi2(-1);
-                //     //     failedTrack.setNdf(-1);
-
-                //     // } else if (std::abs(pdgCode) == 13) {
-
-                //     //     auto failedTrack = FittedTracks_muon.create();
-                //     //     failedTrack.setChi2(-1);
-                //     //     failedTrack.setNdf(-1);
-                //     // } else if (std::abs(pdgCode) == 211) {
-
-                //     //     auto failedTrack = FittedTracks_pion.create();
-                //     //     failedTrack.setChi2(-1);
-                //     //     failedTrack.setNdf(-1);
-                //     // } else if (std::abs(pdgCode) == 321) {
-
-                //     //     auto failedTrack = FittedTracks_kaon.create();
-                //     //     failedTrack.setChi2(-1);
-                //     //     failedTrack.setNdf(-1);
-                //     // } else if (std::abs(pdgCode) == 2212) {
-
-                //     //     auto failedTrack = FittedTracks_proton.create();
-                //     //     failedTrack.setChi2(-1);
-                //     //     failedTrack.setNdf(-1);
-                //     // }
-
-                        
-                //     debug() << "Number of hits in the track: " << track.getTrackerHits().size() << endmsg;
-                //     debug() << "GENFIT Initialization: CMS" << endmsg; 
-                //     track_interface.getTrack_init();
-
-                //     debug() << "GENFIT PDG: " << pdg_with_charge << endmsg;
-                //     debug() << "GENFIT Chi2: " << -1 << ", GENFIT NDF: " << -1 << ", GENFIT Chi2/NDF: " << -1 << endmsg;
-                //     debug() << "" << endmsg;
-
-                //     number_failures++;
-
-                // }
+            }   
             
+            if (winning_hypothesis == -1)
+            {
+                debug() << "Track " << num_tracks - 1 << ": fit failed for all hypotheses, skipping track." << endmsg;
+                number_failures += 1;
+
+                auto failedTrack = FittedTracks.create();
+                failedTrack.setChi2(-1);
+                failedTrack.setNdf(-1);
             }
-        
+            else
+            {
+
+                debug() << "Track " << num_tracks - 1 << ": winning hypothesis is " << winning_hypothesis << " with chi2/ndf = " << winning_chi2_ndf << endmsg;
+
+                // Create trackInterface, initialize genfit track and fit it
+                int pdg_with_charge = winning_hypothesis;
+                int charge = 0;
+                if (winning_hypothesis == 11 || winning_hypothesis == 13)
+                {
+                    pdg_with_charge = - init_seed.charge * winning_hypothesis;
+                    charge = - init_seed.charge;
+                }
+                else
+                {   
+                    pdg_with_charge = init_seed.charge * winning_hypothesis;
+                    charge = init_seed.charge;
+                }
+
+                GenfitInterface::GenfitTrack track_interface = GenfitInterface::GenfitTrack(    track, 1,
+                                                                                                pdg_with_charge, 
+                                                                                                m_dch_info, m_dc_decoder, 
+                                                                                                maxHitForLoopers, 
+                                                                                                init_pos_cm, init_mom_gev); 
+
+                track_interface.createGenFitTrack(true, m_debug_lvl);
+                bool _ = track_interface.fit(charge, m_Beta_init, m_Beta_final, m_Beta_steps, m_Bz, m_debug_lvl); 
+                
+                auto edm4hep_track = track_interface.getTrack_edm4hep();
+
+                // Propagate to calorimeter and store the state at calorimeter
+                FillTrackWithCalorimeterExtrapolation(edm4hep_track, m_Bz, charge, m_eCalBarrelInnerR, m_eCalBarrelMaxZ,
+                                                                            m_eCalEndCapInnerR, m_eCalEndCapOuterR,
+                                                                            m_eCalEndCapInnerZ, m_eCalEndCapOuterZ);
+               
+
+                // Add the fitted track to the output collection
+                FittedTracks.push_back(edm4hep_track);
+
+            }
         }
 
         
-        return std::make_tuple( std::move(FittedTracks_electron),
-                                std::move(FittedTracks_muon),
-                                std::move(FittedTracks_pion),
-                                std::move(FittedTracks_kaon),
-                                std::move(FittedTracks_proton));
+        return std::make_tuple( std::move(FittedTracks));
         
     } 
     
@@ -1151,8 +714,24 @@ struct GenfitTrackFitter final :
         info() << "Run report:" << endmsg;
         info() << "Number of tracks: " << num_tracks << endmsg;
         info() << "Number of successes: " << (num_processed_tracks - number_failures) <<  "/" << num_processed_tracks << endmsg;
-        info() << "Number of skipped tracks: " << num_skip - 1 << "/" << num_tracks<< endmsg;
+        info() << "Number of skipped tracks: " << num_skip << "/" << num_tracks << endmsg;
         info() << "----------------\n" << endmsg;
+
+        // std::string filename = "/afs/cern.ch/work/a/adevita/public/workDir/testFolder/output_preparePoints_track_" + std::to_string(num_tracks) + "_forward.txt";
+        // std::ofstream out(filename);
+        // if (!out) {
+        //     std::cerr << "Error opening file: " << filename << std::endl;
+        // }
+
+        // if (!out) {
+        //     throw std::runtime_error("Cannot open output file");
+        // }
+
+        // // One point per line: z y
+        // for (const auto& p : zy_pos) {
+        //     out << p.z << " " << p.y << '\n';
+        // }
+        // out.close();
 
 
 
@@ -1162,31 +741,35 @@ struct GenfitTrackFitter final :
 
     public:
         
-        mutable int index_counter = 0;
-        mutable int number_failures = 0;
-        mutable int num_tracks = 0;             // Total number of tracks processed
+        mutable int event_counter = 0;
+
+        // Num_tracks = num_processed_tracks + num_skip
+        mutable int num_tracks = 0;             // Total number of tracks
         mutable int num_skip = 0;               // Number of skipped tracks
         mutable int num_processed_tracks = 0;   // Number of tracks that have been processed (not skipped)
+        mutable int number_failures = 0;        // Number of failed fits
+
+        // mutable std::vector<Point2D_zy> zy_pos;
 
 
     private:
+
+        
 
         ServiceHandle<IGeoSvc> m_geoSvc{this, "GeoSvc", "GeoSvc", "Detector geometry service"};
         dd4hep::Detector* m_detector{nullptr};  // Detector instance
         dd4hep::OverlayedField m_field;         // Magnetic field
 
         GenfitInterface::GenfitField* m_genfitField;
-        genfit::FieldManager* fieldManager;
+        genfit::FieldManager* m_fieldManager;
 
         GenfitInterface::GenfitMaterialInterface* m_geoMaterial;
-        genfit::MaterialEffects* materialEffects;
+        genfit::MaterialEffects* m_materialEffects;
 
-        dd4hep::rec::SurfaceManager* surfMan;
-        dd4hep::rec::DCH_info* dch_info;
-        dd4hep::DDSegmentation::BitFieldCoder* dc_decoder;
+        dd4hep::rec::SurfaceManager* m_surfMan;
+        dd4hep::rec::DCH_info* m_dch_info;
+        dd4hep::DDSegmentation::BitFieldCoder* m_dc_decoder;
 
-        double c_light = 2.99792458e8;
-        double a = c_light * 1e3 * 1e-15;
         double m_Bz;
 
         double m_eCalBarrelInnerR;
@@ -1196,12 +779,19 @@ struct GenfitTrackFitter final :
         double m_eCalEndCapInnerZ;
         double m_eCalEndCapOuterZ;
 
-        std::vector<int> m_particleHypotesis = {211}; // {11,13,211,321,2212} -> e, mu, pi, K, p
+        std::vector<int> m_particleHypotesis = {211};   // {11,13,211,321,2212} -> e, mu, pi, K, p
 
         Gaudi::Property<double> m_Beta_init{this, "Beta_init", 100, "Beta Initial value"};
         Gaudi::Property<double> m_Beta_final{this, "Beta_final", 0.05, "Beta Final value"};
         Gaudi::Property<int> m_Beta_steps{this, "Beta_steps", 15, "Beta number of Steps"};
-        Gaudi::Property<int> m_debug_lvl{this, "debug_lvl", 0, "Debug level: Genfit"};
+
+
+        Gaudi::Property<bool> m_skip_background{this, "skip_background", true, "Skip background track"};
+        Gaudi::Property<bool> m_singleEvaluation{this, "single_evaluation", false, "Single evaluation mode"};
+        
+
+
+        Gaudi::Property<int> m_debug_lvl{this, "debug_lvl", 0, "Debug level: Genfit - 0: none, 1: hit info, 2: + fitter info, 3: + material effects info"}; 
 
 };
 
