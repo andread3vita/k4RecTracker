@@ -209,8 +209,6 @@ void FillTrackWithCalorimeterExtrapolation(edm4hep::MutableTrack& edm4hep_track,
   }
 }
 
-
-
 torch::Tensor find_condpoints(const torch::Tensor& betas, const torch::Tensor& unassigned, float tbeta) {
   torch::Tensor mask_unassigned = torch::zeros_like(betas, torch::dtype(torch::kBool));
   mask_unassigned.index_put_({unassigned}, true);

@@ -271,32 +271,19 @@ std::pair<TVector3, double> computeD0(TVector3 position, TVector3 momentum, int 
     }
 
     // -------------------------------
-    // 2. Radius of curvature
+    // 2. Radius and center of curvature 
     // -------------------------------
-    double R = pt / (std::abs(charge) * Bz);
+    double R = pt / (0.3 *std::abs(charge) * Bz) * 100; // in cm (assuming pt in GeV/c, Bz in Tesla)
 
-    // -------------------------------
-    // 3. Curvature direction
-    // -------------------------------
-    // For Bz > 0:
-    //  - positive charge → counter-clockwise motion
-    //  - negative charge → clockwise motion
-    double sign = (charge > 0 ? +1.0 : -1.0);
+    double tx = px / pt;
+    double ty = py / pt;
 
-    // Unit vector perpendicular to momentum in the XY plane
-    TVector3 normal(
-        -sign * py / pt,
-        sign * px / pt,
-        0.0
-    );
+    double nx = charge * (ty);
+    double ny = charge * (-tx);
 
-    // -------------------------------
-    // 4. Circle center in the XY plane
-    // -------------------------------
-    TVector3 center = position + R * normal;
-
-    // Circle equation:
-    // (x - center.X())^2 + (y - center.Y())^2 = R^2
+    double xc = position[0] + R * nx;   
+    double yc = position[1] + R * ny;
+    TVector3 center(xc, yc, 0.0);
 
     // -------------------------------
     // 5. Closest point on the circle
@@ -326,6 +313,7 @@ std::pair<TVector3, double> computeD0(TVector3 position, TVector3 momentum, int 
 
     // Tangent is perpendicular to the radius
     // Direction follows the particle motion
+    int sign = (charge > 0) ? 1 : -1;
     TVector3 tangent(
         -sign * r.Y(),
         sign * r.X(),
@@ -353,6 +341,25 @@ std::pair<TVector3, double> computeD0(TVector3 position, TVector3 momentum, int 
     return std::make_pair(closestPoint, angleToX);
 
 }
+
+// double computeZ0(TVector3 position, TVector3 momentum, TVector3 refPoint)
+// {
+    
+//     // -------------------------------
+//     // 1. Transverse momentum
+//     // -------------------------------
+//     double px = momentum.X();
+//     double py = momentum.Y();
+//     double pz = momentum.Z();
+
+//     if (pt == 0.0) {
+//         throw std::runtime_error("Transverse momentum is zero");
+//     }
+
+    
+
+//     return z0;
+// }
 
 namespace GenfitInterface {
 
@@ -690,7 +697,7 @@ namespace GenfitInterface {
         if (!isPositiveSemiDefinite(covState)) {
 
             std::cerr << "Track Covariance Matrix is not positive definite!" << std::endl;
-            std::exit(EXIT_FAILURE);
+            // std::exit(EXIT_FAILURE);
 
         
         }
@@ -797,8 +804,6 @@ namespace GenfitInterface {
                 debug_lvl_fit = 2;
             }
 
-           
-
             m_genfitFitter->setDebugLvl(debug_lvl_fit);
 
             debug_lvl_fit = 2;
@@ -869,6 +874,9 @@ namespace GenfitInterface {
                     std::cout << "  phi: " << trackStateFirstHit.phi << " rad" << std::endl;
                     std::cout << "  omega: " << trackStateFirstHit.omega << " a.u." << std::endl;
                     std::cout << "  tanLambda: " << trackStateFirstHit.tanLambda << std::endl;
+
+                    std::cout << "  momentum: " << gen_momentum.X() << " " << gen_momentum.Y() << " " << gen_momentum.Z() << " GeV/c" << std::endl;
+
                     std::cout << "  location: " << trackStateFirstHit.location << std::endl;
                     std::cout << "  reference point: (" << trackStateFirstHit.referencePoint.x << ", " << trackStateFirstHit.referencePoint.y << ", " << trackStateFirstHit.referencePoint.z << ") mm" << std::endl;
                     std::cout << "  PCA point: (" << infoComputeD0.first.X() << ", " << infoComputeD0.first.Y() << ", " << infoComputeD0.first.Z() << ") mm" << std::endl;
@@ -911,12 +919,15 @@ namespace GenfitInterface {
                     std::cout << "  phi: " << trackStateLastHit.phi << " rad" << std::endl;
                     std::cout << "  omega: " << trackStateLastHit.omega << " a.u." << std::endl;
                     std::cout << "  tanLambda: " << trackStateLastHit.tanLambda << std::endl;
+
+                    std::cout << "  momentum: " << gen_momentum.X() << " " << gen_momentum.Y() << " " << gen_momentum.Z() << " GeV/c" << std::endl;
+
                     std::cout << "  location: " << trackStateLastHit.location << std::endl;
                     std::cout << "  reference point: (" << trackStateLastHit.referencePoint.x << ", " << trackStateLastHit.referencePoint.y << ", " << trackStateLastHit.referencePoint.z << ") mm" << std::endl;
                     std::cout << "  PCA point: (" << infoComputeD0_lastHit.first.X() << ", " << infoComputeD0_lastHit.first.Y() << ", " << infoComputeD0_lastHit.first.Z() << ") mm" << std::endl;
                 }
 
-                if (m_direction < 0)
+                if (m_direction > 0)
                 {
                     trackRep->setPropDir(-1);
                     
@@ -936,9 +947,9 @@ namespace GenfitInterface {
                     fittedState.getPosMomCov(gen_position, gen_momentum, covariancePosMom);
                     auto stateVecIP = fittedState.getState();
 
-                    gen_momentum.SetX(-gen_momentum.X());
-                    gen_momentum.SetY(-gen_momentum.Y());
-                    gen_momentum.SetZ(-gen_momentum.Z());
+                    // gen_momentum.SetX(-gen_momentum.X());
+                    // gen_momentum.SetY(-gen_momentum.Y());
+                    // gen_momentum.SetZ(-gen_momentum.Z());
                     
                     edm4hep::TrackState trackStateIP;
                     x0_PCA = gen_position.X();     // cm
@@ -972,6 +983,9 @@ namespace GenfitInterface {
                         std::cout << "  phi: " << trackStateIP.phi << " rad" << std::endl;
                         std::cout << "  omega: " << trackStateIP.omega << " a.u." << std::endl;
                         std::cout << "  tanLambda: " << trackStateIP.tanLambda << std::endl;
+
+                        std::cout << "  momentum: " << gen_momentum.X() << " " << gen_momentum.Y() << " " << gen_momentum.Z() << " GeV/c" << std::endl;
+
                         std::cout << "  location: " << trackStateIP.location << std::endl;
                         std::cout << "  reference point: (" << trackStateIP.referencePoint.x << ", " << trackStateIP.referencePoint.y << ", " << trackStateIP.referencePoint.z << ") mm" << std::endl;
                         std::cout << "  PCA point: (" << infoComputeD0_IP.first.X() << ", " << infoComputeD0_IP.first.Y() << ", " << infoComputeD0_IP.first.Z() << ") mm" << std::endl;

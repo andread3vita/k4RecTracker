@@ -41,6 +41,7 @@ gaudi_add_module(${PackageName}
   torch
   DD4hep::DDRec
   DD4hep::DDCore
+  Eigen3::Eigen
   GenFit::genfit2
   ${DELPHES_LIBRARIES}
 )
