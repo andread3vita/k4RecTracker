@@ -248,7 +248,7 @@ bool isPositiveSemiDefinite(const TMatrixDSym& M, double tol = 1e-10)
     return true;
 }
 
-std::pair<TVector3, double> computeD0(TVector3 position, TVector3 momentum, int charge, TVector3 refPoint, double Bz)
+std::tuple<TVector3, double, double> computeD0Z0(TVector3 position, TVector3 momentum, int charge, TVector3 refPoint, double Bz)
 {
     // -------------------------------
     // INPUTS (assumed to be defined)
@@ -329,6 +329,17 @@ std::pair<TVector3, double> computeD0(TVector3 position, TVector3 momentum, int 
     // Oriented angle in the range [-pi, pi]
     double angleToX = std::atan2(tangent.Y(), tangent.X());
 
+    double pR   = momentum.Perp();   
+    double pZ   = momentum.Z();     
+
+    double R0 = position.Perp();    
+    double Z0 = position.Z();
+
+    double tPCA = -(R0*pR + Z0*pZ)/(pR*pR + pZ*pZ);
+    double ZPCA = Z0 + pZ * tPCA;
+
+
+
     // -------------------------------
     // Outputs:
     // -------------------------------
@@ -338,7 +349,9 @@ std::pair<TVector3, double> computeD0(TVector3 position, TVector3 momentum, int 
     // TVector3 tangent       -> tangent direction at that point
     // double   angleToX      -> angle between tangent and x-axis (rad)
 
-    return std::make_pair(closestPoint, angleToX);
+    return std::make_tuple(closestPoint, angleToX, ZPCA);
+
+    // return std::std::make_pair(closestPoint, angleToX);
 
 }
 
@@ -848,10 +861,11 @@ namespace GenfitInterface {
                 pz = gen_momentum.Z();         // gev
                 pt = gen_momentum.Perp();      // gev
             
-                auto infoComputeD0 = computeD0(TVector3(x0_PCA, y0_PCA, z0_PCA), gen_momentum, charge, m_IP_referencePoint, Bz);
+                auto infoComputeD0Z0 = computeD0Z0(TVector3(x0_PCA, y0_PCA, z0_PCA), gen_momentum, charge, m_IP_referencePoint, Bz);
+
                 
-                d0 = ( - (m_IP_referencePoint.X() - infoComputeD0.first.X() )*sin(infoComputeD0.second) + (m_IP_referencePoint.Y() - infoComputeD0.first.Y())*cos(infoComputeD0.second) ) / dd4hep::mm; // mm
-                z0 = ( infoComputeD0.first.Z() - m_IP_referencePoint.Z() ) / dd4hep::mm;   
+                d0 = ( - (m_IP_referencePoint.X() - std::get<0>(infoComputeD0Z0).X() )*sin(std::get<1>(infoComputeD0Z0)) + (m_IP_referencePoint.Y() - std::get<0>(infoComputeD0Z0).Y())*cos(std::get<1>(infoComputeD0Z0)) ) / dd4hep::mm; // mm
+                z0 = ( std::get<2>(infoComputeD0Z0) - m_IP_referencePoint.Z() ) / dd4hep::mm;   
                 phi = gen_momentum.Phi();      // rad                                                                                                             // mm
                 tanLambda = pz / pt;
                 omega =  charge * Bz / abs(pt); // a.u. because I am not multiplying by c
@@ -879,7 +893,7 @@ namespace GenfitInterface {
 
                     std::cout << "  location: " << trackStateFirstHit.location << std::endl;
                     std::cout << "  reference point: (" << trackStateFirstHit.referencePoint.x << ", " << trackStateFirstHit.referencePoint.y << ", " << trackStateFirstHit.referencePoint.z << ") mm" << std::endl;
-                    std::cout << "  PCA point: (" << infoComputeD0.first.X() << ", " << infoComputeD0.first.Y() << ", " << infoComputeD0.first.Z() << ") mm" << std::endl;
+                    std::cout << "  PCA point: (" << std::get<0>(infoComputeD0Z0).X() << ", " << std::get<0>(infoComputeD0Z0).Y() << ", " << std::get<0>(infoComputeD0Z0).Z() << ") mm" << std::endl;
                 }
 
                 // trackState lastHit
@@ -894,9 +908,9 @@ namespace GenfitInterface {
                 pz = gen_momentum.Z();         // gev
                 pt = gen_momentum.Perp();      // gev
 
-                auto infoComputeD0_lastHit = computeD0(TVector3(x0_PCA, y0_PCA, z0_PCA), gen_momentum, charge, m_IP_referencePoint, Bz);
-                d0 = ( - (m_IP_referencePoint.X() - infoComputeD0_lastHit.first.X() )*sin(infoComputeD0_lastHit.second) + (m_IP_referencePoint.Y() - infoComputeD0_lastHit.first.Y())*cos(infoComputeD0_lastHit.second) ) / dd4hep::mm; // mm
-                z0 = ( infoComputeD0_lastHit.first.Z() - m_IP_referencePoint.Z() ) / dd4hep::mm;                                                                                                                                        // mm
+                auto infoComputeD0Z0_lastHit = computeD0Z0(TVector3(x0_PCA, y0_PCA, z0_PCA), gen_momentum, charge, m_IP_referencePoint, Bz);
+                d0 = ( - (m_IP_referencePoint.X() - std::get<0>(infoComputeD0Z0_lastHit).X() )*sin(std::get<1>(infoComputeD0Z0_lastHit)) + (m_IP_referencePoint.Y() - std::get<0>(infoComputeD0Z0_lastHit).Y())*cos(std::get<1>(infoComputeD0Z0_lastHit)) ) / dd4hep::mm; // mm
+                z0 = ( std::get<2>(infoComputeD0Z0_lastHit) - m_IP_referencePoint.Z() ) / dd4hep::mm;                                                                                                                                        // mm
                 phi = gen_momentum.Phi();      // rad
                 tanLambda = pz / pt;    
                 omega =  charge * Bz / abs(pt); // a.u. because I am not multiplying by c
@@ -924,7 +938,7 @@ namespace GenfitInterface {
 
                     std::cout << "  location: " << trackStateLastHit.location << std::endl;
                     std::cout << "  reference point: (" << trackStateLastHit.referencePoint.x << ", " << trackStateLastHit.referencePoint.y << ", " << trackStateLastHit.referencePoint.z << ") mm" << std::endl;
-                    std::cout << "  PCA point: (" << infoComputeD0_lastHit.first.X() << ", " << infoComputeD0_lastHit.first.Y() << ", " << infoComputeD0_lastHit.first.Z() << ") mm" << std::endl;
+                    std::cout << "  PCA point: (" << std::get<0>(infoComputeD0Z0_lastHit).X() << ", " << std::get<0>(infoComputeD0Z0_lastHit).Y() << ", " << std::get<0>(infoComputeD0Z0_lastHit).Z() << ") mm" << std::endl;
                 }
 
                 if (m_direction > 0)
@@ -958,9 +972,9 @@ namespace GenfitInterface {
                     pz = gen_momentum.Z();         // gev
                     pt = gen_momentum.Perp();      // gev
 
-                    auto infoComputeD0_IP = computeD0(TVector3(x0_PCA, y0_PCA, z0_PCA), gen_momentum, charge, m_IP_referencePoint, Bz);
-                    d0 = ( - (m_IP_referencePoint.X() - infoComputeD0_IP.first.X() )*sin(infoComputeD0_IP.second) + (m_IP_referencePoint.Y() - infoComputeD0_IP.first.Y())*cos(infoComputeD0_IP.second) ) / dd4hep::mm; // mm
-                    z0 = ( infoComputeD0_IP.first.Z() - m_IP_referencePoint.Z() ) / dd4hep::mm;                                                                                                                         // mm
+                    auto infoComputeD0Z0_IP = computeD0Z0(TVector3(x0_PCA, y0_PCA, z0_PCA), gen_momentum, charge, m_IP_referencePoint, Bz);
+                    d0 = ( - (m_IP_referencePoint.X() - std::get<0>(infoComputeD0Z0_IP).X() )*sin(std::get<1>(infoComputeD0Z0_IP)) + (m_IP_referencePoint.Y() - std::get<0>(infoComputeD0Z0_IP).Y())*cos(std::get<1>(infoComputeD0Z0_IP)) ) / dd4hep::mm; // mm
+                    z0 = ( std::get<2>(infoComputeD0Z0_IP) - m_IP_referencePoint.Z() ) / dd4hep::mm;                                                                                                                         // mm
                     phi = gen_momentum.Phi();      // rad
                     tanLambda = pz / pt;    
                     omega =  charge * Bz / abs(pt); // a.u. because I am not multiplying by c   
@@ -988,7 +1002,7 @@ namespace GenfitInterface {
 
                         std::cout << "  location: " << trackStateIP.location << std::endl;
                         std::cout << "  reference point: (" << trackStateIP.referencePoint.x << ", " << trackStateIP.referencePoint.y << ", " << trackStateIP.referencePoint.z << ") mm" << std::endl;
-                        std::cout << "  PCA point: (" << infoComputeD0_IP.first.X() << ", " << infoComputeD0_IP.first.Y() << ", " << infoComputeD0_IP.first.Z() << ") mm" << std::endl;
+                        std::cout << "  PCA point: (" << std::get<0>(infoComputeD0Z0_IP).X() << ", " << std::get<0>(infoComputeD0Z0_IP).Y() << ", " << std::get<0>(infoComputeD0Z0_IP).Z() << ") mm" << std::endl;
                     }
 
                     m_edm4hepTrack.addToTrackStates(trackStateIP);
