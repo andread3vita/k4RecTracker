@@ -63,29 +63,29 @@ namespace GenfitInterface {
         genfit::SharedPlanePtr plane(new genfit::DetPlane(Origin,U,V));
         m_genfitHit->setPlane(plane, cellID0);
 
-        if (debug_lvl > 0) {
-            std::cout << "Planar measurement settings:\n";
-            std::cout << "Global position [cm]: "
-                    << global_pos.X() << " "
-                    << global_pos.Y() << " "
-                    << global_pos.Z() << std::endl;
+        // if (debug_lvl > 0) {
+        //     std::cout << "Planar measurement settings:\n";
+        //     std::cout << "Global position [cm]: "
+        //             << global_pos.X() << " "
+        //             << global_pos.Y() << " "
+        //             << global_pos.Z() << std::endl;
 
-            std::cout << "rawHitCoords [cm]:" << std::endl;
-            rawHitCoords.Print();
+        //     std::cout << "rawHitCoords [cm]:" << std::endl;
+        //     rawHitCoords.Print();
 
-            std::cout << "rawHitCov [cm]:" << std::endl;
-            rawHitCov.Print();
+        //     std::cout << "rawHitCov [cm]:" << std::endl;
+        //     rawHitCov.Print();
 
-            std::cout << "O: " << Origin[0] <<" , " << Origin[1] <<" , " << Origin[2] << std::endl;
-            std::cout << "U: " << U[0] <<" , " << U[1] <<" , " << U[2] << std::endl;
-            std::cout << "V: " << V[0] <<" , " << V[1] <<" , " << V[2] << std::endl;
+        //     std::cout << "O: " << Origin[0] <<" , " << Origin[1] <<" , " << Origin[2] << std::endl;
+        //     std::cout << "U: " << U[0] <<" , " << U[1] <<" , " << U[2] << std::endl;
+        //     std::cout << "V: " << V[0] <<" , " << V[1] <<" , " << V[2] << std::endl;
 
-            std::cout << "detId: " << det_idx << std::endl;
-            std::cout << "hitID: " << hit_idx << std::endl;
-            std::cout << "PlaneID: " << cellID0 << std::endl;
+        //     std::cout << "detId: " << det_idx << std::endl;
+        //     std::cout << "hitID: " << hit_idx << std::endl;
+        //     std::cout << "PlaneID: " << cellID0 << std::endl;
             
-            std::cout << "" << std::endl;
-        }
+        //     std::cout << "" << std::endl;
+        // }
 
     }
 

@@ -75,6 +75,9 @@
  *  Date  : 2025-11
  *
  */
+
+std::tuple<std::vector<std::pair<float, std::size_t>>, TVector3> orderHits(const edm4hep::Track& track, int dir);
+
 namespace GenfitInterface {
 
     class GenfitTrack {

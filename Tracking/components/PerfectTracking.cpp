@@ -115,6 +115,10 @@ struct PerfectTracking final : k4FWCore::MultiTransformer< std::tuple<edm4hep::T
     // Loop over MCParticles to create perfect tracks
     for (const auto& mcParticle : mcParticles) {
 
+        if (mcParticle.getPDG() != 13) {
+            continue; // Skip non-final-state particles
+        }
+
         auto edm4hep_track = outputTracks.create();
         auto mcParticleObjectId = mcParticle.getObjectID();
 
@@ -143,6 +147,8 @@ struct PerfectTracking final : k4FWCore::MultiTransformer< std::tuple<edm4hep::T
                 }
             }   
         }
+
+        edm4hep_track.setType(1);
 
     }
 

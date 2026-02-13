@@ -74,6 +74,8 @@ namespace GenfitInterface {
         // Compute position along the wire in local coordinates: z_reco = distance(left wire extremity, wire_pos)
         double zreco = (position - p1).Mag();  //cm
 
+        // m_genfitHit = new genfit::WireMeasurementNew(Rdrift, distanceToWireError, p1, p2, det_idx, hit_idx, nullptr);
+
         // Create the coordinate array (8D): p1_x, p1_y, p1_z, p2_x, p2_y, p2_z, drift distance, position along the wire
         TVectorD rawHitCoords(8);
         rawHitCoords(0) = p1.x();               // wire1 X
@@ -165,27 +167,29 @@ namespace GenfitInterface {
         // Create the genfit::WirePointMeasurement
         m_genfitHit = new genfit::WirePointMeasurement(rawHitCoords, rawHitCov, det_idx, hit_idx, nullptr);
 
-        if (debug_lvl > 0) {
+        // if (debug_lvl > 0) {
 
-            std::cout << "Wire measurement settings:" << std::endl;
-            std::cout << "Position along the wire [cm]: " << position.X() << " " << position.Y() << " " << position.Z() << std::endl;
-            std::cout << "Position along the wire error [cm]: " << positionAlongWireError << std::endl;
-            std::cout << "Distance to the wire [cm]: " << distanceToWire << std::endl;
-            std::cout << "Distance to the wire error [cm]: " << distanceToWireError << std::endl;
+        //     std::cout << "Wire measurement settings:" << std::endl;
+        //     std::cout << "Position along the wire [cm]: " << position.X() << " " << position.Y() << " " << position.Z() << std::endl;
+        //     std::cout << "Position along the wire error [cm]: " << positionAlongWireError << std::endl;
+        //     std::cout << "Distance to the wire [cm]: " << distanceToWire << std::endl;
+        //     std::cout << "Distance to the wire error [cm]: " << distanceToWireError << std::endl;
 
-            std::cout << "rawHitCoords = [ ";
-            for (int i = 0; i < rawHitCoords.GetNrows(); ++i) {
-                std::cout << rawHitCoords[i] << " ,";
-            }
-            std::cout << "]" << std::endl;    
-            std::cout << "Wire position error [cm]: " << sigma_wire << std::endl;
-            std::cout << "Drift distance error [cm]: " << Rdrift_sigma << std::endl;
-            std::cout << "Zreco error [cm]: " << zreco_sigma << std::endl;
+        //     std::cout << "rawHitCoords = [ ";
+        //     for (int i = 0; i < rawHitCoords.GetNrows(); ++i) {
+        //         std::cout << rawHitCoords[i] << " ,";
+        //     }
+        //     std::cout << "]" << std::endl;    
+        //     std::cout << "Wire position error [cm]: " << sigma_wire << std::endl;
+        //     std::cout << "Drift distance error [cm]: " << Rdrift_sigma << std::endl;
+        //     std::cout << "Zreco error [cm]: " << zreco_sigma << std::endl;
 
-            std::cout << "detID: " << det_idx << std::endl;
-            std::cout << "hitID: " << hit_idx << std::endl;
-            std::cout << "" << std::endl;
-        }
+        //     std::cout << "detID: " << det_idx << std::endl;
+        //     std::cout << "hitID: " << hit_idx << std::endl;
+        //     std::cout << "" << std::endl;
+        // }
+
+
 
     }
 
