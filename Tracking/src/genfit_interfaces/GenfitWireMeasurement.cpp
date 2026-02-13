@@ -167,27 +167,27 @@ namespace GenfitInterface {
         // Create the genfit::WirePointMeasurement
         m_genfitHit = new genfit::WirePointMeasurement(rawHitCoords, rawHitCov, det_idx, hit_idx, nullptr);
 
-        // if (debug_lvl > 0) {
+        if (debug_lvl > 0) {
 
-        //     std::cout << "Wire measurement settings:" << std::endl;
-        //     std::cout << "Position along the wire [cm]: " << position.X() << " " << position.Y() << " " << position.Z() << std::endl;
-        //     std::cout << "Position along the wire error [cm]: " << positionAlongWireError << std::endl;
-        //     std::cout << "Distance to the wire [cm]: " << distanceToWire << std::endl;
-        //     std::cout << "Distance to the wire error [cm]: " << distanceToWireError << std::endl;
+            std::cout << "Wire measurement settings:" << std::endl;
+            std::cout << "Position along the wire [cm]: " << position.X() << " " << position.Y() << " " << position.Z() << std::endl;
+            std::cout << "Position along the wire error [cm]: " << positionAlongWireError << std::endl;
+            std::cout << "Distance to the wire [cm]: " << distanceToWire << std::endl;
+            std::cout << "Distance to the wire error [cm]: " << distanceToWireError << std::endl;
 
-        //     std::cout << "rawHitCoords = [ ";
-        //     for (int i = 0; i < rawHitCoords.GetNrows(); ++i) {
-        //         std::cout << rawHitCoords[i] << " ,";
-        //     }
-        //     std::cout << "]" << std::endl;    
-        //     std::cout << "Wire position error [cm]: " << sigma_wire << std::endl;
-        //     std::cout << "Drift distance error [cm]: " << Rdrift_sigma << std::endl;
-        //     std::cout << "Zreco error [cm]: " << zreco_sigma << std::endl;
+            std::cout << "rawHitCoords = [ ";
+            for (int i = 0; i < rawHitCoords.GetNrows(); ++i) {
+                std::cout << rawHitCoords[i] << " ,";
+            }
+            std::cout << "]" << std::endl;    
+            std::cout << "Wire position error [cm]: " << sigma_wire << std::endl;
+            std::cout << "Drift distance error [cm]: " << Rdrift_sigma << std::endl;
+            std::cout << "Zreco error [cm]: " << zreco_sigma << std::endl;
 
-        //     std::cout << "detID: " << det_idx << std::endl;
-        //     std::cout << "hitID: " << hit_idx << std::endl;
-        //     std::cout << "" << std::endl;
-        // }
+            std::cout << "detID: " << det_idx << std::endl;
+            std::cout << "hitID: " << hit_idx << std::endl;
+            std::cout << "" << std::endl;
+        }
 
 
 
