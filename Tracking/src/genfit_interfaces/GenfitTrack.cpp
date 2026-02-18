@@ -769,15 +769,7 @@ namespace GenfitInterface {
             m_genfitFitter->setConvergenceDeltaWeight(1e-2); 
 
             int debug_lvl_fit = 0;
-            if (debug_lvl > 1)
-            {
-                debug_lvl_fit = 2;
-            }
-            else if (debug_lvl == 1)
-            {
-                debug_lvl_fit = 1;
-            }
-
+            if (debug_lvl > 2) debug_lvl_fit = 1;
             m_genfitFitter->setDebugLvl(debug_lvl_fit);
 
             // Process track
@@ -861,7 +853,7 @@ namespace GenfitInterface {
                 trackStateFirstHit.referencePoint = edm4hep::Vector3f(x0_PCA / dd4hep::mm, y0_PCA / dd4hep::mm, z0_PCA / dd4hep::mm);
                 trackStateFirstHit.location = edm4hep::TrackState::AtFirstHit;
 
-                if (debug_lvl_fit > 0)
+                if (debug_lvl > 0)
                 {
                     std::cout << "GenfitTrackFitter    DEBUG : TrackState at First Hit: " << std::endl;
                     std::cout << "  D0: " << trackStateFirstHit.D0 << " mm" << std::endl;
@@ -906,7 +898,7 @@ namespace GenfitInterface {
                 trackStateLastHit.referencePoint = edm4hep::Vector3f(x0_PCA / dd4hep::mm, y0_PCA / dd4hep::mm, z0_PCA / dd4hep::mm);
                 trackStateLastHit.location = edm4hep::TrackState::AtLastHit;
                 
-                if (debug_lvl_fit > 0)
+                if (debug_lvl > 0)
                 {
                     std::cout << "GenfitTrackFitter    DEBUG : TrackState at Last Hit: " << std::endl;
                     std::cout << "  D0: " << trackStateLastHit.D0 << " mm" << std::endl;
@@ -970,7 +962,7 @@ namespace GenfitInterface {
                     trackStateIP.referencePoint = edm4hep::Vector3f(x0_PCA / dd4hep::mm, y0_PCA / dd4hep::mm, z0_PCA / dd4hep::mm);
                     trackStateIP.location = edm4hep::TrackState::AtIP;
 
-                    if (debug_lvl_fit > 0)
+                    if (debug_lvl > 0)
                     {
                         std::cout << "GenfitTrackFitter    DEBUG : TrackState at IP: " << std::endl;
                         std::cout << "  D0: " << trackStateIP.D0 << " mm" << std::endl;

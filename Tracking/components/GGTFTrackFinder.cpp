@@ -20,11 +20,11 @@
 // Standard Library
 #include <algorithm>
 #include <cmath>
-#include <cstdlib>    // For getenv
-#include <filesystem> // For std::filesystem::path
-#include <fstream>    // For std::ifstream
+#include <cstdlib>    
+#include <filesystem>
+#include <fstream>    
 #include <iostream>
-#include <iterator> // For std::istreambuf_iterator
+#include <iterator>
 #include <map>
 #include <memory>
 #include <numeric>
@@ -44,24 +44,23 @@
 // ROOT
 #include "TVector3.h"
 
-// === Gaudi Framework ===
+// Gaudi
 #include "Gaudi/Algorithm.h"
 #include "Gaudi/Property.h"
 
-// === k4FWCore / k4Interface ===
+// k4FWCore / k4Interface
 #include "k4FWCore/DataHandle.h"
 #include "k4FWCore/Transformer.h"
 #include "k4Interface/IGeoSvc.h"
 #include "k4Interface/IUniqueIDGenSvc.h"
 
-// === EDM4HEP & PODIO ===
+// EDM4HEP
 #include "edm4hep/MCParticleCollection.h"
 #include "edm4hep/SimTrackerHitCollection.h"
 #include "edm4hep/TrackCollection.h"
 #include "edm4hep/SenseWireHitCollection.h"
 #include "edm4hep/TrackerHitPlaneCollection.h"
 
-// === Project-specific ===
 #include "utils.h"
 
 /** @struct GGTFTrackFinder
@@ -123,8 +122,7 @@ struct GGTFTrackFinder final : k4FWCore::MultiTransformer<std::tuple<edm4hep::Tr
     // Disable all graph optimizations to keep the model execution as close to the original as possible.
     m_fSessionOptions.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_DISABLE_ALL);
 
-    // Create an ONNX inference session using the configured environment and session options.
-    // The session is used to load the model specified by the `modelPath`.
+    // Create an ONNX inference session to load the model specified by the `modelPath`.
     auto sessionLocal = std::make_unique<Ort::Session>(*m_fEnv, m_modelPath.value().c_str(), m_fSessionOptions);
     m_fSession = std::move(sessionLocal);
 
@@ -137,7 +135,6 @@ struct GGTFTrackFinder final : k4FWCore::MultiTransformer<std::tuple<edm4hep::Tr
     const auto inputNames = m_fSession->GetInputNameAllocated(i, allocator).release();
     const auto outputNames = m_fSession->GetOutputNameAllocated(i, allocator).release();
 
-    // Store the retrieved input and output names in the respective vectors.
     m_fInames.push_back(inputNames);
     m_fOnames.push_back(outputNames);
 
@@ -181,7 +178,6 @@ struct GGTFTrackFinder final : k4FWCore::MultiTransformer<std::tuple<edm4hep::Tr
         listGlobalInputs.push_back(0.0);
         listGlobalInputs.push_back(0.0);
 
-        // Store the current index in listHitTypePlanar and increment the global iterator.
         listHitTypePlanar.push_back(globalHitIndex);
 
         listPlanarHitIndices.push_back(planarHitCollectionIndex);
@@ -257,7 +253,6 @@ struct GGTFTrackFinder final : k4FWCore::MultiTransformer<std::tuple<edm4hep::Tr
         listGlobalInputs.push_back(rightGlobalPos.Y() - leftGlobalPos.Y());
         listGlobalInputs.push_back(rightGlobalPos.Z() - leftGlobalPos.Z());
 
-        // Store the current index in listHitTypeWire and increment the global iterator.
         listHitTypeWire.push_back(globalHitIndex);
 
         listWireHitIndices.push_back(wireHitCollectionIndex);
@@ -339,7 +334,7 @@ struct GGTFTrackFinder final : k4FWCore::MultiTransformer<std::tuple<edm4hep::Tr
 
         // Create a new track in the output collection and set its type to the current track ID
         auto outputTrack = outputTracks.create();
-        outputTrack.setType(idTrack.item<int>());
+        outputTrack.setType(1);
 
         // Create a mask to select all hits belonging to the current track
         torch::Tensor mask = (clusteringIndeces == idTrack);

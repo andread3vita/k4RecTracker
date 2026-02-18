@@ -140,6 +140,18 @@
  *
 */
 
+/*
+* Debug levels:
+* - 0 no debug
+* - 1 show trackStates
+* - 2 show measurements and trackStates
+* - 3 show measurements, trackStates and debugLevel=1 fitter
+* - 4 show measurements, trackStates, debugLevel=1 fitter and materialEffects = 1
+
+
+
+*/
+
 struct Point3D {
     double x;
     double y;
@@ -159,11 +171,7 @@ std::vector<Point3D> preparePoints(const edm4hep::Track& track, int dir = 1)
 {
     const auto hits = track.getTrackerHits();
 
-    auto [distIndex, firstHit] = orderHits(track, dir);
-
-    const auto firstX = firstHit.X();
-    const auto firstY = firstHit.Y();
-    const auto firstZ = firstHit.Z();
+    auto [distIndex, _] = orderHits(track, dir);
 
     // Build (z, y) points in track order
     std::vector<Point3D> xyzPoints;
@@ -184,44 +192,43 @@ int findFirstExtremum(const std::vector<Point3D>& points,
                       int smoothWindow = 5)
 {
     int n = points.size();
-    if (n < smoothWindow || n < 3) return -1; // not enough points
+    if (n < smoothWindow || n < 3) return -1;
 
     int W = smoothWindow / 2;
 
-    // Compute smoothed y-values
-    std::vector<double> ys(n, 0.0);
-    for (int i = 0; i < n; ++i) {
-        double sum = 0.0;
-        int count = 0;
-        for (int k = -W; k <= W; ++k) {
-            int j = i + k;
-            if (j >= 0 && j < n) {
-                sum += points[j].y;
-                count++;
-            }
-        }
-        ys[i] = sum / count;
-    }
-
-    // Compute approximate derivative along x
     std::vector<double> d(n, 0.0);
-    for (int i = 1; i < n - 1; ++i) {
-        double dz = points[i+1].z - points[i-1].z;
-        if (dz != 0.0) {
-            d[i] = (ys[i+1] - ys[i-1]) / dz;
+
+    for (int i = 0; i < n; ++i) {
+        int left  = std::max(0, i - W);
+        int right = std::min(n, i + W + 1);
+        int count = right - left;
+
+        if (count < 2) continue;
+
+        Eigen::VectorXd z_local(count);
+        Eigen::VectorXd y_local(count);
+        for (int j = left; j < right; ++j) {
+            z_local(j - left) = points[j].z;
+            y_local(j - left) = points[j].y;
         }
+
+        Eigen::MatrixXd A(count, 2);
+        A.col(0) = z_local;
+        A.col(1) = Eigen::VectorXd::Ones(count);
+
+        Eigen::Vector2d coef = A.colPivHouseholderQr().solve(y_local);
+        d[i] = coef[0];  
     }
 
-    // Find first zero-crossing of derivative above threshold
     for (int i = 1; i < n - 1; ++i) {
-        if ((d[i-1] >  epsilon && d[i] < -epsilon) ||  // local max
-            (d[i-1] < -epsilon && d[i] >  epsilon))    // local min
+        if ((d[i-1] >  epsilon && d[i] < -epsilon) ||  
+            (d[i-1] < -epsilon && d[i] >  epsilon))    
         {
             return i;
         }
     }
 
-    return -1; // no extremum found
+    return -1;
 }
 
 TrackInitialState inizialize_seed(std::vector<Point3D> points_raw, int maxHit = 50, double B = 2.0)
@@ -378,9 +385,9 @@ struct GenfitTrackFitter final :
         genfit::MaterialEffects::getInstance()->setNoiseBrems(false);   
 
         int debug_lvl_material = 0;
-        if (m_debug_lvl > 2)
+        if (m_debug_lvl >= 4)
         {
-            debug_lvl_material = 2;
+            debug_lvl_material = 1;
         }
         genfit::MaterialEffects::getInstance()->setDebugLvl(debug_lvl_material);         
 
@@ -454,11 +461,6 @@ struct GenfitTrackFitter final :
         edm4hep::TrackCollection FittedTracks;
 
         info() << "Event number: " << event_counter++ << endmsg;
-        // if (event_counter < 1000 || event_counter > 2000)
-        // {
-        //     // info() << "Skipping event " << event_counter << endmsg;
-        //     return std::make_tuple( std::move(FittedTracks));
-        // }
 
         // Loop over the tracks created by the pattern recognition step
         for (const auto& track : tracks_input)
@@ -466,36 +468,34 @@ struct GenfitTrackFitter final :
 
             num_tracks  +=1;
 
+            // if (num_tracks != 19)
+            // {
+            //     continue;
+            // }
+
             // Skip background tracks if the option is enabled
             // Consider background tracks those with type = 0
             if (m_skip_background && track.getType() == 0) 
             {
                 num_skip += 1;
-                warning() << "Track " << num_tracks - 1<< ": background track (type = 0), skipping fit.\n" << endmsg;
+                // warning() << "Track " << num_tracks - 1 << ": background track (type = 0), skipping fit.\n" << endmsg;
                 continue;        // skip background        
             } 
             
             if (track.getTrackerHits().size() <= 3) 
             {   
                 num_skip += 1;
-                warning() << "Track " << num_tracks - 1 << ": less than 3 hits, skipping fit.\n" << endmsg;
+                // warning() << "Track " << num_tracks - 1 << ": less than 3 hits, skipping fit.\n" << endmsg;
                 continue;        // skip empty tracks and tracks with less then 3 hits (seed initialization needs 3 hits)
             }
 
-            // Prepare the points for the extremum finding
+            num_processed_tracks += 1;
+
+            // Prepare the points and set maxHit
             auto xyzPoints = preparePoints(track, 1);
 
-            // int maxHitForLoopers = findFirstExtremum(xyzPoints, 0.01);
-            int maxHitForLoopers = -1;
-            if (maxHitForLoopers < 0) maxHitForLoopers = track.getTrackerHits().size();
-
-            TrackInitialState init_seed_temp = inizialize_seed(xyzPoints, maxHitForLoopers);
-            TVector3 init_mom_temp = init_seed_temp.init_mom;   // GeV/c
-
-            if (init_mom_temp.Perp() > 1)
-            {
-                maxHitForLoopers = track.getTrackerHits().size();
-            }
+            // First fit with all the hits
+            int maxHitForLoopers = track.getTrackerHits().size();
 
             // Compute seed for initial position and inizial momentum
             TrackInitialState init_seed = inizialize_seed(xyzPoints, maxHitForLoopers);
@@ -512,7 +512,7 @@ struct GenfitTrackFitter final :
             // Summary
             if (m_debug_lvl > 0)
             {
-                debug() << "Track " << num_tracks - 1 << ": initial seed for track fit:" << endmsg;
+                debug() << "Track " << num_tracks - 1 << " with " << track.getTrackerHits().size()<< " hits: initial seed for track fit:" << endmsg;
                 debug() << "  Initial position [mm]: (" << init_pos.x() << ", " << init_pos.y() << ", " << init_pos.z() << ")" << endmsg;
                 debug() << "  Initial momentum [GeV/c]: (" << init_mom.x() << ", " << init_mom.y() << ", " << init_mom.z() << ")" << endmsg;
                 debug() << "  Charge hypothesis: " << init_seed.charge << endmsg;
@@ -520,12 +520,11 @@ struct GenfitTrackFitter final :
                 debug() << "\n" << endmsg;
             }
 
-            num_processed_tracks += 1;
-
+            int isSuccess = 0;
             if (m_singleEvaluation)
             {
-                int pdgCode = m_particleHypotesis[0];
 
+                int pdgCode = m_particleHypotesis[0];
                 int pdg_with_charge = pdgCode;
                 int charge = 0;
                 if (pdgCode == 11 || pdgCode == 13)
@@ -544,8 +543,10 @@ struct GenfitTrackFitter final :
                                                                                                 m_dch_info, m_dc_decoder, 
                                                                                                 maxHitForLoopers, 
                                                                                                 init_pos_cm, init_mom_gev); 
+                int debug_track = 0;
+                if (m_debug_lvl > 1) debug_track = 1;
+                track_interface.createGenFitTrack(true, debug_track);
                 
-                track_interface.createGenFitTrack(true, m_debug_lvl);
                 bool isFit = track_interface.fit(charge, m_Beta_init, m_Beta_final, m_Beta_steps, m_Bz, m_debug_lvl);     
                 
                 if (isFit)
@@ -556,7 +557,8 @@ struct GenfitTrackFitter final :
                     FillTrackWithCalorimeterExtrapolation(  edm4hep_track, m_Bz, charge, 
                                                             m_eCalBarrelInnerR, m_eCalBarrelMaxZ, m_eCalEndCapInnerR, m_eCalEndCapOuterR, m_eCalEndCapInnerZ);
                     
-                                                            
+                    isSuccess = 1;
+
                     if (m_debug_lvl > 0)
                     {   
                         auto trackStates = edm4hep_track.getTrackStates();
@@ -589,13 +591,7 @@ struct GenfitTrackFitter final :
                 else
                 {
 
-                    debug() << "Track " << num_tracks - 1 << ": fit failed for single evaluation hypothesis, skipping track." << endmsg;
-                    number_failures += 1;
-
-                    auto failedTrack = FittedTracks.create();
-                    failedTrack.setChi2(-1);
-                    failedTrack.setNdf(-1);
-                    continue;
+                    debug() << "Track " << num_tracks - 1 << " with maxHitForLoopers=" << maxHitForLoopers << ": fit failed for single evaluation hypothesis, trying with less hits." << endmsg;
                 }
 
             }
@@ -652,12 +648,8 @@ struct GenfitTrackFitter final :
                 
                 if (winning_hypothesis == -1)
                 {
-                    debug() << "Track " << num_tracks - 1 << ": fit failed for all hypotheses, skipping track." << endmsg;
-                    number_failures += 1;
+                    debug() << "Track " << num_tracks - 1 << " with maxHitForLoopers=" << maxHitForLoopers << ": fit failed for all hypotheses, trying with less hits." << endmsg;
 
-                    auto failedTrack = FittedTracks.create();
-                    failedTrack.setChi2(-1);
-                    failedTrack.setNdf(-1);
                 }
                 else
                 {
@@ -684,16 +676,20 @@ struct GenfitTrackFitter final :
                                                                                                     maxHitForLoopers, 
                                                                                                     init_pos_cm, init_mom_gev); 
 
-                    track_interface.createGenFitTrack(true, m_debug_lvl);
+                    int debug_track = 0;
+                    if (m_debug_lvl > 1) debug_track = 1;
+                    track_interface.createGenFitTrack(true, debug_track);
+
                     bool _ = track_interface.fit(charge, m_Beta_init, m_Beta_final, m_Beta_steps, m_Bz, m_debug_lvl); 
-                    
+                        
                     auto edm4hep_track = track_interface.getTrack_edm4hep();
 
                     // Propagate to calorimeter and store the state at calorimeter
                     FillTrackWithCalorimeterExtrapolation(  edm4hep_track, m_Bz, charge, 
                                                             m_eCalBarrelInnerR, m_eCalBarrelMaxZ, m_eCalEndCapInnerR, m_eCalEndCapOuterR, m_eCalEndCapInnerZ);
-
-                    if (m_debug_lvl > 1)
+                    
+                    isSuccess = 1;
+                    if (m_debug_lvl > 0)
                     {   
                         auto trackStates = edm4hep_track.getTrackStates();
                         edm4hep::TrackState trackStateCalo;
@@ -722,10 +718,253 @@ struct GenfitTrackFitter final :
                     FittedTracks.push_back(edm4hep_track);
 
                 }
+            
             }
+
+
+            if (isSuccess == 0)
+            {
+
+                maxHitForLoopers = findFirstExtremum(xyzPoints); // default: 0.05, 5
+
+                // Compute seed for initial position and inizial momentum
+                init_seed = inizialize_seed(xyzPoints, maxHitForLoopers);
+                init_pos = init_seed.init_pos;             // mm
+                init_mom = init_seed.init_mom;             // GeV/c
+
+                init_pos_cm = TVector3(
+                    init_seed.init_pos.X() * 0.1,
+                    init_seed.init_pos.Y() * 0.1,
+                    init_seed.init_pos.Z() * 0.1
+                ); // cm
+                init_mom_gev = init_seed.init_mom;         // GeV/c
+
+                // Summary
+                if (m_debug_lvl > 0)
+                {
+                    debug() << "Track " << num_tracks - 1 << " with " << track.getTrackerHits().size()<< " hits: initial seed for track fit:" << endmsg;
+                    debug() << "  Initial position [mm]: (" << init_pos.x() << ", " << init_pos.y() << ", " << init_pos.z() << ")" << endmsg;
+                    debug() << "  Initial momentum [GeV/c]: (" << init_mom.x() << ", " << init_mom.y() << ", " << init_mom.z() << ")" << endmsg;
+                    debug() << "  Charge hypothesis: " << init_seed.charge << endmsg;
+                    debug() << "  Max hit for loopers: " << maxHitForLoopers << endmsg;
+                    debug() << "\n" << endmsg;
+                }
+
+                if (m_singleEvaluation)
+                {
+
+                    int pdgCode = m_particleHypotesis[0];
+                    int pdg_with_charge = pdgCode;
+                    int charge = 0;
+                    if (pdgCode == 11 || pdgCode == 13)
+                    {
+                        pdg_with_charge = - init_seed.charge * pdgCode;
+                        charge = - init_seed.charge;
+                    }
+                    else
+                    {   
+                        pdg_with_charge = init_seed.charge * pdgCode;
+                        charge = init_seed.charge;
+                    }   
+
+                    GenfitInterface::GenfitTrack track_interface = GenfitInterface::GenfitTrack(    track, 1,
+                                                                                                    pdg_with_charge, 
+                                                                                                    m_dch_info, m_dc_decoder, 
+                                                                                                    maxHitForLoopers, 
+                                                                                                    init_pos_cm, init_mom_gev); 
+                    
+                    int debug_track = 0;
+                    if (m_debug_lvl > 1) debug_track = 1;
+                    track_interface.createGenFitTrack(true, debug_track);
+
+                    bool isFit = track_interface.fit(charge, m_Beta_init, m_Beta_final, m_Beta_steps, m_Bz, m_debug_lvl); 
+                        
+                    if (isFit)
+                    {
+                        auto edm4hep_track = track_interface.getTrack_edm4hep();
+
+                        // Propagate to calorimeter and store the state at calorimeter
+                        FillTrackWithCalorimeterExtrapolation(  edm4hep_track, m_Bz, charge, 
+                                                                m_eCalBarrelInnerR, m_eCalBarrelMaxZ, m_eCalEndCapInnerR, m_eCalEndCapOuterR, m_eCalEndCapInnerZ);
+                        
+                        isSuccess = 1;
+
+                        if (m_debug_lvl > 0)
+                        {   
+                            auto trackStates = edm4hep_track.getTrackStates();
+                            edm4hep::TrackState trackStateCalo;
+                            for (const auto& ts : trackStates)
+                            {
+                                if (ts.location == edm4hep::TrackState::AtCalorimeter)
+                                {
+                                    trackStateCalo = ts;
+                                    break;
+                                }
+                            }
+
+                            std::cout << "GenfitTrackFitter    DEBUG : TrackState at Calo: " << std::endl;
+                            std::cout << "  D0: " << trackStateCalo.D0 << " mm" << std::endl;
+                            std::cout << "  Z0: " << trackStateCalo.Z0 << " mm" << std::endl;
+                            std::cout << "  phi: " << trackStateCalo.phi << " rad" << std::endl;
+                            std::cout << "  omega: " << trackStateCalo.omega << " a.u." << std::endl;
+                            std::cout << "  tanLambda: " << trackStateCalo.tanLambda << std::endl;
+                            std::cout << "  location: " << trackStateCalo.location << std::endl;
+                            std::cout << "  reference point: (" << trackStateCalo.referencePoint.x << ", " << trackStateCalo.referencePoint.y << ", " << trackStateCalo.referencePoint.z << ") mm" << std::endl;
+                            
+                        }
+
+                        // Add the fitted track to the output collection
+                        edm4hep_track.setType(pdg_with_charge);
+                        FittedTracks.push_back(edm4hep_track);
+
+                    }
+                    else
+                    {
+
+                        debug() << "Track " << num_tracks - 1 << " with maxHitForLoopers=" << maxHitForLoopers << ": fit failed for single evaluation hypothesis, skipping track." << endmsg;
+                        auto failedTrack = FittedTracks.create();
+                        failedTrack.setChi2(-1);
+                        failedTrack.setNdf(-1);
+                        continue;
+                    }
+
+                }
+                else
+                {
+
+                    int winning_hypothesis = -1; double winning_chi2_ndf = std::numeric_limits<double>::max();
+                    for (int pdgCode : m_particleHypotesis)
+                    {
+
+                        //Create trackInterface, initialize genfit track and fit it
+                        int pdg_with_charge = pdgCode;
+                        int charge = 0;
+                        if (pdgCode == 11 || pdgCode == 13)
+                        {
+                            pdg_with_charge = - init_seed.charge * pdgCode;
+                            charge = - init_seed.charge;
+                        }
+                        else
+                        {   
+                            pdg_with_charge = init_seed.charge * pdgCode;
+                            charge = init_seed.charge;
+                        }
+
+                        GenfitInterface::GenfitTrack track_interface = GenfitInterface::GenfitTrack(    track, 1,
+                                                                                                        pdg_with_charge, 
+                                                                                                        m_dch_info, m_dc_decoder, 
+                                                                                                        maxHitForLoopers, 
+                                                                                                        init_pos_cm, init_mom_gev); 
+
+                        track_interface.createGenFitTrack(true, 0);
+                        bool isFit = track_interface.fit(charge, m_Beta_init, m_Beta_final, m_Beta_steps, m_Bz, 0); 
+                        
+                        if (isFit)
+                        {
+
+                            auto edm4hep_track = track_interface.getTrack_edm4hep();
+                            float genfit_chi2_val = edm4hep_track.getChi2();
+                            int genfit_ndf_val = edm4hep_track.getNdf();
+
+                            if (genfit_chi2_val <= 0 || genfit_ndf_val <= 0)  continue; // skip invalid fits
+                            
+                            double chi2_ndf = genfit_chi2_val / genfit_ndf_val;
+                            if (chi2_ndf < winning_chi2_ndf)
+                            {
+                                winning_chi2_ndf = chi2_ndf;
+                                winning_hypothesis = pdgCode;
+                            }
+                        
+                        }
+
+                    }   
+                    
+                    if (winning_hypothesis == -1)
+                    {
+                        debug() << "Track " << num_tracks - 1 << " with maxHitForLoopers=" << maxHitForLoopers << ": fit failed for all hypotheses, skipping track." << endmsg;
+
+                        auto failedTrack = FittedTracks.create();
+                        failedTrack.setChi2(-1);
+                        failedTrack.setNdf(-1);
+                        continue;
+                    }
+                    else
+                    {
+
+                        debug() << "Track " << num_tracks - 1 << ": winning hypothesis is " << winning_hypothesis << " with chi2 / ndf = " << winning_chi2_ndf << endmsg;
+
+                        // Create trackInterface, initialize genfit track and fit it
+                        int pdg_with_charge = winning_hypothesis;
+                        int charge = 0;
+                        if (winning_hypothesis == 11 || winning_hypothesis == 13)
+                        {
+                            pdg_with_charge = - init_seed.charge * winning_hypothesis;
+                            charge = - init_seed.charge;
+                        }
+                        else
+                        {   
+                            pdg_with_charge = init_seed.charge * winning_hypothesis;
+                            charge = init_seed.charge;
+                        }
+
+                        GenfitInterface::GenfitTrack track_interface = GenfitInterface::GenfitTrack(    track, 1,
+                                                                                                        pdg_with_charge, 
+                                                                                                        m_dch_info, m_dc_decoder, 
+                                                                                                        maxHitForLoopers, 
+                                                                                                        init_pos_cm, init_mom_gev); 
+
+                        int debug_track = 0;
+                        if (m_debug_lvl > 1) debug_track = 1;
+                        track_interface.createGenFitTrack(true, debug_track);
+                        
+                        bool _ = track_interface.fit(charge, m_Beta_init, m_Beta_final, m_Beta_steps, m_Bz, m_debug_lvl); 
+                                
+                        auto edm4hep_track = track_interface.getTrack_edm4hep();
+
+                        // Propagate to calorimeter and store the state at calorimeter
+                        FillTrackWithCalorimeterExtrapolation(  edm4hep_track, m_Bz, charge, 
+                                                                m_eCalBarrelInnerR, m_eCalBarrelMaxZ, m_eCalEndCapInnerR, m_eCalEndCapOuterR, m_eCalEndCapInnerZ);
+                        
+                        isSuccess = 1;
+                        if (m_debug_lvl > 0)
+                        {   
+                            auto trackStates = edm4hep_track.getTrackStates();
+                            edm4hep::TrackState trackStateCalo;
+                            for (const auto& ts : trackStates)
+                            {
+                                if (ts.location == edm4hep::TrackState::AtCalorimeter)
+                                {
+                                    trackStateCalo = ts;
+                                    break;
+                                }
+                            }
+
+                            std::cout << "GenfitTrackFitter    DEBUG : TrackState at Calo: " << std::endl;
+                            std::cout << "  D0: " << trackStateCalo.D0 << " mm" << std::endl;
+                            std::cout << "  Z0: " << trackStateCalo.Z0 << " mm" << std::endl;
+                            std::cout << "  phi: " << trackStateCalo.phi << " rad" << std::endl;
+                            std::cout << "  omega: " << trackStateCalo.omega << " a.u." << std::endl;
+                            std::cout << "  tanLambda: " << trackStateCalo.tanLambda << std::endl;
+                            std::cout << "  location: " << trackStateCalo.location << std::endl;
+                            std::cout << "  reference point: (" << trackStateCalo.referencePoint.x << ", " << trackStateCalo.referencePoint.y << ", " << trackStateCalo.referencePoint.z << ") mm" << std::endl;
+                                
+                        }
+                        
+                        // Add the fitted track to the output collection
+                        edm4hep_track.setType(winning_hypothesis);
+                        FittedTracks.push_back(edm4hep_track);
+
+                    }
+                
+                }
+
+
+
+
+            }
+
         }
 
-        
         return std::make_tuple( std::move(FittedTracks));
         
     } 
@@ -737,24 +976,6 @@ struct GenfitTrackFitter final :
         info() << "Number of successes: " << (num_processed_tracks - number_failures) <<  "/" << num_processed_tracks << endmsg;
         info() << "Number of skipped tracks: " << num_skip << "/" << num_tracks << endmsg;
         info() << "----------------\n" << endmsg;
-
-        // std::string filename = "/afs/cern.ch/work/a/adevita/public/workDir/testFolder/output_preparePoints_track_" + std::to_string(num_tracks) + "_forward.txt";
-        // std::ofstream out(filename);
-        // if (!out) {
-        //     std::cerr << "Error opening file: " << filename << std::endl;
-        // }
-
-        // if (!out) {
-        //     throw std::runtime_error("Cannot open output file");
-        // }
-
-        // // One point per line: z y
-        // for (const auto& p : zy_pos) {
-        //     out << p.z << " " << p.y << '\n';
-        // }
-        // out.close();
-
-
 
         return StatusCode::SUCCESS;
 
@@ -769,8 +990,6 @@ struct GenfitTrackFitter final :
         mutable int num_skip = 0;               // Number of skipped tracks
         mutable int num_processed_tracks = 0;   // Number of tracks that have been processed (not skipped)
         mutable int number_failures = 0;        // Number of failed fits
-
-        // mutable std::vector<Point2D_zy> zy_pos;
 
 
     private:
