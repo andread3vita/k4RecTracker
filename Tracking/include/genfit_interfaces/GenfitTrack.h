@@ -97,7 +97,9 @@ namespace GenfitInterface {
         genfit::Track* GetTrack_genfit() { return m_genfitTrack; }
         genfit::AbsTrackRep* GetRep_genfit() { return m_genfitTrackRep; }
         edm4hep::MutableTrack& GetTrack_edm4hep() { return m_edm4hepTrack; }
+        edm4hep::MutableTrack& GetTrackWithFit_edm4hep() { return m_trackWithFit; }
         int GetCharge() {return m_charge_hypothesis;}
+        
         void PrintTrack_init() { 
 
             std::cout << "GENFIT Initial position: (" << m_posInit.X() << ", " << m_posInit.Y() << ", " << m_posInit.Z() << ")" << std::endl;
@@ -158,6 +160,7 @@ namespace GenfitInterface {
         genfit::AbsTrackRep* m_genfitTrackRep;    
         genfit::Track* m_genfitTrack;
         edm4hep::MutableTrack m_edm4hepTrack;  
+        edm4hep::MutableTrack m_trackWithFit;
 
         TVector3 m_VP_referencePoint{0., 0., 0.};
 

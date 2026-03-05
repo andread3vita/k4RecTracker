@@ -691,7 +691,59 @@ namespace GenfitInterface {
             if (m_genfitFitter->isTrackFitted(&genfitTrack, trackRep))
             {
 
-            
+                
+                edm4hep::TrackerHitPlaneCollection trackHitCollection;
+                int numPoints = genfitTrack.getNumPoints();
+                for (int idx = 0; idx < numPoints; idx++)
+                {
+
+                    auto point_track = genfitTrack.getPoint(idx);
+                    auto fitterInfo = point_track->getFitterInfo(trackRep);
+                    genfit::KalmanFitterInfo* kfi = static_cast<genfit::KalmanFitterInfo*>(fitterInfo);
+                                                    
+                    unsigned int nMeas = kfi->getNumMeasurements();
+                    bool isAccepted = false;
+                    for(unsigned int j=0; j<nMeas; j++) {
+                                        
+                        genfit::MeasurementOnPlane *mop = kfi->getMeasurementOnPlane(j);
+
+                        double weight = mop->getWeight();
+                        if (weight > 1e-5) 
+                        {
+                            isAccepted = true;
+                            break;
+                        }
+
+                    }
+                                
+                    if (isAccepted) 
+                    {
+                        
+                        genfit::StateOnPlane state = kfi->getFittedState();
+                        genfit::MeasuredStateOnPlane measState = kfi->getFittedState();
+
+                        TVector3 pos = state.getPos();
+
+                        auto planeMeas = state.getPlane();
+                        auto U = planeMeas->getU();
+                        auto V = planeMeas->getV();
+                        auto O = planeMeas->getO();
+
+                        TVector3 measPos = measState.getPos();
+                        auto covMatrix = measState.getCov();
+
+                        covMatrix.Print();
+
+                        auto hit3D = trackHitCollection.create();
+                        hit3D.setPosition(edm4hep::Vector3d(pos.X(), pos.Y(), pos.Z()));
+                        m_trackWithFit.addToTrackerHits(hit3D);
+
+                    
+                    }
+                
+                }
+                            
+
                 // trackState First Hit
                 fittedState = genfitTrack.getFittedState();
                 fittedState.getPosMomCov(gen_position, gen_momentum, covariancePosMom);
@@ -851,6 +903,10 @@ namespace GenfitInterface {
                     m_edm4hepTrack.addToTrackStates(trackStateIP);
                     m_edm4hepTrack.addToTrackStates(trackStateFirstHit);
                     m_edm4hepTrack.addToTrackStates(trackStateLastHit);
+
+                    m_trackWithFit.addToTrackStates(trackStateIP);
+                    m_trackWithFit.addToTrackStates(trackStateFirstHit);
+                    m_trackWithFit.addToTrackStates(trackStateLastHit);
                     
                 }catch(...){
 
@@ -863,12 +919,19 @@ namespace GenfitInterface {
                     m_edm4hepTrack.setChi2(genfitTrack.getFitStatus()->getChi2());
                     m_edm4hepTrack.setNdf(genfitTrack.getFitStatus()->getNdf());
 
+                    m_trackWithFit.setChi2(genfitTrack.getFitStatus()->getChi2());
+                    m_trackWithFit.setNdf(genfitTrack.getFitStatus()->getNdf());
+
                 }
                 else
                 {
 
                     m_edm4hepTrack.setChi2(-1);
                     m_edm4hepTrack.setNdf(-1);
+
+                    m_trackWithFit.setChi2(-1);
+                    m_trackWithFit.setNdf(-1);
+
                     return false;
 
                 }
@@ -879,6 +942,10 @@ namespace GenfitInterface {
 
                 m_edm4hepTrack.setChi2(-1);
                 m_edm4hepTrack.setNdf(-1);
+
+                m_trackWithFit.setChi2(-1);
+                m_trackWithFit.setNdf(-1);
+
                 return false;
 
             }
@@ -1147,9 +1214,9 @@ namespace GenfitInterface {
 
         double angleToX = std::atan2(tangent.Y(), tangent.X());
 
-        double pR   = momentum.Perp();   
-        double pZ   = momentum.Z();     
-        double R0 = position.Perp();    
+        double pR = pt;
+        double pZ = momentum.Z();     
+        double R0 = closestPoint.Perp(); 
         double Z0 = position.Z();
 
         double tPCA = -(R0*pR + Z0*pZ)/(pR*pR + pZ*pZ);

@@ -144,7 +144,7 @@
 */
 
 struct GenfitTrackFitter final : 
-        k4FWCore::MultiTransformer< std::tuple< edm4hep::TrackCollection>(const edm4hep::TrackCollection&)>                                                                         
+        k4FWCore::MultiTransformer< std::tuple< edm4hep::TrackCollection, edm4hep::TrackCollection>(const edm4hep::TrackCollection&)>                                                                         
 {
     GenfitTrackFitter(const std::string& name, ISvcLocator* svcLoc) : 
         MultiTransformer ( name, svcLoc,
@@ -155,7 +155,8 @@ struct GenfitTrackFitter final :
             },
             {   
 
-                KeyValues("OutputFittedTracks", {"Fitted_tracks"})
+                KeyValues("OutputFittedTracks", {"Fitted_tracks"}),
+                KeyValues("OutputFittedTracksWithFilteredHits", {"Fitted_tracks_with_filtered_hits"})
 
             }) {}
     
@@ -253,11 +254,12 @@ struct GenfitTrackFitter final :
 
     }
     
-    std::tuple<edm4hep::TrackCollection> operator()( const edm4hep::TrackCollection& tracks_input) const override                                                 
+    std::tuple<edm4hep::TrackCollection, edm4hep::TrackCollection> operator()( const edm4hep::TrackCollection& tracks_input) const override                                                 
     {
         
         // This collection stores the output of the fit
         edm4hep::TrackCollection FittedTracks;
+        edm4hep::TrackCollection FittedTracksWithFilteredHits;
 
         info() << "Event number: " << event_counter++ << endmsg;
 
@@ -320,10 +322,14 @@ struct GenfitTrackFitter final :
                     isSuccess = 1;
 
                     auto edm4hep_track = track_interface.GetTrack_edm4hep();
+                    auto edm4hep_track_with_fit = track_interface.GetTrackWithFit_edm4hep();
 
                     // Propagate to calorimeter and store the state at calorimeter
                     FillTrackWithCalorimeterExtrapolation(  edm4hep_track, m_Bz, track_interface.GetCharge(), 
                                                             m_eCalBarrelInnerR, m_eCalBarrelMaxZ, m_eCalEndCapInnerR, m_eCalEndCapOuterR, m_eCalEndCapInnerZ);
+                    
+                    FillTrackWithCalorimeterExtrapolation(  edm4hep_track_with_fit, m_Bz, track_interface.GetCharge(), 
+                                                            m_eCalBarrelInnerR, m_eCalBarrelMaxZ, m_eCalEndCapInnerR, m_eCalEndCapOuterR, m_eCalEndCapInnerZ);                                        
                     
                     
                     if (m_debug_lvl > 0)
@@ -352,6 +358,7 @@ struct GenfitTrackFitter final :
 
                     // Add the fitted track to the output collection
                     FittedTracks.push_back(edm4hep_track);
+                    FittedTracksWithFilteredHits.push_back(edm4hep_track_with_fit);
 
                 }
                 
@@ -420,10 +427,14 @@ struct GenfitTrackFitter final :
                     }
 
                     auto edm4hep_track = track_interface.GetTrack_edm4hep();
+                    auto edm4hep_track_with_fit = track_interface.GetTrackWithFit_edm4hep();
 
                     // Propagate to calorimeter and store the state at calorimeter
                     FillTrackWithCalorimeterExtrapolation(  edm4hep_track, m_Bz, track_interface.GetCharge(), 
                                                             m_eCalBarrelInnerR, m_eCalBarrelMaxZ, m_eCalEndCapInnerR, m_eCalEndCapOuterR, m_eCalEndCapInnerZ);
+
+                    FillTrackWithCalorimeterExtrapolation(  edm4hep_track_with_fit, m_Bz, track_interface.GetCharge(), 
+                                                            m_eCalBarrelInnerR, m_eCalBarrelMaxZ, m_eCalEndCapInnerR, m_eCalEndCapOuterR, m_eCalEndCapInnerZ);                                       
                     
                     if (m_debug_lvl > 0)
                     {   
@@ -451,6 +462,7 @@ struct GenfitTrackFitter final :
                     
                     // Add the fitted track to the output collection
                     FittedTracks.push_back(edm4hep_track);
+                    FittedTracksWithFilteredHits.push_back(edm4hep_track_with_fit);
 
                 }
 
@@ -491,10 +503,14 @@ struct GenfitTrackFitter final :
 
                         auto edm4hep_track = track_interface.GetTrack_edm4hep();
 
+                        auto edm4hep_track_with_fit = track_interface.GetTrackWithFit_edm4hep();
+
                         // Propagate to calorimeter and store the state at calorimeter
                         FillTrackWithCalorimeterExtrapolation(  edm4hep_track, m_Bz, track_interface.GetCharge(), 
                                                                 m_eCalBarrelInnerR, m_eCalBarrelMaxZ, m_eCalEndCapInnerR, m_eCalEndCapOuterR, m_eCalEndCapInnerZ);
-                        
+
+                        FillTrackWithCalorimeterExtrapolation(  edm4hep_track_with_fit, m_Bz, track_interface.GetCharge(), 
+                                                            m_eCalBarrelInnerR, m_eCalBarrelMaxZ, m_eCalEndCapInnerR, m_eCalEndCapOuterR, m_eCalEndCapInnerZ);   
                         
                         if (m_debug_lvl > 0)
                         {   
@@ -522,6 +538,7 @@ struct GenfitTrackFitter final :
 
                         // Add the fitted track to the output collection
                         FittedTracks.push_back(edm4hep_track);
+                        FittedTracksWithFilteredHits.push_back(edm4hep_track_with_fit);
 
 
                     }
@@ -531,9 +548,15 @@ struct GenfitTrackFitter final :
                         number_failures += 1;
             
                         debug() << "Track " << num_tracks - 1 << ": fit failed for single evaluation hypothesis, skipping track." << endmsg;
+                        
                         auto failedTrack = FittedTracks.create();
                         failedTrack.setChi2(-1);
                         failedTrack.setNdf(-1);
+
+                        auto failedTrackWithFilteredHits = FittedTracksWithFilteredHits.create();
+                        failedTrackWithFilteredHits.setChi2(-1);
+                        failedTrackWithFilteredHits.setNdf(-1);
+
                         continue;
                     }
         
@@ -581,6 +604,11 @@ struct GenfitTrackFitter final :
                         auto failedTrack = FittedTracks.create();
                         failedTrack.setChi2(-1);
                         failedTrack.setNdf(-1);
+
+                        auto failedTrackWithFilteredHits = FittedTracksWithFilteredHits.create();
+                        failedTrackWithFilteredHits.setChi2(-1);
+                        failedTrackWithFilteredHits.setNdf(-1);
+
                         continue;
 
                     }
@@ -609,10 +637,14 @@ struct GenfitTrackFitter final :
                         }
 
                         auto edm4hep_track = track_interface.GetTrack_edm4hep();
+                        auto edm4hep_track_with_fit = track_interface.GetTrackWithFit_edm4hep();
 
                         // Propagate to calorimeter and store the state at calorimeter
                         FillTrackWithCalorimeterExtrapolation(  edm4hep_track, m_Bz, track_interface.GetCharge(), 
                                                                 m_eCalBarrelInnerR, m_eCalBarrelMaxZ, m_eCalEndCapInnerR, m_eCalEndCapOuterR, m_eCalEndCapInnerZ);
+
+                        FillTrackWithCalorimeterExtrapolation(  edm4hep_track_with_fit, m_Bz, track_interface.GetCharge(), 
+                                                            m_eCalBarrelInnerR, m_eCalBarrelMaxZ, m_eCalEndCapInnerR, m_eCalEndCapOuterR, m_eCalEndCapInnerZ);                                          
                         
                         
                         if (m_debug_lvl > 0)
@@ -641,6 +673,7 @@ struct GenfitTrackFitter final :
                         
                         // Add the fitted track to the output collection
                         FittedTracks.push_back(edm4hep_track);
+                        FittedTracksWithFilteredHits.push_back(edm4hep_track_with_fit);
 
                     }
                 }
@@ -648,7 +681,7 @@ struct GenfitTrackFitter final :
 
         }
 
-        return std::make_tuple( std::move(FittedTracks));
+        return std::make_tuple( std::move(FittedTracks), std::move(FittedTracksWithFilteredHits) );
         
     } 
     
