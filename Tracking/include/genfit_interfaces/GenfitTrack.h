@@ -51,6 +51,7 @@
 // EDM4hep
 #include "edm4hep/MutableTrack.h"
 #include "edm4hep/TrackCollection.h"
+#include "edm4hep/TrackerHitPlaneCollection.h"
 
 #include "utils.h"
 #include "FastCircleSeed.h"
@@ -98,6 +99,8 @@ namespace GenfitInterface {
         genfit::AbsTrackRep* GetRep_genfit() { return m_genfitTrackRep; }
         edm4hep::MutableTrack& GetTrack_edm4hep() { return m_edm4hepTrack; }
         edm4hep::MutableTrack& GetTrackWithFit_edm4hep() { return m_trackWithFit; }
+        edm4hep::TrackerHitPlaneCollection& GetFittedHits() { return m_fittedHits;}
+
         int GetCharge() {return m_charge_hypothesis;}
         
         void PrintTrack_init() { 
@@ -161,6 +164,7 @@ namespace GenfitInterface {
         genfit::Track* m_genfitTrack;
         edm4hep::MutableTrack m_edm4hepTrack;  
         edm4hep::MutableTrack m_trackWithFit;
+        edm4hep::TrackerHitPlaneCollection m_fittedHits;
 
         TVector3 m_VP_referencePoint{0., 0., 0.};
 

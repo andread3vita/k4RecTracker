@@ -144,7 +144,7 @@
 */
 
 struct GenfitTrackFitter final : 
-        k4FWCore::MultiTransformer< std::tuple< edm4hep::TrackCollection, edm4hep::TrackCollection>(const edm4hep::TrackCollection&)>                                                                         
+        k4FWCore::MultiTransformer< std::tuple< edm4hep::TrackCollection, edm4hep::TrackCollection, edm4hep::TrackerHitPlaneCollection >(const edm4hep::TrackCollection&)>                                                                         
 {
     GenfitTrackFitter(const std::string& name, ISvcLocator* svcLoc) : 
         MultiTransformer ( name, svcLoc,
@@ -156,7 +156,8 @@ struct GenfitTrackFitter final :
             {   
 
                 KeyValues("OutputFittedTracks", {"Fitted_tracks"}),
-                KeyValues("OutputFittedTracksWithFilteredHits", {"Fitted_tracks_with_filtered_hits"})
+                KeyValues("OutputFittedTracksWithFilteredHits", {"Fitted_tracks_with_filtered_hits"}),
+                KeyValues("OutputFittedHits", {"Fitted_hits"})
 
             }) {}
     
@@ -254,12 +255,13 @@ struct GenfitTrackFitter final :
 
     }
     
-    std::tuple<edm4hep::TrackCollection, edm4hep::TrackCollection> operator()( const edm4hep::TrackCollection& tracks_input) const override                                                 
+    std::tuple<edm4hep::TrackCollection, edm4hep::TrackCollection, edm4hep::TrackerHitPlaneCollection> operator()( const edm4hep::TrackCollection& tracks_input) const override                                                 
     {
         
         // This collection stores the output of the fit
         edm4hep::TrackCollection FittedTracks;
         edm4hep::TrackCollection FittedTracksWithFilteredHits;
+        edm4hep::TrackerHitPlaneCollection FittedHits;
 
         info() << "Event number: " << event_counter++ << endmsg;
 
@@ -539,6 +541,7 @@ struct GenfitTrackFitter final :
                         // Add the fitted track to the output collection
                         FittedTracks.push_back(edm4hep_track);
                         FittedTracksWithFilteredHits.push_back(edm4hep_track_with_fit);
+                        FittedHits = std::move(track_interface.GetFittedHits());
 
 
                     }
@@ -674,6 +677,7 @@ struct GenfitTrackFitter final :
                         // Add the fitted track to the output collection
                         FittedTracks.push_back(edm4hep_track);
                         FittedTracksWithFilteredHits.push_back(edm4hep_track_with_fit);
+                        FittedHits = std::move(track_interface.GetFittedHits());
 
                     }
                 }
@@ -681,7 +685,7 @@ struct GenfitTrackFitter final :
 
         }
 
-        return std::make_tuple( std::move(FittedTracks), std::move(FittedTracksWithFilteredHits) );
+        return std::make_tuple( std::move(FittedTracks), std::move(FittedTracksWithFilteredHits), std::move(FittedHits) );
         
     } 
     

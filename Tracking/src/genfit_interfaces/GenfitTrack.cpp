@@ -691,8 +691,6 @@ namespace GenfitInterface {
             if (m_genfitFitter->isTrackFitted(&genfitTrack, trackRep))
             {
 
-                
-                edm4hep::TrackerHitPlaneCollection trackHitCollection;
                 int numPoints = genfitTrack.getNumPoints();
                 for (int idx = 0; idx < numPoints; idx++)
                 {
@@ -730,19 +728,77 @@ namespace GenfitInterface {
                         auto O = planeMeas->getO();
 
                         TVector3 measPos = measState.getPos();
-                        auto covMatrix = measState.getCov();
+                        auto covMatrix_cm_gev = measState.get6DCov();
 
-                        covMatrix.Print();
+                        // Convert covariance from (cm, GeV) to (mm, GeV)
+                        TMatrixDSym covMatrix(6);
+                        for (int i = 0; i < 6; i++) {
+                            for (int j = 0; j < 6; j++) {
+                                covMatrix(i,j) = covMatrix_cm_gev(i,j);
+                                if (i < 3 || j < 3) covMatrix(i,j) *= 100.0; // cm^2 to mm^2 for position covariance
+                            }
+                        }
 
-                        auto hit3D = trackHitCollection.create();
-                        hit3D.setPosition(edm4hep::Vector3d(pos.X(), pos.Y(), pos.Z()));
+                        TMatrixDSym covXYZ(3);
+                        for (int i = 0; i < 3; i++) {
+                            for (int j = 0; j < 3; j++) {
+                                covXYZ(i,j) = covMatrix(i,j);
+                            }
+                        }
+
+                        TVector3 u(U.X(), U.Y(), U.Z());
+                        TVector3 v(V.X(), V.Y(), V.Z());
+
+                        TVectorD uVec(3);
+                        uVec[0] = U.X();
+                        uVec[1] = U.Y();
+                        uVec[2] = U.Z();
+
+                        TVectorD vVec(3);
+                        vVec[0] = V.X();
+                        vVec[1] = V.Y();
+                        vVec[2] = V.Z();
+
+                        double var_u = covXYZ.Similarity(uVec);
+                        double var_v = covXYZ.Similarity(vVec);
+
+                        double err_u = std::sqrt(var_u);
+                        double err_v = std::sqrt(var_v);
+
+
+                        auto hit3D = m_fittedHits.create();
+                        hit3D.setPosition(edm4hep::Vector3d(pos.X()/dd4hep::mm, pos.Y()/dd4hep::mm, pos.Z()/dd4hep::mm));
+
+                        // hit3D.setCovMatrix({
+                        //     static_cast<float>(covXYZ(0,0)),  // xx
+                        //     static_cast<float>(covXYZ(0,1)),  // xy
+                        //     static_cast<float>(covXYZ(0,2)),  // xz
+                        //     static_cast<float>(covXYZ(1,1)),  // yy
+                        //     static_cast<float>(covXYZ(1,2)),  // yz
+                        //     static_cast<float>(covXYZ(2,2))   // zz
+                        // });
+
+                        // hit3D.setDu(err_u);
+                        // hit3D.setDv(err_v);
+                        // edm4hep::Vector2f edm4hepU = {static_cast<float>(u.X()), static_cast<float>(u.Y())};
+                        // edm4hep::Vector2f edm4hepV = {static_cast<float>(v.X()), static_cast<float>(v.Y())};
+
+                        // hit3D.setU(edm4hepU);
+                        // hit3D.setV(edm4hepV);
+
                         m_trackWithFit.addToTrackerHits(hit3D);
 
                     
                     }
                 
                 }
-                            
+                
+                for (const auto& hit : m_fittedHits) {
+                    
+                    auto pos = hit.getPosition();
+                    std::cout << "Hit position (mm): (" << pos.x << ", " << pos.y << ", " << pos.z << ")" << std::endl;
+                    
+                }
 
                 // trackState First Hit
                 fittedState = genfitTrack.getFittedState();
