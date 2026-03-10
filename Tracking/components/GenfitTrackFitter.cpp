@@ -361,6 +361,7 @@ struct GenfitTrackFitter final :
                     // Add the fitted track to the output collection
                     FittedTracks.push_back(edm4hep_track);
                     FittedTracksWithFilteredHits.push_back(edm4hep_track_with_fit);
+                    FittedHits = std::move(track_interface.GetFittedHits());
 
                 }
                 
@@ -465,6 +466,7 @@ struct GenfitTrackFitter final :
                     // Add the fitted track to the output collection
                     FittedTracks.push_back(edm4hep_track);
                     FittedTracksWithFilteredHits.push_back(edm4hep_track_with_fit);
+                    FittedHits = std::move(track_interface.GetFittedHits());
 
                 }
 

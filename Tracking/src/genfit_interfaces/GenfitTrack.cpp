@@ -691,6 +691,7 @@ namespace GenfitInterface {
             if (m_genfitFitter->isTrackFitted(&genfitTrack, trackRep))
             {
 
+                // Hit Filtering based on measurement weights
                 int numPoints = genfitTrack.getNumPoints();
                 for (int idx = 0; idx < numPoints; idx++)
                 {
@@ -728,14 +729,25 @@ namespace GenfitInterface {
                         auto O = planeMeas->getO();
 
                         TVector3 measPos = measState.getPos();
-                        auto covMatrix_cm_gev = measState.get6DCov();
+                        TMatrixDSym covMatrix_cm_gev = measState.get6DCov();
 
-                        // Convert covariance from (cm, GeV) to (mm, GeV)
-                        TMatrixDSym covMatrix(6);
-                        for (int i = 0; i < 6; i++) {
-                            for (int j = 0; j < 6; j++) {
-                                covMatrix(i,j) = covMatrix_cm_gev(i,j);
-                                if (i < 3 || j < 3) covMatrix(i,j) *= 100.0; // cm^2 to mm^2 for position covariance
+                        TMatrixDSym covMatrix = covMatrix_cm_gev;
+                        for (int i = 0; i < 6; ++i) {
+                            for (int j = 0; j < 6; ++j) {
+
+                                double scale = 1.0;
+
+                                bool pos_i = (i < 3);
+                                bool pos_j = (j < 3);
+
+                                if (pos_i && pos_j) {
+                                    scale = 100.0;
+                                }
+                                else if (pos_i || pos_j) {
+                                    scale = 10.0;
+                                }
+
+                                covMatrix(i,j) *= scale;
                             }
                         }
 
@@ -745,6 +757,7 @@ namespace GenfitInterface {
                                 covXYZ(i,j) = covMatrix(i,j);
                             }
                         }
+
 
                         TVector3 u(U.X(), U.Y(), U.Z());
                         TVector3 v(V.X(), V.Y(), V.Z());
@@ -769,35 +782,28 @@ namespace GenfitInterface {
                         auto hit3D = m_fittedHits.create();
                         hit3D.setPosition(edm4hep::Vector3d(pos.X()/dd4hep::mm, pos.Y()/dd4hep::mm, pos.Z()/dd4hep::mm));
 
-                        // hit3D.setCovMatrix({
-                        //     static_cast<float>(covXYZ(0,0)),  // xx
-                        //     static_cast<float>(covXYZ(0,1)),  // xy
-                        //     static_cast<float>(covXYZ(0,2)),  // xz
-                        //     static_cast<float>(covXYZ(1,1)),  // yy
-                        //     static_cast<float>(covXYZ(1,2)),  // yz
-                        //     static_cast<float>(covXYZ(2,2))   // zz
-                        // });
+                        hit3D.setCovMatrix({
+                            static_cast<float>(covXYZ(0,0)),  // xx
+                            static_cast<float>(covXYZ(1,0)),  // yx
+                            static_cast<float>(covXYZ(1,1)),  // yy
+                            static_cast<float>(covXYZ(2,0)),  // zx
+                            static_cast<float>(covXYZ(2,1)),  // zy
+                            static_cast<float>(covXYZ(2,2))   // zz
+                        });
 
-                        // hit3D.setDu(err_u);
-                        // hit3D.setDv(err_v);
-                        // edm4hep::Vector2f edm4hepU = {static_cast<float>(u.X()), static_cast<float>(u.Y())};
-                        // edm4hep::Vector2f edm4hepV = {static_cast<float>(v.X()), static_cast<float>(v.Y())};
+                        hit3D.setDu(err_u);
+                        hit3D.setDv(err_v);
+                        edm4hep::Vector2f edm4hepU = {static_cast<float>(u.X()), static_cast<float>(u.Y())};
+                        edm4hep::Vector2f edm4hepV = {static_cast<float>(v.X()), static_cast<float>(v.Y())};
 
-                        // hit3D.setU(edm4hepU);
-                        // hit3D.setV(edm4hepV);
+                        hit3D.setU(edm4hepU);
+                        hit3D.setV(edm4hepV);
 
                         m_trackWithFit.addToTrackerHits(hit3D);
 
                     
                     }
                 
-                }
-                
-                for (const auto& hit : m_fittedHits) {
-                    
-                    auto pos = hit.getPosition();
-                    std::cout << "Hit position (mm): (" << pos.x << ", " << pos.y << ", " << pos.z << ")" << std::endl;
-                    
                 }
 
                 // trackState First Hit
@@ -849,8 +855,8 @@ namespace GenfitInterface {
 
                 d0 = (( - (m_VP_referencePoint.X() - infoComputeD0Z0_lastHit.PCA.X()) ) * sin(infoComputeD0Z0_lastHit.Phi0) + 
                         (m_VP_referencePoint.Y() - infoComputeD0Z0_lastHit.PCA.Y())*cos(infoComputeD0Z0_lastHit.Phi0) ) / dd4hep::mm;   // mm
-                z0 = ( infoComputeD0Z0_lastHit.PCA.Z() - m_VP_referencePoint.Z() ) / dd4hep::mm;                                // mm
-                phi = gen_momentum.Phi();                                                                               // rad    
+                z0 = ( infoComputeD0Z0_lastHit.PCA.Z() - m_VP_referencePoint.Z() ) / dd4hep::mm;                                        // mm
+                phi = gen_momentum.Phi();                                                                                               // rad    
 
                 tanLambda = pz / pt;
                 omega =  std::abs(a * Bz / pt);
