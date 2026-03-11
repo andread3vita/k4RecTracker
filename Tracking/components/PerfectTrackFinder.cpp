@@ -143,13 +143,22 @@ struct PerfectTrackFinder final : k4FWCore::MultiTransformer< std::tuple<edm4hep
 
     // Create a new TrackCollection for storing the output tracks
     edm4hep::TrackCollection outputTracks;
+
     // Loop over MCParticles to create perfect tracks
     for (const auto& mcParticle : mcParticles) {
 
+        if (mcParticle.getGeneratorStatus() != 1) {
+            continue; // Skip non-final-state particles
+        }
+
         auto edm4hep_track = outputTracks.create();
         auto mcParticleObjectId = mcParticle.getObjectID();
-                
-        // Loop over planar hit link collections
+
+        
+
+        std::vector<std::pair<float, edm4hep::TrackerHit>> hitsWithTime;
+
+        // Planar hits
         for (const auto& planarHitLinkCollection : planarHitLinks) {
             for (const auto& hitLink : *planarHitLinkCollection) {
 
@@ -157,26 +166,37 @@ struct PerfectTrackFinder final : k4FWCore::MultiTransformer< std::tuple<edm4hep
                 auto digiHit = hitLink.getFrom();
 
                 if (simHit.getParticle().getObjectID() == mcParticleObjectId) {
-                    edm4hep_track.addToTrackerHits(digiHit);
+                    hitsWithTime.emplace_back(simHit.getTime(), digiHit);
                 }
             }
         }
 
-        // Loop over wire hit link collections
+        // Wire hits
         for (const auto& wireHitLinkCollection : wireHitLinks) {
-            for (const auto& hitLink : *wireHitLinkCollection) {    
-                
+            for (const auto& hitLink : *wireHitLinkCollection) {
+
                 auto simHit = hitLink.getTo();
                 auto digiHit = hitLink.getFrom();
 
                 if (simHit.getParticle().getObjectID() == mcParticleObjectId) {
-                    edm4hep_track.addToTrackerHits(digiHit);
+                    hitsWithTime.emplace_back(simHit.getTime(), digiHit);
                 }
-            }   
+            }
+        }
+
+        std::sort(
+            hitsWithTime.begin(),
+            hitsWithTime.end(),
+            [](const auto& a, const auto& b) {
+                return a.first < b.first;
+            }
+        );
+
+        for (const auto& [time, hit] : hitsWithTime) {
+            edm4hep_track.addToTrackerHits(hit);
         }
 
         edm4hep_track.setType(1);
-
     }
 
     // Return the output collections as a tuple

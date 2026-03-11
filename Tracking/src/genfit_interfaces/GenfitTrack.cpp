@@ -798,12 +798,16 @@ namespace GenfitInterface {
 
                         hit3D.setU(edm4hepU);
                         hit3D.setV(edm4hepV);
-
+                        hit3D.setType(1); // Accepted hit
                         m_trackWithFit.addToTrackerHits(hit3D);
 
                     
                     }
-                
+                    else
+                    {
+                        auto hit3D = m_fittedHits.create();
+                        hit3D.setType(0); // Rejected hit
+                    }
                 }
 
                 // trackState First Hit
