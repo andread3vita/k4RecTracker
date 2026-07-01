@@ -1302,12 +1302,10 @@ TMatrixDSym GenfitTrack::CovarianceMatrixCartesianToHelix(const TMatrixDSym& C_c
 
   double phi0 = std::atan2(py, px);
   double tanLambda = pz / pt;
-  double omega = (std::abs(ConversionUnits::a_lcio * Bz / pt)); // in 1/mm
-
-  // Make a mutable local copy — C_cartesian is const and cannot be modified in place.
-  TMatrixDSym C_cart(C_cartesian);
+  double omega = (Bz * Charge < 0 ? -1.0 : 1.0) * std::abs(ConversionUnits::a_lcio * Bz / pt); // in 1/mm
 
   // Convert covariance matrix from cm/GeV to mm/GeV
+  TMatrixDSym C_cart(C_cartesian);
   for (int i = 0; i < 3; ++i) {
     for (int j = 0; j < 3; ++j) {
       C_cart(i, j) *= 1 / (dd4hep::mm * dd4hep::mm);
@@ -1319,9 +1317,6 @@ TMatrixDSym GenfitTrack::CovarianceMatrixCartesianToHelix(const TMatrixDSym& C_c
       C_cart(j, i) *= 1 / dd4hep::mm;
     }
   }
-
-  if (Bz * Charge < 0)
-    omega = -omega;
 
   // --- Jacobian (5x6) ---
   TMatrixD J(5, 6);
