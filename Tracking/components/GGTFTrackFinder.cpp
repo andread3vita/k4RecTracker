@@ -157,13 +157,11 @@ struct GGTFTrackFinder final : k4FWCore::MultiTransformer<std::tuple<edm4hep::Tr
     int globalHitIndex = 0;
 
     /// Processing hits from the Silicon Detectors
-    std::vector<int64_t> listHitTypePlanar;
     int planarHitIndex = 0;
     std::vector<int64_t> listPlanarHitIndices;
     int planarHitCollectionIndex = 0;
     for (const auto& inputHitCollection : inputPlanarHitCollections) {
 
-      int planarHitSubCollectionIndex = 0;
       for (const auto& inputHit : *inputHitCollection) {
 
         // Add the 3D position of the hit to the global input list.
@@ -177,32 +175,19 @@ struct GGTFTrackFinder final : k4FWCore::MultiTransformer<std::tuple<edm4hep::Tr
         listGlobalInputs.push_back(0.0);
         listGlobalInputs.push_back(0.0);
 
-        listHitTypePlanar.push_back(globalHitIndex);
-
-        listPlanarHitIndices.push_back(planarHitCollectionIndex);
-        listPlanarHitIndices.push_back(planarHitSubCollectionIndex);
-
         globalHitIndex += 1;
         planarHitIndex += 1;
-        planarHitSubCollectionIndex += 1;
       }
 
       planarHitCollectionIndex += 1;
     }
-    // Convert listHitTypePlanar to a Torch tensor for use in PyTorch models.
-    torch::Tensor listHitTypePlanarTensor =
-        torch::from_blob(listHitTypePlanar.data(), {planarHitIndex}, torch::kFloat32);
-
     torch::Tensor listPlanarHitIndices_tensor =
         torch::from_blob(listPlanarHitIndices.data(), {planarHitIndex, 2}, torch::kInt64);
 
     /// Processing hits from gaseous detectors
-    std::vector<int64_t> listHitTypeWire;
     int wireHitIndex = 0;
     std::vector<int64_t> listWireHitIndices;
-    int wireHitCollectionIndex = 0;
     for (const auto& inputHitCollection : inputWireHitCollections) {
-      int wireHitSubCollectionIndex = 0;
       for (const auto& inputHit : *inputHitCollection) {
 
         // position along the wire, wire direction and drift distance
@@ -251,22 +236,15 @@ struct GGTFTrackFinder final : k4FWCore::MultiTransformer<std::tuple<edm4hep::Tr
         listGlobalInputs.push_back(rightGlobalPos.Y() - leftGlobalPos.Y());
         listGlobalInputs.push_back(rightGlobalPos.Z() - leftGlobalPos.Z());
 
-        listHitTypeWire.push_back(globalHitIndex);
-
-        listWireHitIndices.push_back(wireHitCollectionIndex);
-        listWireHitIndices.push_back(wireHitSubCollectionIndex);
-
         globalHitIndex += 1;
         wireHitIndex += 1;
-        wireHitSubCollectionIndex += 1;
       }
     }
-    // Convert ListHitType_CDC to a Torch tensor for use in PyTorch models.
-    torch::Tensor listHitTypeWireTensor = torch::from_blob(listHitTypeWire.data(), {wireHitIndex}, torch::kFloat32);
-
     torch::Tensor listWireHitIndicesTensor =
         torch::from_blob(listWireHitIndices.data(), {wireHitIndex, 2}, torch::kInt64);
 
+
+    // create torch::Tensor with list of indices
     torch::Tensor planarTypeTensor = torch::zeros({planarHitIndex, 1}, torch::kInt64);
     torch::Tensor wireTypeTensor = torch::ones({wireHitIndex, 1}, torch::kInt64);
 
@@ -376,14 +354,10 @@ struct GGTFTrackFinder final : k4FWCore::MultiTransformer<std::tuple<edm4hep::Tr
       outputModelTensors.clear();
     }
 
-    listHitTypePlanarTensor.reset();
     listPlanarHitIndices_tensor.reset();
-    listHitTypeWireTensor.reset();
     listWireHitIndicesTensor.reset();
 
-    std::vector<int64_t>().swap(listHitTypePlanar);
     std::vector<int64_t>().swap(listPlanarHitIndices);
-    std::vector<int64_t>().swap(listHitTypeWire);
     std::vector<int64_t>().swap(listWireHitIndices);
 
     // Return the output collections as a tuple

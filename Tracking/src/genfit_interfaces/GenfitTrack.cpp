@@ -1302,11 +1302,27 @@ TMatrixDSym GenfitTrack::CovarianceMatrixCartesianToHelix(const TMatrixDSym& C_c
   double RefX_mm = RefPoint_cm.X() / dd4hep::mm;
   double RefY_mm = RefPoint_cm.Y() / dd4hep::mm;
 
-  double pt = Momentum_gev.Perp();
+  double pt = Momentum_gev.Perp(); double pt2 = std::pow(pt, 2);
 
   double phi0 = std::atan2(py, px);
   double tanLambda = pz / pt;
   double omega = (std::abs(ConversionUnits::a_lcio * Bz / pt)); // in 1/mm
+
+  // Make a mutable local copy — C_cartesian is const and cannot be modified in place.
+  TMatrixDSym C_cart(C_cartesian);
+
+  // Convert covariance matrix from cm/GeV to mm/GeV
+  for (int i = 0; i < 3; ++i) {
+      for (int j = 0; j < 3; ++j) {
+          C_cart(i, j) *= 1 / (dd4hep::mm * dd4hep::mm);
+      }
+  }
+  for (int i = 0; i < 3; ++i) {
+      for (int j = 3; j < 6; ++j) {
+          C_cart(i, j) *= 1 / dd4hep::mm;
+          C_cart(j, i) *= 1 / dd4hep::mm;
+      }
+  }
 
   if (Bz * Charge < 0)
     omega = -omega;
@@ -1326,20 +1342,19 @@ TMatrixDSym GenfitTrack::CovarianceMatrixCartesianToHelix(const TMatrixDSym& C_c
   // chain rule via phi0 = atan2(py, px)
   double dd0_dphi = -(RefX_mm - x_PCA_mm) * cos(phi0) - (RefY_mm - y_PCA_mm) * sin(phi0);
 
-  J(0, 3) = dd0_dphi * (-py / (pt * pt)); // dd0 / dpx
-  J(0, 4) = dd0_dphi * (px / (pt * pt));  // dd0 / dpy
-  J(0, 5) = 0.0;                          // dd0 / dpz
+  J(0, 3) = dd0_dphi * (-py / pt2); // dd0 / dpx
+  J(0, 4) = dd0_dphi * (px / pt2);  // dd0 / dpy
+  J(0, 5) = 0.0;                    // dd0 / dpz
 
   // phi0 = atan2(py, px);
   J(1, 0) = 0.0;                   // dphi0 / dx
   J(1, 1) = 0.0;                   // dphi0 / dy
   J(1, 2) = 0.0;                   // dphi0 / dz
-  J(1, 3) = -py / std::pow(pt, 2); // dphi0 / dpx
-  J(1, 4) = px / std::pow(pt, 2);  // dphi0 / dpy
+  J(1, 3) = -py / pt2;             // dphi0 / dpx
+  J(1, 4) = px / pt2;              // dphi0 / dpy
   J(1, 5) = 0.0;                   // dphi0 / dpz
 
   // omega = q * a * Bz / pt, with pt = sqrt(px^2 + py^2)
-  double pt2 = px * px + py * py;
   J(2, 0) = 0.0;               // domega / dx_PCA
   J(2, 1) = 0.0;               // domega / dy_PCA
   J(2, 2) = 0.0;               // domega / dz_PCA
@@ -1356,16 +1371,16 @@ TMatrixDSym GenfitTrack::CovarianceMatrixCartesianToHelix(const TMatrixDSym& C_c
   J(3, 5) = 0.0; // dz0 / dpz
 
   // tanLambda = pz / pt
-  J(4, 0) = 0.0;                               // dtanLambda / dx_PCA
-  J(4, 1) = 0.0;                               // dtanLambda / dy_PCA
-  J(4, 2) = 0.0;                               // dtanLambda / dz_PCA
-  J(4, 3) = -tanLambda * px / std::pow(pt, 2); // dtanLambda / dpx
-  J(4, 4) = -tanLambda * py / std::pow(pt, 2); // dtanLambda / dpy
-  J(4, 5) = 1.0 / pt;                          // dtanLambda / dpz
+  J(4, 0) = 0.0;                    // dtanLambda / dx_PCA
+  J(4, 1) = 0.0;                    // dtanLambda / dy_PCA
+  J(4, 2) = 0.0;                    // dtanLambda / dz_PCA
+  J(4, 3) = -tanLambda * px / pt2;  // dtanLambda / dpx
+  J(4, 4) = -tanLambda * py / pt2;  // dtanLambda / dpy
+  J(4, 5) = 1.0 / pt;               // dtanLambda / dpz
 
-  // --- Compute C_cart = J * C_helix * J^T ---
+  // --- Compute C_helix = J * C_cart * J^T ---
   TMatrixD Jt(TMatrixD::kTransposed, J);
-  TMatrixD tmp = J * C_cartesian * Jt;
+  TMatrixD tmp = J * C_cart * Jt;
 
   TMatrixDSym C_helix(5);
   C_helix.Zero();
@@ -1381,6 +1396,7 @@ TMatrixDSym GenfitTrack::CovarianceMatrixCartesianToHelix(const TMatrixDSym& C_c
   }
 
   return C_helix;
+  
 }
 
 /**
