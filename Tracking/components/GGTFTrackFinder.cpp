@@ -243,7 +243,6 @@ struct GGTFTrackFinder final : k4FWCore::MultiTransformer<std::tuple<edm4hep::Tr
     torch::Tensor listWireHitIndicesTensor =
         torch::from_blob(listWireHitIndices.data(), {wireHitIndex, 2}, torch::kInt64);
 
-
     // create torch::Tensor with list of indices
     torch::Tensor planarTypeTensor = torch::zeros({planarHitIndex, 1}, torch::kInt64);
     torch::Tensor wireTypeTensor = torch::ones({wireHitIndex, 1}, torch::kInt64);
