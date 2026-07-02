@@ -10,8 +10,8 @@ wget https://raw.githubusercontent.com/key4hep/k4geo/master/example/SteeringFile
 
 ddsim --steeringFile SteeringFile_IDEA_o1_v03.py \
       --compactFile  $XML_FILE \
-      -G --gun.distribution uniform --gun.particle mu- --gun.multiplicity 5 \
-      --random.seed 10 \
+      -G --gun.distribution uniform --gun.particle mu- --gun.multiplicity 3 \
+      --random.seed 42 \
       --numberOfEvents 1 \
       --outputFile out_sim_edm4hep.root \
       --part.minimalKineticEnergy "0.00*MeV"

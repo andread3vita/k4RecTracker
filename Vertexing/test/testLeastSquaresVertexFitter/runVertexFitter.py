@@ -29,7 +29,7 @@ svc.Output = args.outputFile
 ################ Detector geometry
 geoservice = GeoSvc("GeoSvc")
 path_to_detector = os.environ.get("K4GEO", "")
-detectors_to_use = ["FCCee/IDEA/compact/IDEA_o1_v03/IDEA_o1_v03.xml"]
+detectors_to_use = ["FCCee/CLD/compact/CLD_o3_v01/CLD_o3_v01.xml"]
 geoservice.detectors = [os.path.join(path_to_detector, _det) for _det in detectors_to_use]
 geoservice.OutputLevel = INFO
 
@@ -166,7 +166,7 @@ from Configurables import GenfitTrackFitter
 
 trackFitter = GenfitTrackFitter(
     "GenfitTrackFitter",
-    InputTracks=["PerfectTracks"],
+    InputTracks=["SiTracks_Refitted"],
     OutputFittedTracks=["FittedTracks"],
     OutputFittedTracksWithFilteredHits=["FittedTracksWithFilteredHits"],
     OutputFittedHits=["FittedHits"],
@@ -197,7 +197,7 @@ from Configurables import LeastSquaresVertexFitter
 vertexFitter = LeastSquaresVertexFitter(
     "LeastSquaresVertexFitter",
     InputTracks=["FittedTracks"],
-    OutputVertices=["PrimaryVertices"],
+    OutputVertices=["PrimaryVerticesTest"],
     TrackStateLocation=1,
     MinimumNumberOfTracks=2,
     # fit control (defaults shown explicitly for clarity)
@@ -228,17 +228,18 @@ subprocess.run(["wget", "--no-clobber", ifilename])
 
 ApplicationMgr(
     TopAlg=[
-        dch_digitizer,
-        vtxb_digitizer,
-        vtxd_digitizer,
-        siwrb_digitizer,
-        siwrd_digitizer,
-        perfectFinder,
+        # dch_digitizer,
+        # vtxb_digitizer,
+        # vtxd_digitizer,
+        # siwrb_digitizer,
+        # siwrd_digitizer,
+        # perfectFinder,
         trackFitter,
         vertexFitter,
     ],
     EvtSel="NONE",
-    EvtMax=-1,
+    EvtMax=1,
+    # ExtSvc=[EventDataSvc("EventDataSvc"), UniqueIDGenSvc("uidSvc")],
     ExtSvc=[geoservice, EventDataSvc("EventDataSvc"), UniqueIDGenSvc("uidSvc"), RndmGenSvc()],
     StopOnSignal=True,
 )

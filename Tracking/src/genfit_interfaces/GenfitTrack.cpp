@@ -26,9 +26,7 @@ GenfitTrack::GenfitTrack(const edm4hep::Track& track, const bool skipTrackOrderi
                          const dd4hep::DDSegmentation::BitFieldCoder* decoder,
                          const GenfitInterface::GenfitField* fieldMap)
     : m_originalTrack(track), m_posInit(0., 0., 0.), m_momInit(0., 0., 0.), m_covInit(6), m_genfitTrackRep(nullptr),
-      m_genfitTrack(nullptr), m_edm4hepTrack(),
-
-      m_wire_info(wire_info), m_dc_decoder(decoder), m_fieldMap(fieldMap)
+      m_genfitTrack(nullptr), m_edm4hepTrack(), m_wire_info(wire_info), m_dc_decoder(decoder), m_fieldMap(fieldMap)
 
 {
 
@@ -869,7 +867,9 @@ void GenfitTrack::CreateGenFitTrack(int particle_hypotesis, int debug_lvl) {
  * @note If any exception occurs during fitting or state extrapolation, the function
  *       returns false and does not update the track.
  */
-bool GenfitTrack::Fit(std::string FitterType = "DAF", int debug_lvl = 0, std::optional<double> Beta_init = 100.,
+bool GenfitTrack::Fit(edm4hep::TrackerHitPlaneCollection& fittedHits,
+                      std::string FitterType = "DAF", int debug_lvl = 0, 
+                      std::optional<double> Beta_init = 100.,
                       std::optional<double> Beta_final = 0.1, std::optional<int> Beta_steps = 10,
                       std::optional<bool> FilterHits = true) {
 
@@ -1028,7 +1028,7 @@ bool GenfitTrack::Fit(std::string FitterType = "DAF", int debug_lvl = 0, std::op
           double err_v = std::sqrt(var_v);
 
           // Create a new fitted hit object and set its position
-          auto hit3D = m_fittedHits.create();
+          auto hit3D = fittedHits.create();
           hit3D.setPosition(edm4hep::Vector3d(pos.X() / dd4hep::mm, pos.Y() / dd4hep::mm, pos.Z() / dd4hep::mm));
 
           // Set the 3x3 position covariance matrix in EDM4hep format
@@ -1051,12 +1051,13 @@ bool GenfitTrack::Fit(std::string FitterType = "DAF", int debug_lvl = 0, std::op
           hit3D.setU(edm4hepU);
           hit3D.setV(edm4hepV);
 
-          hit3D.setType(1); // Mark as accepted hit
+          // hit3D.setType(1); // Mark as accepted hit
           m_trackWithFit.addToTrackerHits(hit3D);
+
         } else {
-          // Create a placeholder for the rejected hit
-          auto hit3D = m_fittedHits.create();
-          hit3D.setType(0); // Mark as rejected hit
+          // // Create a placeholder for the rejected hit
+          // auto hit3D = m_fittedHits.create();
+          // hit3D.setType(0); // Mark as rejected hit
         }
       }
     }
@@ -1183,10 +1184,7 @@ TMatrixDSym GenfitTrack::CovarianceMatrixHelixToCartesian(const TMatrixDSym& C_h
 
   double phi0 = std::atan2(py, px);
   double d0 = -(RefX_mm - x_PCA_mm) * sin(phi0) + (RefY_mm - y_PCA_mm) * cos(phi0);
-  double omega = std::abs(ConversionUnits::a_lcio * Bz / pt); // in 1/mm
-
-  if (Bz * Charge < 0)
-    omega = -omega;
+  double omega = (Bz * Charge < 0 ? -1.0 : 1.0) * std::abs(ConversionUnits::a_lcio * Bz / pt); // in 1/mm
 
   // --- Jacobian (6x5) ---
   TMatrixD J(6, 5);
