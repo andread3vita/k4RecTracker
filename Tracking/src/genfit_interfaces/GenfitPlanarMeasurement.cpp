@@ -70,8 +70,7 @@ PlanarMeasurement::PlanarMeasurement(const edm4hep::TrackerHitPlane& hit, const 
 
     std::cout << "\n========== Planar Measurement Debug ==========\n";
 
-    std::cout << "Global position [cm] : (" << globalPos.X() << ", " << globalPos.Y() << ", " << globalPos.Z() <<
-    ")\n";
+    std::cout << "Global position [cm] : (" << globalPos.X() << ", " << globalPos.Y() << ", " << globalPos.Z() << ")\n";
 
     std::cout << "Origin [cm]          : (" << Origin.X() << ", " << Origin.Y() << ", " << Origin.Z() << ")\n";
 

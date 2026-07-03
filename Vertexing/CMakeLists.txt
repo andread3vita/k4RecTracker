@@ -75,7 +75,14 @@ install(TARGETS ${PackageName}
 
 install(FILES ${scripts} DESTINATION test)
 
+SET(test_name "test_vertexFinder")
+ADD_TEST(NAME ${test_name} COMMAND sh +x test_vertexFinder.sh)
+set_test_env(${test_name})
+set_tests_properties(${test_name} PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/Vertexing/test/testDeterministicAnnealingVertexFindereter")
+
+
 SET(test_name "test_vertexFitter")
 ADD_TEST(NAME ${test_name} COMMAND sh +x test_vertexFitter.sh)
 set_test_env(${test_name})
+set_tests_properties(${test_name} PROPERTIES DEPENDS test_vertexFinder)
 set_tests_properties(${test_name} PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/Vertexing/test/testLeastSquaresVertexFitter")

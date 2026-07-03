@@ -1051,7 +1051,6 @@ bool GenfitTrack::Fit(edm4hep::TrackerHitPlaneCollection& fittedHits, std::strin
           hit3D.setV(edm4hepV);
 
           m_trackWithFit.addToTrackerHits(hit3D);
-
         }
       }
     }

@@ -18,31 +18,38 @@
 
 /** @class LeastSquaresVertexFitter
  *
- *  Gaudi transformer that fits a set of reconstructed tracks to a common
- *  vertex and writes the result as an edm4hep::Vertex.
+ *  Gaudi transformer that refines a collection of candidate vertices by
+ *  performing a least-squares vertex fit on the associated tracks.
  *
- *  It is detector independent: it works on edm4hep::Track objects regardless of
- *  which subdetector produced them, because the fit only uses the helix track
- *  parameters stored in the track states. The numerical fit is performed by
- *  LinearizedHelixVertexFitter, which is a native EDM4hep adaptation of Franco Bedeschi's
- *  Delphes vertex fitter (no Delphes data types, no parameter conversion).
+ *  Each input extension::Vertex is treated as a vertex hypothesis containing
+ *  a set of associated edm4hep::Track objects. The algorithm re-fits each
+ *  vertex position using a linearised helix-based least-squares method
+ *  implemented in LinearizedHelixVertexFitter.
  *
- *  In this first version all input tracks are fitted to a single common vertex
- *  (the typical "primary vertex" use case). To reconstruct secondary/displaced
- *  vertices, run the transformer on a pre-selected sub-collection of tracks
- *  (track-to-vertex association/finding is left to upstream algorithms).
+ *  The fit is detector-independent, since it relies only on the helix track
+ *  parameters stored in edm4hep::TrackState objects and does not depend on
+ *  any detector-specific reconstruction details.
  *
- *  @author Mahmoud Althakeel, Andrea De Vita (adapted from F. Bedeschi's Delphes VertexFit)
+ *  Optionally, a beam-spot constraint can be applied to vertices flagged as
+ *  primary, introducing a Gaussian prior on the vertex position.
+ *
+ *  In this implementation, each input vertex is processed independently:
+ *  tracks associated to the vertex are refitted, and a new refined vertex is
+ *  produced in the output collection.
+ *
+ *  This transformer is typically used as a refinement stage after an initial
+ *  vertex finding algorithm.
+ *
+ *  @author Mahmoud Althakeel, Andrea De Vita (adapted from F. Bedeschi’s Delphes VertexFit)
  */
 struct LeastSquaresVertexFitter final
     : k4FWCore::Transformer<extension::VertexCollection(const extension::VertexCollection&)> {
 
   LeastSquaresVertexFitter(const std::string& name, ISvcLocator* svcLoc)
-      : Transformer(name, svcLoc, 
-        
-        {KeyValues("InputFoundVertices", {"InputFoundVertices"})}, 
-        {KeyValues("OutputFittedVertices", {"OutputFittedVertices"})}) {
-  }
+      : Transformer(name, svcLoc,
+
+                    {KeyValues("InputVerticesCandidates", {"InputVerticesCandidates"})},
+                    {KeyValues("OutputFittedVertices", {"OutputFittedVertices"})}) {}
 
   StatusCode initialize() override {
     if (m_beamSpotPosition.value().size() != 3) {
@@ -56,15 +63,15 @@ struct LeastSquaresVertexFitter final
     return StatusCode::SUCCESS;
   }
 
-  extension::VertexCollection operator()(const extension::VertexCollection& foundVertices) const override {
+  extension::VertexCollection operator()(const extension::VertexCollection& verticesCandidates) const override {
 
     extension::VertexCollection fittedVertices;
-    for (const auto& vertex : foundVertices) {
+    for (const auto& vertex : verticesCandidates) {
 
       auto numberOfTracks = vertex.getTracks().size();
       if (numberOfTracks < static_cast<std::size_t>(m_minimumNumberOfTracks)) {
-        debug() << "Vertex has only " << numberOfTracks << " tracks (minimum is "
-                << m_minimumNumberOfTracks.value() << "), skipping it." << endmsg;
+        debug() << "Vertex has only " << numberOfTracks << " tracks (minimum is " << m_minimumNumberOfTracks.value()
+                << "), skipping it." << endmsg;
         continue;
       }
 
@@ -75,17 +82,18 @@ struct LeastSquaresVertexFitter final
       fitter.setSeedStartRadius(m_seedStartRadius);
 
       if (vertex.isPrimary() && m_useBeamSpotConstraint) {
-      
-          const TVector3 beamSpotPosition(m_beamSpotPosition.value()[0], m_beamSpotPosition.value()[1], m_beamSpotPosition.value()[2]);
-          TMatrixDSym beamSpotCovariance(3);
-          beamSpotCovariance.Zero();
-          for (int axis = 0; axis < 3; ++axis) {
-            const double sigma = m_beamSpotSize.value()[axis];
-            beamSpotCovariance(axis, axis) = sigma * sigma;
-          }
-          fitter.setBeamSpotConstraint(beamSpotPosition, beamSpotCovariance);
+
+        const TVector3 beamSpotPosition(m_beamSpotPosition.value()[0], m_beamSpotPosition.value()[1],
+                                        m_beamSpotPosition.value()[2]);
+        TMatrixDSym beamSpotCovariance(3);
+        beamSpotCovariance.Zero();
+        for (int axis = 0; axis < 3; ++axis) {
+          const double sigma = m_beamSpotSize.value()[axis];
+          beamSpotCovariance(axis, axis) = sigma * sigma;
+        }
+        fitter.setBeamSpotConstraint(beamSpotPosition, beamSpotCovariance);
       }
-    
+
       // ---- run the fit ----
       auto tracks = vertex.getTracks();
 
@@ -114,7 +122,7 @@ struct LeastSquaresVertexFitter final
 
       const TVector3& position = fitter.vertexPosition(); // mm
       vertexFitted.setPosition(edm4hep::Vector3f(static_cast<float>(position.X()), static_cast<float>(position.Y()),
-                                                  static_cast<float>(position.Z())));
+                                                 static_cast<float>(position.Z())));
 
       // 3x3 vertex covariance, packed lower-triangular as EDM4hep expects:
       // (xx, xy, yy, xz, yz, zz)
@@ -135,7 +143,6 @@ struct LeastSquaresVertexFitter final
       debug() << "Fitted vertex at (" << position.X() << ", " << position.Y() << ", " << position.Z() << ") mm from "
               << numberOfTracks << " tracks, chi2/ndf = " << fitter.chiSquared() << "/"
               << fitter.numberOfDegreesOfFreedom() << endmsg;
-      
     }
 
     return fittedVertices;
