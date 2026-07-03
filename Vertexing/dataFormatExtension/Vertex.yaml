@@ -1,0 +1,74 @@
+---
+schema_version: 1
+
+options:
+  getSyntax: True
+  setSyntax: True
+  exposePODMembers: False
+  includeSubfolder: True
+
+
+datatypes:
+
+  extension::Vertex:
+    Description: "Vertex"
+    Author: "EDM4hep authors"
+
+    Members:
+      - uint32_t type // flagword that defines the type of the vertex
+      - float chi2 // chi-squared of the vertex fit
+      - int32_t ndf // number of degrees of freedom of the vertex fit
+      - edm4hep::Vector3f position [mm] // position of the vertex
+      - edm4hep::CovMatrix3f covMatrix [mm^2] // covariance matrix of the position
+      - int32_t algorithmType // type code for the vertexing algorithm
+
+    VectorMembers:
+      - float parameters // additional parameters related to this vertex
+
+    OneToManyRelations:
+      - edm4hep::ReconstructedParticle particles // particles used to form this vertex
+      - edm4hep::Track tracks // tracks used to form this vertex
+
+    ExtraCode:
+      includes: |
+        #include <edm4hep/Constants.h>
+        #include <edm4hep/utils/bit_utils.h>
+
+      declaration: |
+        float getCovMatrix(edm4hep::Cartesian dimI, edm4hep::Cartesian dimJ) const {
+          return getCovMatrix().getValue(dimI, dimJ);
+        }
+
+        static constexpr int BITPrimaryVertex   = 0;
+        static constexpr int BITSecondaryVertex = 1;
+        static constexpr int BITTertiaryVertex  = 2;
+
+        bool isPrimary() const {
+          return edm4hep::utils::checkBit(getType(), BITPrimaryVertex);
+        }
+
+        bool isSecondary() const {
+          return edm4hep::utils::checkBit(getType(), BITSecondaryVertex);
+        }
+
+        bool isTertiary() const {
+          return edm4hep::utils::checkBit(getType(), BITTertiaryVertex);
+        }
+
+    MutableExtraCode:
+      declaration: |
+        void setCovMatrix(float value, edm4hep::Cartesian dimI, edm4hep::Cartesian dimJ) {
+          getCovMatrix().setValue(value, dimI, dimJ);
+        }
+
+        void setPrimary(bool value=true) {
+          setType(edm4hep::utils::setBit(getType(), BITPrimaryVertex, value));
+        }
+
+        void setSecondary(bool value=true) {
+          setType(edm4hep::utils::setBit(getType(), BITSecondaryVertex, value));
+        }
+
+        void setTertiary(bool value=true) {
+          setType(edm4hep::utils::setBit(getType(), BITTertiaryVertex, value));
+        }

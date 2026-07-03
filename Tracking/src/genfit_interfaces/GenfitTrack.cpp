@@ -849,6 +849,7 @@ void GenfitTrack::CreateGenFitTrack(int particle_hypotesis, int debug_lvl) {
  * track state based on the fitted position and momentum, taking into account the
  * assumed charge hypothesis and magnetic field.
  *
+ * @param fittedHits Output collection storing the filtered fitted hits (if enabled)
  * @param FitterType Fitting strategy to use (https://indico.cern.ch/event/258092/papers/1588579/files/4253-genfit.pdf):
  *        - "DAF"        : Deterministic Annealing Filter
  *        - "KALMAN"     : Standard Kalman filter
@@ -867,11 +868,9 @@ void GenfitTrack::CreateGenFitTrack(int particle_hypotesis, int debug_lvl) {
  * @note If any exception occurs during fitting or state extrapolation, the function
  *       returns false and does not update the track.
  */
-bool GenfitTrack::Fit(edm4hep::TrackerHitPlaneCollection& fittedHits,
-                      std::string FitterType = "DAF", int debug_lvl = 0, 
-                      std::optional<double> Beta_init = 100.,
-                      std::optional<double> Beta_final = 0.1, std::optional<int> Beta_steps = 10,
-                      std::optional<bool> FilterHits = true) {
+bool GenfitTrack::Fit(edm4hep::TrackerHitPlaneCollection& fittedHits, std::string FitterType = "DAF", int debug_lvl = 0,
+                      std::optional<double> Beta_init = 100., std::optional<double> Beta_final = 0.1,
+                      std::optional<int> Beta_steps = 10, std::optional<bool> FilterHits = true) {
 
   edm4hep::Track Track_temp = m_edm4hepTrack;
   for (size_t i = 0; i < Track_temp.trackStates_size(); ++i) {
@@ -1051,13 +1050,8 @@ bool GenfitTrack::Fit(edm4hep::TrackerHitPlaneCollection& fittedHits,
           hit3D.setU(edm4hepU);
           hit3D.setV(edm4hepV);
 
-          // hit3D.setType(1); // Mark as accepted hit
           m_trackWithFit.addToTrackerHits(hit3D);
 
-        } else {
-          // // Create a placeholder for the rejected hit
-          // auto hit3D = m_fittedHits.create();
-          // hit3D.setType(0); // Mark as rejected hit
         }
       }
     }

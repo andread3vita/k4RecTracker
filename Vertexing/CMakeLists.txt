@@ -2,6 +2,39 @@ set(PackageName Vertexing)
 
 project(${PackageName})
 
+# Build the extension data model and link it against the upstream model
+PODIO_GENERATE_DATAMODEL(extension dataFormatExtension/Vertex.yaml ext_headers ext_sources
+  UPSTREAM_EDM edm4hep:${EDM4HEP_DATA_DIR}/edm4hep.yaml
+  IO_BACKEND_HANDLERS ${PODIO_IO_HANDLERS}
+  OUTPUT_FOLDER ${CMAKE_CURRENT_BINARY_DIR})
+PODIO_ADD_DATAMODEL_CORE_LIB(VertexingExtension "${ext_headers}" "${ext_sources}"
+  OUTPUT_FOLDER ${CMAKE_CURRENT_BINARY_DIR})
+target_link_libraries(VertexingExtension PUBLIC EDM4HEP::edm4hep)
+PODIO_ADD_ROOT_IO_DICT(VertexingExtensionDict VertexingExtension "${ext_headers}" src/selection.xml
+  OUTPUT_FOLDER ${CMAKE_CURRENT_BINARY_DIR})
+#PODIO_ADD_SIO_IO_BLOCKS(VertexingExtension "${ext_headers}" "${ext_sources}")
+add_library(extension::extensionDict ALIAS VertexingExtensionDict)
+list(APPEND EXTENSION_INSTALL_LIBS VertexingExtension VertexingExtensionDict)
+
+install(TARGETS ${EXTENSION_INSTALL_LIBS}
+  EXPORT ${PROJECT_NAME}Targets
+  RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}" COMPONENT bin
+  LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}" COMPONENT shlib
+  PUBLIC_HEADER DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/extension"
+  COMPONENT dev)
+
+install(FILES
+  "${PROJECT_BINARY_DIR}/VertexingExtensionDictDict.rootmap"
+  DESTINATION "${CMAKE_INSTALL_LIBDIR}" COMPONENT dev)
+
+install(FILES
+  dataFormatExtension/Vertex.yaml
+  DESTINATION "${CMAKE_INSTALL_PREFIX}/extension" COMPONENT dev)
+
+install(FILES
+  "${PROJECT_BINARY_DIR}/libVertexingExtensionDict_rdict.pcm"
+  DESTINATION "${CMAKE_INSTALL_LIBDIR}" COMPONENT dev)
+
 # Sources: the kernel (src/) and the Gaudi components (components/)
 file(GLOB sources
   ${PROJECT_SOURCE_DIR}/src/*.cpp
@@ -22,6 +55,8 @@ gaudi_add_module(${PackageName}
     ROOT::MathCore
     ROOT::Matrix
     ROOT::Physics
+    extensionDict
+    VertexingExtensionDict
 )
 
 target_include_directories(${PackageName} PUBLIC

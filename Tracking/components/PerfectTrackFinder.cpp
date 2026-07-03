@@ -105,6 +105,11 @@ struct PerfectTrackFinder final : k4FWCore::MultiTransformer<std::tuple<edm4hep:
     // Loop over MCParticles to create perfect tracks
     for (const auto& mcParticle : mcParticles) {
 
+      // Run the perfect tracking only for stable particles (generator status = 1)
+      if (mcParticle.getGeneratorStatus() != 1) {
+        continue;
+      }
+
       auto mcParticleObjectId = mcParticle.getObjectID();
       std::vector<std::pair<float, edm4hep::TrackerHit>> hitsWithTime;
 

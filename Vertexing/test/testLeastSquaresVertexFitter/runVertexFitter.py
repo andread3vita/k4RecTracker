@@ -29,7 +29,7 @@ svc.Output = args.outputFile
 ################ Detector geometry
 geoservice = GeoSvc("GeoSvc")
 path_to_detector = os.environ.get("K4GEO", "")
-detectors_to_use = ["FCCee/CLD/compact/CLD_o3_v01/CLD_o3_v01.xml"]
+detectors_to_use = ["FCCee/IDEA/compact/IDEA_o1_v03/IDEA_o1_v03.xml"]
 geoservice.detectors = [os.path.join(path_to_detector, _det) for _det in detectors_to_use]
 geoservice.OutputLevel = INFO
 
@@ -158,7 +158,7 @@ perfectFinder = PerfectTrackFinder(
     InputWireHitCollections=["DCH_DigiSimAssociationCollection"],
     InputMCParticles=["MCParticles"],
     OutputPerfectTracks=["PerfectTracks"],
-    OutputLevel=INFO,
+    OutputLevel=0,
 )
 
 ############### Genfit Track Fitter
@@ -166,11 +166,11 @@ from Configurables import GenfitTrackFitter
 
 trackFitter = GenfitTrackFitter(
     "GenfitTrackFitter",
-    InputTracks=["SiTracks_Refitted"],
+    InputTracks=["PerfectTracks"],
     OutputFittedTracks=["FittedTracks"],
     OutputFittedTracksWithFilteredHits=["FittedTracksWithFilteredHits"],
     OutputFittedHits=["FittedHits"],
-    OutputLevel=DEBUG,
+    OutputLevel=0,
 )
 
 trackFitter.RunSingleEvaluation = True
@@ -221,25 +221,20 @@ vertexFitter = LeastSquaresVertexFitter(
 from Configurables import EventDataSvc
 
 ############### Application Manager
-import subprocess
-
-ifilename = "https://fccsw.web.cern.ch/fccsw/filesForSimDigiReco/IDEA/DataAlgFORGEANT.root"
-subprocess.run(["wget", "--no-clobber", ifilename])
 
 ApplicationMgr(
     TopAlg=[
-        # dch_digitizer,
-        # vtxb_digitizer,
-        # vtxd_digitizer,
-        # siwrb_digitizer,
-        # siwrd_digitizer,
-        # perfectFinder,
+        dch_digitizer,
+        vtxb_digitizer,
+        vtxd_digitizer,
+        siwrb_digitizer,
+        siwrd_digitizer,
+        perfectFinder,
         trackFitter,
         vertexFitter,
     ],
     EvtSel="NONE",
-    EvtMax=1,
-    # ExtSvc=[EventDataSvc("EventDataSvc"), UniqueIDGenSvc("uidSvc")],
+    EvtMax=-1,
     ExtSvc=[geoservice, EventDataSvc("EventDataSvc"), UniqueIDGenSvc("uidSvc"), RndmGenSvc()],
     StopOnSignal=True,
 )
