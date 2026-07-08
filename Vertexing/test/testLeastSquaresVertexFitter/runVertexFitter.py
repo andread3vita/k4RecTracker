@@ -12,7 +12,6 @@ import math
 from k4FWCore import ApplicationMgr, IOSvc
 from Gaudi.Configuration import INFO, DEBUG
 from Configurables import EventDataSvc, UniqueIDGenSvc, RndmGenSvc
-from Configurables import GeoSvc
 from k4FWCore.parseArgs import parser
 
 
@@ -30,8 +29,8 @@ from Configurables import LeastSquaresVertexFitter
 
 vertexFitter = LeastSquaresVertexFitter(
     "LeastSquaresVertexFitter",
-    InputTracks=["VerticesCandidates"],
-    OutputVertices=["FittedVertices"],
+    InputVerticesCandidates=["VerticesCandidates"],
+    OutputFittedVertices=["FittedVertices"],
     TrackStateLocation=1,
     MinimumNumberOfTracks=2,
     # fit control (defaults shown explicitly for clarity)
@@ -48,7 +47,6 @@ vertexFitter = LeastSquaresVertexFitter(
     UseBeamSpotConstraint=False,
     BeamSpotPosition=[0.0, 0.0, 0.0],  # mm
     BeamSpotSize=[0.010, 0.010, 4.0],  # mm (sigma_x, sigma_y, sigma_z), illustrative FCC-ee-like
-    MarkAsPrimaryVertex=True,
     OutputLevel=DEBUG,
 )
 
@@ -60,6 +58,6 @@ ApplicationMgr(
     TopAlg=[vertexFitter],
     EvtSel="NONE",
     EvtMax=-1,
-    ExtSvc=[geoservice, EventDataSvc("EventDataSvc"), UniqueIDGenSvc("uidSvc"), RndmGenSvc()],
+    ExtSvc=[EventDataSvc("EventDataSvc"), UniqueIDGenSvc("uidSvc"), RndmGenSvc()],
     StopOnSignal=True,
 )

@@ -2,25 +2,25 @@ set(PackageName Vertexing)
 
 project(${PackageName})
 
-# Build the extension data model and link it against the upstream model
-PODIO_GENERATE_DATAMODEL(extension dataFormatExtension/Vertex.yaml ext_headers ext_sources
+# Build the extensionVertexing data model and link it against the upstream model
+PODIO_GENERATE_DATAMODEL(extensionVertexing dataFormatExtension/Vertex.yaml ext_headers ext_sources
   UPSTREAM_EDM edm4hep:${EDM4HEP_DATA_DIR}/edm4hep.yaml
   IO_BACKEND_HANDLERS ${PODIO_IO_HANDLERS}
   OUTPUT_FOLDER ${CMAKE_CURRENT_BINARY_DIR})
-PODIO_ADD_DATAMODEL_CORE_LIB(VertexingExtension "${ext_headers}" "${ext_sources}"
+PODIO_ADD_DATAMODEL_CORE_LIB(extensionVertexing "${ext_headers}" "${ext_sources}"
   OUTPUT_FOLDER ${CMAKE_CURRENT_BINARY_DIR})
-target_link_libraries(VertexingExtension PUBLIC EDM4HEP::edm4hep)
-PODIO_ADD_ROOT_IO_DICT(VertexingExtensionDict VertexingExtension "${ext_headers}" src/selection.xml
+target_link_libraries(extensionVertexing PUBLIC EDM4HEP::edm4hep)
+PODIO_ADD_ROOT_IO_DICT(VertexingExtensionDict extensionVertexing "${ext_headers}" src/selection.xml
   OUTPUT_FOLDER ${CMAKE_CURRENT_BINARY_DIR})
-#PODIO_ADD_SIO_IO_BLOCKS(VertexingExtension "${ext_headers}" "${ext_sources}")
-add_library(extension::extensionDict ALIAS VertexingExtensionDict)
-list(APPEND EXTENSION_INSTALL_LIBS VertexingExtension VertexingExtensionDict)
+#PODIO_ADD_SIO_IO_BLOCKS(extensionVertexing "${ext_headers}" "${ext_sources}")
+add_library(extensionVertexing::extensionDict ALIAS VertexingExtensionDict)
+list(APPEND EXTENSION_INSTALL_LIBS extensionVertexing VertexingExtensionDict)
 
 install(TARGETS ${EXTENSION_INSTALL_LIBS}
   EXPORT ${PROJECT_NAME}Targets
   RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}" COMPONENT bin
   LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}" COMPONENT shlib
-  PUBLIC_HEADER DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/extension"
+  PUBLIC_HEADER DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/extensionVertexing"
   COMPONENT dev)
 
 install(FILES
@@ -29,7 +29,7 @@ install(FILES
 
 install(FILES
   dataFormatExtension/Vertex.yaml
-  DESTINATION "${CMAKE_INSTALL_PREFIX}/extension" COMPONENT dev)
+  DESTINATION "${CMAKE_INSTALL_PREFIX}/extensionVertexing" COMPONENT dev)
 
 install(FILES
   "${PROJECT_BINARY_DIR}/libVertexingExtensionDict_rdict.pcm"
@@ -55,13 +55,13 @@ gaudi_add_module(${PackageName}
     ROOT::MathCore
     ROOT::Matrix
     ROOT::Physics
-    extensionDict
     VertexingExtensionDict
 )
 
 target_include_directories(${PackageName} PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
+  ${CMAKE_INSTALL_PREFIX}/extensionVertexing
 )
 
 set_target_properties(${PackageName} PROPERTIES PUBLIC_HEADER "${headers}")
@@ -78,7 +78,7 @@ install(FILES ${scripts} DESTINATION test)
 SET(test_name "test_vertexFinder")
 ADD_TEST(NAME ${test_name} COMMAND sh +x test_vertexFinder.sh)
 set_test_env(${test_name})
-set_tests_properties(${test_name} PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/Vertexing/test/testDeterministicAnnealingVertexFindereter")
+set_tests_properties(${test_name} PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/Vertexing/test/testDeterministicAnnealingVertexFinder")
 
 
 SET(test_name "test_vertexFitter")

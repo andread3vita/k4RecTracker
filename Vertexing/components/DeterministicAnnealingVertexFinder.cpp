@@ -6,8 +6,7 @@
 
 // EDM4hep
 #include "edm4hep/TrackCollection.h"
-#include "edm4hep/VertexCollection.h"
-#include "extension/VertexCollection.h"
+#include "extensionVertexing/VertexCollection.h"
 
 // Vertexing kernel
 #include "LinearizedHelixVertexFitter.h"
@@ -24,7 +23,7 @@
  *  @author Andrea De Vita
  */
 struct DeterministicAnnealingVertexFinder final
-    : k4FWCore::Transformer<extension::VertexCollection(const edm4hep::TrackCollection&)> {
+    : k4FWCore::Transformer<extensionVertexing::VertexCollection(const edm4hep::TrackCollection&)> {
 
   DeterministicAnnealingVertexFinder(const std::string& name, ISvcLocator* svcLoc)
       : Transformer(name, svcLoc,
@@ -34,9 +33,9 @@ struct DeterministicAnnealingVertexFinder final
 
   StatusCode initialize() override { return StatusCode::SUCCESS; }
 
-  extension::VertexCollection operator()(const edm4hep::TrackCollection& fittedTracks) const override {
+  extensionVertexing::VertexCollection operator()(const edm4hep::TrackCollection& fittedTracks) const override {
 
-    extension::VertexCollection VerticesCandidates;
+    extensionVertexing::VertexCollection VerticesCandidates;
 
     // Create a new vertex candidate and add all the track to it
     auto vertexCandidate = VerticesCandidates.create();

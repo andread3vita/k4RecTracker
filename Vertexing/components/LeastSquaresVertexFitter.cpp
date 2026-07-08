@@ -7,7 +7,7 @@
 // EDM4hep
 #include "edm4hep/TrackCollection.h"
 #include "edm4hep/VertexCollection.h"
-#include "extension/VertexCollection.h"
+#include "extensionVertexing/VertexCollection.h"
 
 // Vertexing kernel
 #include "LinearizedHelixVertexFitter.h"
@@ -21,7 +21,7 @@
  *  Gaudi transformer that refines a collection of candidate vertices by
  *  performing a least-squares vertex fit on the associated tracks.
  *
- *  Each input extension::Vertex is treated as a vertex hypothesis containing
+ *  Each input extensionVertexing::Vertex is treated as a vertex hypothesis containing
  *  a set of associated edm4hep::Track objects. The algorithm re-fits each
  *  vertex position using a linearised helix-based least-squares method
  *  implemented in LinearizedHelixVertexFitter.
@@ -43,7 +43,7 @@
  *  @author Mahmoud Althakeel, Andrea De Vita (adapted from F. Bedeschi’s Delphes VertexFit)
  */
 struct LeastSquaresVertexFitter final
-    : k4FWCore::Transformer<extension::VertexCollection(const extension::VertexCollection&)> {
+    : k4FWCore::Transformer<extensionVertexing::VertexCollection(const extensionVertexing::VertexCollection&)> {
 
   LeastSquaresVertexFitter(const std::string& name, ISvcLocator* svcLoc)
       : Transformer(name, svcLoc,
@@ -63,9 +63,9 @@ struct LeastSquaresVertexFitter final
     return StatusCode::SUCCESS;
   }
 
-  extension::VertexCollection operator()(const extension::VertexCollection& verticesCandidates) const override {
+  extensionVertexing::VertexCollection operator()(const extensionVertexing::VertexCollection& verticesCandidates) const override {
 
-    extension::VertexCollection fittedVertices;
+    extensionVertexing::VertexCollection fittedVertices;
     for (const auto& vertex : verticesCandidates) {
 
       auto numberOfTracks = vertex.getTracks().size();

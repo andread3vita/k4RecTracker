@@ -10,7 +10,7 @@ options:
 
 datatypes:
 
-  extension::Vertex:
+  extensionVertexing::Vertex:
     Description: "Vertex"
     Author: "EDM4hep authors"
 
