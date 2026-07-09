@@ -114,7 +114,7 @@ struct GGTFTrackFinder final : k4FWCore::MultiTransformer<std::tuple<edm4hep::Tr
     ///////////////////////////////
 
     m_fInfo = std::make_unique<Ort::MemoryInfo>(Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault));
-    m_fEnv  = std::make_unique<Ort::Env>(ORT_LOGGING_LEVEL_WARNING, "ONNX_Runtime");
+    m_fEnv = std::make_unique<Ort::Env>(ORT_LOGGING_LEVEL_WARNING, "ONNX_Runtime");
 
     m_fSessionOptions.SetIntraOpNumThreads(1);
     m_fSessionOptions.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_DISABLE_ALL);
@@ -146,13 +146,13 @@ struct GGTFTrackFinder final : k4FWCore::MultiTransformer<std::tuple<edm4hep::Tr
       return std::make_tuple(std::move(outputTracks));
     }
     if (batch.nHits >= kMaxHits) {
-      warning() << "Event " << m_indexCounter << " has " << batch.nHits
-                << " hits, exceeding the configured limit of " << kMaxHits << " - skipping." << endmsg;
+      warning() << "Event " << m_indexCounter << " has " << batch.nHits << " hits, exceeding the configured limit of "
+                << kMaxHits << " - skipping." << endmsg;
       return std::make_tuple(std::move(outputTracks));
     }
 
     const std::vector<float> modelOutput = runInference(batch.features, batch.nHits);
-    const torch::Tensor clusterIds       = get_clustering(modelOutput, batch.nHits, m_tbeta, m_td);
+    const torch::Tensor clusterIds = get_clustering(modelOutput, batch.nHits, m_tbeta, m_td);
 
     buildTracks(clusterIds, batch, inputPlanarHitCollections, inputWireHitCollections, outputTracks);
 
@@ -172,7 +172,6 @@ public:
   mutable int m_indexCounter = 0;
 
 private:
-
   // Flattened per-event hit buffer
   struct HitBatch {
     std::vector<float> features;          // size = nHits * 7
@@ -209,8 +208,7 @@ private:
     }
   }
 
-  void appendWireHits(const std::vector<const edm4hep::SenseWireHitCollection*>& collections,
-                      HitBatch& batch) const {
+  void appendWireHits(const std::vector<const edm4hep::SenseWireHitCollection*>& collections, HitBatch& batch) const {
     int64_t collIdx = 0;
     for (const auto* collection : collections) {
       batch.features.reserve(batch.features.size() + collection->size() * 7);
@@ -220,17 +218,18 @@ private:
         const edm4hep::Vector3d wirePos = hit.getPosition();
         const TVector3 wirePosVector(wirePos.x, wirePos.y, wirePos.z);
 
-        const double distanceToWire     = hit.getDistanceToWire();
+        const double distanceToWire = hit.getDistanceToWire();
         const double wireAzimuthalAngle = hit.getWireAzimuthalAngle();
-        const double wireStereoAngle    = hit.getWireStereoAngle();
+        const double wireStereoAngle = hit.getWireStereoAngle();
 
         TVector3 zPrime, xPrime, yPrime;
         const double dx = std::sin(wireStereoAngle) * std::sin(wireAzimuthalAngle);
         const double dy = -std::sin(wireStereoAngle) * std::cos(wireAzimuthalAngle);
         const double dz = std::cos(wireStereoAngle);
         zPrime = TVector3(dx, dy, dz).Unit();
-        xPrime = TVector3(1.0, 0.0, -dx / dz).Unit(); // x' = normalize([1, 0, -dx/dz])  -- diverges/undefined as dz -> 0
-        yPrime = zPrime.Cross(xPrime).Unit();         // y' = z' x x'
+        xPrime =
+            TVector3(1.0, 0.0, -dx / dz).Unit(); // x' = normalize([1, 0, -dx/dz])  -- diverges/undefined as dz -> 0
+        yPrime = zPrime.Cross(xPrime).Unit();    // y' = z' x x'
 
         const TVector3 leftLocal(-distanceToWire, 0.0, 0.0);
         const TVector3 rightLocal(distanceToWire, 0.0, 0.0);
@@ -263,15 +262,14 @@ private:
     const std::vector<int64_t> inputShape = {nHits, 7};
 
     std::vector<Ort::Value> inputs;
-    inputs.emplace_back(Ort::Value::CreateTensor<float>(*m_fInfo, features.data(), features.size(),
-                                                        inputShape.data(), inputShape.size()));
+    inputs.emplace_back(Ort::Value::CreateTensor<float>(*m_fInfo, features.data(), features.size(), inputShape.data(),
+                                                        inputShape.size()));
 
     auto outputs = m_fSession->Run(Ort::RunOptions{nullptr}, m_fInames.data(), inputs.data(), m_fInames.size(),
                                    m_fOnames.data(), m_fOnames.size());
 
     const float* raw = outputs.front().GetTensorMutableData<float>();
     return std::vector<float>(raw, raw + nHits * 4);
-
   }
 
   // Groups hits by cluster id and emits one output track per cluster.
@@ -280,16 +278,16 @@ private:
                    const std::vector<const edm4hep::SenseWireHitCollection*>& wireCollections,
                    edm4hep::TrackCollection& outputTracks) const {
 
-    const auto ids  = clusterIds.to(torch::kInt64).contiguous();
+    const auto ids = clusterIds.to(torch::kInt64).contiguous();
     const int64_t n = ids.size(0);
     if (n == 0) {
       return;
     }
 
-    const auto order     = torch::argsort(ids);
+    const auto order = torch::argsort(ids);
     const auto sortedIds = ids.index_select(0, order);
 
-    const auto orderAcc     = order.accessor<int64_t, 1>();
+    const auto orderAcc = order.accessor<int64_t, 1>();
     const auto sortedIdsAcc = sortedIds.accessor<int64_t, 1>();
 
     int64_t start = 0;
@@ -336,7 +334,7 @@ private:
   // ONNX memory info, describing memory type/device for tensor creation.
   std::unique_ptr<Ort::MemoryInfo> m_fInfo;
 
-  // Owned storage for input/output names 
+  // Owned storage for input/output names
   std::vector<std::string> m_inputNamesOwned;
   std::vector<std::string> m_outputNamesOwned;
   std::vector<const char*> m_fInames;

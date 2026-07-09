@@ -655,8 +655,8 @@ private:
 
     track_interface.CreateGenFitTrack(particleHypothesis, debug_track);
 
-    bool isFit = track_interface.Fit(FittedHits, m_Fitter_type.value(), m_printoutLevel, m_Beta_init, m_Beta_final, m_Beta_steps,
-                                     m_filterTrackHits);
+    bool isFit = track_interface.Fit(FittedHits, m_Fitter_type.value(), m_printoutLevel, m_Beta_init, m_Beta_final,
+                                     m_Beta_steps, m_filterTrackHits);
 
     if (!isFit) {
       debug() << "Track fit FAILED for track " << num_tracks - 1 << endmsg;
@@ -761,7 +761,8 @@ private:
    *       additional physics constraints or likelihood-based criteria.
    * @note All fits are performed with debug output disabled and without hit filtering.
    */
-  int FindBestHypothesis(const edm4hep::Track& track, edm4hep::TrackerHitPlaneCollection& fittedHits, bool LimitHits) const {
+  int FindBestHypothesis(const edm4hep::Track& track, edm4hep::TrackerHitPlaneCollection& fittedHits,
+                         bool LimitHits) const {
 
     TVector3 Init_position(m_init_position.value()[0], m_init_position.value()[1], m_init_position.value()[2]);
 
@@ -783,7 +784,8 @@ private:
 
       track_interface.CreateGenFitTrack(pdgCode, 0);
 
-      bool isFit = track_interface.Fit(fittedHits, m_Fitter_type.value(), 0, m_Beta_init, m_Beta_final, m_Beta_steps, false);
+      bool isFit =
+          track_interface.Fit(fittedHits, m_Fitter_type.value(), 0, m_Beta_init, m_Beta_final, m_Beta_steps, false);
 
       if (!isFit)
         continue;
