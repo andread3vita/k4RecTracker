@@ -16,7 +16,8 @@ target_link_libraries(extension PUBLIC EDM4HEP::edm4hep)
 PODIO_ADD_ROOT_IO_DICT(extensionDict extension "${ext_headers}" src/selection.xml
   OUTPUT_FOLDER ${CMAKE_CURRENT_BINARY_DIR})
 #PODIO_ADD_SIO_IO_BLOCKS(extension "${ext_headers}" "${ext_sources}")
-add_library(extension::extensionDict ALIAS extensionDict)
+add_library(extension::driftChamber ALIAS extension)
+add_library(extension::driftChamberDict ALIAS extensionDict)
 list(APPEND EXTENSION_INSTALL_LIBS extension extensionDict)
 install(TARGETS ${EXTENSION_INSTALL_LIBS}
   EXPORT ${PROJECT_NAME}Targets
