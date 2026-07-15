@@ -214,7 +214,7 @@ ApplicationMgr(
         siwrd_digitizer,
         perfectFinder,
         trackFitter,
-        vertexFinder
+        vertexFinder,
     ],
     EvtSel="NONE",
     EvtMax=-1,
