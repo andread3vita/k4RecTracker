@@ -1,173 +1,144 @@
-# Key4Hep Tracking Algorithms for FCC-ee detectors
+# Tracking components
 
-This subfolder contains the implementation of several Tracking tools for FCC-ee detectors using the key4hep framework:
+The `Tracking` package provides Gaudi components for truth-assisted and machine-learning-based track finding, track fitting, generator-level track construction, tracking validation, and drift-chamber particle-identification observables.
 
-* GGTFTrackFinder
-* PlotTrackHitResiduals
-* TrackdNdxDelphesBased
-* TracksFromGenParticles
+Collection names shown below are the configurable Gaudi property names. The names in parentheses are their defaults.
 
-## Geometric Graph Track Finding
+## Component overview
 
-The **Geometric Graph Track Finding (GGTF)** method is an end-to-end, detector-agnostic approach to tracking pattern recognition. It provides a generalized geometric strategy for track finding that:
+| Component | Purpose | Main input | Main output |
+| --- | --- | --- | --- |
+| `GGTFTrackFinder` | Detector-agnostic tracking pattern recognition with an ONNX graph model | Planar and wire tracker hits | Reconstructed tracks |
+| `PerfectTrackFinder` | MC-truth-based hit grouping for validation | Digitized-to-simulated hit links and MC particles | Truth-assisted tracks |
+| `GenfitTrackFitter` | Fit reconstructed tracks with GENFIT | Tracks containing tracker hits | Fitted tracks and filtered hits |
+| `TracksFromGenParticles` | Build idealized helix tracks directly from generator particles | MC particles and simulated tracker hits | Tracks and track-to-particle links |
+| `PlotTrackHitDistances` | Fill track-to-simulated-hit residual histograms | Simulated hits and track-to-particle links | Gaudi histogram |
+| `TrackdNdxDelphesBased` | Smear the expected drift-chamber cluster density | Track-to-particle links and event header | Reconstructed dN/dx quantities |
 
-1. accommodates multiple sub-detectors with heterogeneous input geometries and tracking technologies,
-2. does not require detailed knowledge of the detector geometry or material composition, and
-3. avoids reliance on analytical parametrizations of particle trajectories.
+## `GGTFTrackFinder`
 
-In our end-to-end pipeline, hits from all tracking components are directly processed to produce a set of reconstructed tracks. A key innovation is the use of a *geometric algebra representation* of the data, which enables the integration of diverse geometric types. This is combined with a graph neural network, **GATr**, designed to exploit detector symmetries through equivariance.
+`GGTFTrackFinder` performs tracking pattern recognition directly on digitized silicon and drift-chamber hits. It converts every hit into a seven-component feature vector, evaluates an ONNX Geometric Graph Track Finding model, clusters the learned embedding, and creates one `edm4hep::Track` per non-noise cluster. The produced tracks contain relations to their assigned input hits but are not fitted.
 
-### Technical Implementation
+Inputs:
 
-We implemented a **Geometric Graph Track Finder (GGTF)** in `k4RecTracker/Tracking/components/GGTFTrackFinder.cpp`.
-Its workflow can be summarized as follows:
+- `InputPlanarHitCollections`: vector of `edm4hep::TrackerHitPlaneCollection`, normally vertex-detector and silicon-wrapper hits.
+- `InputWireHitCollections`: vector of `edm4hep::SenseWireHitCollection`, normally drift-chamber hits.
 
-1. **Input Extraction**
-   - From the hit collections, a 7-dimensional tensor is built.
-   - The components are:
-     - **[0–2]**: 3D position of the silicon detector hits (e.g., vertex and wrapper).
-     - **[3]**: hit type (`0` = silicon detector hit, `1` = drift chamber hit).
-     - **[4–6]**: vector components pointing from the left to the right positions along the circles that identify the drift chamber hits (set to `0` for silicon hits).
+Output:
 
-2. **Machine Learning Step**
-   - The 7-dimensional inputs are mapped into a collection of 4-dimensional points in an embedding space.
-   - Each 4D point consists of **3 geometric coordinates** and **1 charge-like component**.
-   - Intuitively, this charge can be seen as a potential that **attracts hits of the same cluster** and **repels unrelated ones**.
-   - This step is implemented with an [`Ort::Session`](https://onnx.ai/) initialized with a `.onnx` model.
+- `OutputTracksGGTF` (`OutputTracksGGTF`): `edm4hep::TrackCollection` containing the hit clusters reconstructed as tracks.
 
-3. **Clustering Step**
-   - The 4D embedded points are clustered into sub-collections.
-   - Each cluster corresponds **one-to-one** to a reconstructed track.
+Important properties:
 
-4. **Track Creation**
-   - The identified clusters are converted into tracks.
-   - The final results are stored in the collection `OutputTracksGGTF`.
+- `ModelPath`: path to the required ONNX model.
+- `Tbeta` (0.6): threshold used to identify cluster cores.
+- `Td` (0.3): radius used to associate embedded points with a cluster core.
 
-### Dependencies
+An example steering file is available in [`test/testTrackFinder/runTestTrackFinder.py`](test/testTrackFinder/runTestTrackFinder.py).
 
-* ROOT
-* PODIO
-* Gaudi
-* k4FWCore
-* ONNX
+## `PerfectTrackFinder`
 
-### Installation
+`PerfectTrackFinder` groups digitized hits using their Monte Carlo associations. For each stable MC particle, it collects linked planar and wire hits, orders them by simulated-hit time, and creates a track. It is intended for reconstruction validation and for studying later stages without pattern-recognition inefficiency.
 
-This algorithm can be installed by compiling the whole k4RecTracker project.
+Inputs:
 
-### Execution
+- `InputPlanarHitCollections`: vector of `edm4hep::TrackerHitSimTrackerHitLinkCollection` for planar detectors.
+- `InputWireHitCollections`: vector of `edm4hep::TrackerHitSimTrackerHitLinkCollection` for wire detectors.
+- `InputMCParticles`: `edm4hep::MCParticleCollection`.
 
-Run the tagger by including the **GGTF_tracking** algorithm in a steering file like [runTestTrackFinder.py](test/testTrackFinder/runTestTrackFinder.py) and run it like this:
+Output:
 
-```bash
-k4run test/testTrackFinder/runTestTrackFinder.py --modelPath <MODEL_PATH> --tbeta <TBETA> --td <TD>
+- `OutputPerfectTracks`: `edm4hep::TrackCollection` with truth-associated tracker hits.
+
+These tracks still need a track fitter before algorithms requiring fitted `TrackState` parameters are run.
+
+## `GenfitTrackFitter`
+
+`GenfitTrackFitter` converts EDM4hep tracks and their planar or wire measurements into GENFIT objects, performs the configured Kalman or deterministic-annealing fit, and converts the result back to EDM4hep. Magnetic-field propagation, detector material, multiple scattering, energy loss, left/right drift-chamber ambiguity, and optional calorimeter extrapolation are supported.
+
+Input:
+
+- `InputTracks` (`InputTracks`): `edm4hep::TrackCollection` containing tracker-hit relations.
+
+Outputs:
+
+- `OutputFittedTracks` (`Fitted_tracks`): `edm4hep::TrackCollection` with fitted states and fit-quality information.
+- `OutputFittedTracksWithFilteredHits` (`Fitted_tracks_with_filtered_hits`): fitted tracks whose hit relations reflect hit filtering and resolved drift-chamber ambiguities.
+- `OutputFittedHits` (`Fitted_hits`): `edm4hep::TrackerHitPlaneCollection` containing the filtered or reconstructed measurement positions.
+
+Important properties include `FitterType`, `ParticleHypothesisList`, `TrackStateLocation`, `UseBrems`, `FilterTrackHits`, `RunSingleEvaluation`, `SkipTrackOrdering`, `BetaInit`, `BetaFinal`, and `BetaSteps`. The component requires `GeoSvc`; calorimeter extrapolation additionally requires suitable calorimeter geometry extensions.
+
+An example is available in [`test/testTrackFitter/runTestTrackFitter.py`](test/testTrackFitter/runTestTrackFitter.py).
+
+## `TracksFromGenParticles`
+
+`TracksFromGenParticles` constructs idealized helix tracks from charged generator particles. It derives helix parameters from particle position, momentum, charge, and the DD4hep magnetic field, then creates states at the interaction point and, when available, at the first and last simulated tracker hits. Optional extrapolation creates a state at the electromagnetic calorimeter.
+
+Inputs:
+
+- `InputGenParticles` (`MCParticles`): `edm4hep::MCParticleCollection`.
+- `InputSimTrackerHits` (`SimTrackerHits`): vector of `edm4hep::SimTrackerHitCollection`.
+
+Outputs:
+
+- `OutputTracks` (`TracksFromGenParticles`): generated `edm4hep::TrackCollection`.
+- `OutputMCRecoTrackParticleAssociation` (`TracksFromGenParticlesAssociation`): `edm4hep::TrackMCParticleLinkCollection` connecting each output track to its source particle.
+
+Useful properties include `MinimumParticleMomentum`, `TrackerIDs`, `ExtrapolateToECal`, and `KeepOnlyBestExtrapolation`.
+
+## `PlotTrackHitDistances`
+
+`PlotTrackHitDistances` is a validation consumer. For every track-to-particle association, it builds a helix from the track state at the interaction point and fills the three-dimensional closest-approach distance to simulated hits produced by the same MC particle.
+
+Inputs:
+
+- `InputSimTrackerHits` (`DCHCollection`): `edm4hep::SimTrackerHitCollection`.
+- `InputTracksFromGenParticlesAssociation` (`TracksFromGenParticlesAssociation`): `edm4hep::TrackMCParticleLinkCollection`.
+
+Output:
+
+- Gaudi histogram `track_hits_distance_closest_approach`; no event-data collection is produced.
+
+The `Bz` property (2 T by default) sets the constant longitudinal magnetic field used by the validation helix.
+
+## `TrackdNdxDelphesBased`
+
+`TrackdNdxDelphesBased` estimates the drift-chamber cluster density using the Delphes parametrization. It obtains particle kinematics from the MC association, calculates the expected number of clusters along the track within geometry boundaries, applies statistical fluctuations and detector fill factor, and stores a reconstructed dN/dx measurement.
+
+Inputs:
+
+- `InputLinkCollection` (`TrackMCParticleLinks`): `edm4hep::TrackMCParticleLinkCollection`.
+- `HeaderName` (`EventHeader`): `edm4hep::EventHeaderCollection`, used to seed reproducible random fluctuations.
+
+Output:
+
+- `OutputCollection` (`RecDqdxCollection`): `edm4hep::RecDqdxCollection` associated with the input tracks.
+
+The component requires `GeoSvc` and `UniqueIDGenSvc`. Its gas-mixture, fill-factor, and detector-boundary property names must match the detector description.
+
+## Typical reconstruction sequences
+
+Data-like reconstruction:
+
+```text
+digitized tracker hits
+    -> GGTFTrackFinder
+    -> GenfitTrackFitter
+    -> fitted tracks
 ```
 
-This will return your edm4hep output file with the added `OutputTracksGGTF` collection.
+Truth-assisted validation:
 
-### Retraining a model
+```text
+digitized-to-simulated hit links + MC particles
+    -> PerfectTrackFinder
+    -> GenfitTrackFitter
+```
 
-When the project is compiled, the latest trained model for **IDEA_o1_v2** is automatically downloaded.
-This model has been trained on **Z → qq** events at 91 GeV without background.
+Generator-level performance studies:
 
-It is recommended to re-train the model if:
-
-* you plan to apply the same architecture to other detectors (e.g., **CLD**), or
-
-* you wish to include additional physics processes (e.g., background).
-
-To proceed, you need to clone [this repository](https://github.com/andread3vita/Tracking_DC/tree/devBranch), which provides the Python implementation of the model along with instructions for re-training it and converting the resulting checkpoint file (`.ckpt`) into an **ONNX** file. The ONNX file can then be used to load the model for inference.
-
-## Genfit Track Fitter
-
-**Genfit Track Fitter** is a Gaudi MultiTransformer algorithm developed within the Key4hep framework. It refines reconstructed tracks using the GENFIT tracking toolkit.
-
-The algorithm performs a full track fit including:
-
-- Magnetic field propagation
-- Material effects handling
-- Drift chamber and planar measurement support
-
-It outputs a new edm4hep::TrackCollection containing fitted tracks with updated track states and fit quality information.
-
-### Technical Implementation
-
-The **GenFit-based Track Fitter** has been integrated into the reconstruction chain by developing a dedicated interface layer between **EDM4hep/Key4hep** data structures and the **GenFit** tracking framework.
-
-The main fitting algorithm is implemented in:
-
-- `components/GenfitTrackFitter.cpp`
-
-while the interface layer connecting EDM4hep and GenFit is located in:
-
-- `include/genfit_interfaces/`
-- `src/genfit_interfaces/`
-
-#### 1. EDM4hep - GenFit Interface Layer
-
-To ensure a clean separation between the experiment data model and the fitting engine, dedicated wrapper classes were implemented.
-
-##### Implemented Interfaces
-
-- `GenfitTrack.{h,cpp}`
-  Converts an `edm4hep::Track` into a GenFit track object and back.
-
-- `GenfitPlanarMeasurement.{h,cpp}`
-  Wraps silicon planar hits into GenFit `PlanarMeasurement` objects.
-
-- `GenfitWireMeasurement.{h,cpp}`
-  Converts drift chamber hits into GenFit `WireMeasurement` objects.
-
-- `GenfitField.{h,cpp}`
-  Provides the magnetic field interface required by GenFit.
-
-- `GenfitMaterialInterface.{h,cpp}`
-  Connects detector material effects (energy loss, multiple scattering) to GenFit.
-
-This modular structure ensures:
-- EDM4hep objects remain unchanged.
-- GenFit operates with its native abstractions.
-- All conversion logic is centralized and reusable.
-
-#### 2. Track Preparation
-
-Inside `GenfitTrackFitter.cpp`, the workflow proceeds as follows:
-
-1. Read the input `edm4hep::TrackCollection`.
-2. Extract associated tracker hits.
-3. Convert hits into:
-   - `GenfitPlanarMeasurement` (silicon detectors),
-   - `GenfitWireMeasurement` (drift chamber).
-4. Build a `GenfitTrack` object containing all measurements.
-
-#### 3. Magnetic Field and Material Setup
-
-Before running the fit, GenFit requires:
-
-- A magnetic field instance provided by `GenfitField`
-- A material effects interface provided by `GenfitMaterialInterface`
-
-These are initialized and registered within GenFit’s global environment.
-
-#### 4. Track Fitting
-
-The fitting procedure consists of:
-
-1. Instantiating a Kalman-based fitter (e.g. `KalmanFitterRefTrack`).
-2. Executing the fit on the `GenfitTrack`.
-3. Extracting fitted parameters:
-   - Position
-   - Momentum
-   - Covariance matrix
-   - $\chi^2$ and fit quality indicators
-
-#### 5. GenFit - EDM4hep Conversion
-
-After the fit:
-
-1. Fitted parameters are converted back to EDM4hep format.
-2. A new `edm4hep::Track` is created.
-3. Track states and covariance matrices are stored.
-4. The results are written to the output collection.
-
-
+```text
+MC particles + simulated hits
+    -> TracksFromGenParticles
+    -> PlotTrackHitDistances
+```
