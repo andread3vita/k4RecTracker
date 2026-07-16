@@ -1,12 +1,3 @@
-# Example steering for the LeastSquaresVertexFitter Gaudi transformer.
-#
-# It reads a podio/EDM4hep file that already contains a reconstructed
-# edm4hep::TrackCollection and fits those tracks to a common vertex, writing an
-# edm4hep::VertexCollection to the output file.
-#
-# Adapt "Input", the track collection name and (optionally) the beam-spot
-# settings to your sample.
-
 import os
 import math
 from k4FWCore import ApplicationMgr, IOSvc
@@ -192,12 +183,16 @@ trackFitter.UseFirstHitAsReference = False
 
 trackFitter.ParticleHypothesisList = [13]
 
-from Configurables import SimpleVertexFinder
+from Configurables import LCFIPlusVertexFinder
 
-vertexFinder = SimpleVertexFinder(
-    "DeterministicAnnealingVertexFinder",
+vertexFinder = LCFIPlusVertexFinder(
+    "LCFIPlusVertexFinder",
     InputFittedTracks=["FittedTracks"],
-    OutputVerticesCandidates=["VerticesCandidates"],
+    OutputVerticesCandidates=["VertexCandidates"],
+    PrimaryTrackChi2Cut=25.0,
+    Chi2Cut=25.0,
+    AddedTrackChi2Cut=25.0,
+    RejectV0s=True,
     OutputLevel=INFO,
 )
 

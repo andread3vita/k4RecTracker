@@ -100,12 +100,14 @@ file(
   GLOB vertexing_sources
   CONFIGURE_DEPENDS
   "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp"
+  ${PROJECT_SOURCE_DIR}/src/*.cpp
   "${CMAKE_CURRENT_SOURCE_DIR}/components/*.cpp"
 )
 
 file(
   GLOB vertexing_headers
   CONFIGURE_DEPENDS
+  ${PROJECT_SOURCE_DIR}/include/*.h
   "${CMAKE_CURRENT_SOURCE_DIR}/include/*.h"
 )
 
@@ -251,49 +253,73 @@ install(
 file(
   GLOB vertexing_test_scripts
   CONFIGURE_DEPENDS
-  "${CMAKE_CURRENT_SOURCE_DIR}/test/testSimpleVertexFinder/*.py"
-  "${CMAKE_CURRENT_SOURCE_DIR}/test/testSimpleVertexFinder/*.sh"
+  "${CMAKE_CURRENT_SOURCE_DIR}/test/testLCFIPlusVertexFinder/*.py"
+  "${CMAKE_CURRENT_SOURCE_DIR}/test/testLCFIPlusVertexFinder/*.sh"
 )
 
-file(
-  MAKE_DIRECTORY
-  "${CMAKE_CURRENT_BINARY_DIR}/test/testSimpleVertexFinder"
-)
+file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test/testLCFIPlusVertexFinder")
 
 file(
-  COPY
-    ${vertexing_test_scripts}
-
-  DESTINATION
-    "${CMAKE_CURRENT_BINARY_DIR}/test/testSimpleVertexFinder"
+  COPY ${vertexing_test_scripts}
+  DESTINATION "${CMAKE_CURRENT_BINARY_DIR}/test/testLCFIPlusVertexFinder"
 )
 
 install(
-  FILES
-    ${vertexing_test_scripts}
-
-  DESTINATION
-    "test/testSimpleVertexFinder"
-
+  FILES ${vertexing_test_scripts}
+  DESTINATION "test/testLCFIPlusVertexFinder"
   COMPONENT dev
 )
 
-set(test_name test_vertexFinder)
-
 add_test(
-  NAME
-    ${test_name}
-
-  COMMAND
-    sh test_vertexFinder.sh
+  NAME test_LCFIPlusVertexFinder
+  COMMAND sh test_vertexFinder.sh
 )
 
-set_test_env(${test_name})
+set_test_env(test_LCFIPlusVertexFinder)
 
 set_tests_properties(
-  ${test_name}
-
+  test_LCFIPlusVertexFinder
   PROPERTIES
     WORKING_DIRECTORY
-      "${CMAKE_CURRENT_BINARY_DIR}/test/testSimpleVertexFinder"
+      "${CMAKE_CURRENT_BINARY_DIR}/test/testLCFIPlusVertexFinder"
+    FIXTURES_SETUP
+      vertex_finder_output
+)
+
+file(
+  GLOB vertex_fitter_test_scripts
+  CONFIGURE_DEPENDS
+  "${CMAKE_CURRENT_SOURCE_DIR}/test/testLeastSquaresVertexFitter/*.py"
+  "${CMAKE_CURRENT_SOURCE_DIR}/test/testLeastSquaresVertexFitter/*.sh"
+)
+
+file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test/testLeastSquaresVertexFitter")
+
+file(
+  COPY ${vertex_fitter_test_scripts}
+  DESTINATION "${CMAKE_CURRENT_BINARY_DIR}/test/testLeastSquaresVertexFitter"
+)
+
+install(
+  FILES ${vertex_fitter_test_scripts}
+  DESTINATION "test/testLeastSquaresVertexFitter"
+  COMPONENT dev
+)
+
+add_test(
+  NAME test_LeastSquaresVertexFitter
+  COMMAND sh test_vertexFitter.sh
+)
+
+set_test_env(test_LeastSquaresVertexFitter)
+
+set_tests_properties(
+  test_LeastSquaresVertexFitter
+  PROPERTIES
+    WORKING_DIRECTORY
+      "${CMAKE_CURRENT_BINARY_DIR}/test/testLeastSquaresVertexFitter"
+    DEPENDS
+      test_LCFIPlusVertexFinder
+    FIXTURES_REQUIRED
+      vertex_finder_output
 )
