@@ -287,6 +287,44 @@ set_tests_properties(
 )
 
 file(
+  GLOB simple_vertex_finder_test_scripts
+  CONFIGURE_DEPENDS
+  "${CMAKE_CURRENT_SOURCE_DIR}/test/testSimpleVertexFinder/*.py"
+  "${CMAKE_CURRENT_SOURCE_DIR}/test/testSimpleVertexFinder/*.sh"
+)
+
+file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test/testSimpleVertexFinder")
+
+file(
+  COPY ${simple_vertex_finder_test_scripts}
+  DESTINATION "${CMAKE_CURRENT_BINARY_DIR}/test/testSimpleVertexFinder"
+)
+
+install(
+  FILES ${simple_vertex_finder_test_scripts}
+  DESTINATION "test/testSimpleVertexFinder"
+  COMPONENT dev
+)
+
+add_test(
+  NAME test_SimpleVertexFinder
+  COMMAND sh test_simpleVertexFinder.sh
+)
+
+set_test_env(test_SimpleVertexFinder)
+
+set_tests_properties(
+  test_SimpleVertexFinder
+  PROPERTIES
+    WORKING_DIRECTORY
+      "${CMAKE_CURRENT_BINARY_DIR}/test/testSimpleVertexFinder"
+    DEPENDS
+      test_LCFIPlusVertexFinder
+    FIXTURES_REQUIRED
+      vertex_finder_output
+)
+
+file(
   GLOB vertex_fitter_test_scripts
   CONFIGURE_DEPENDS
   "${CMAKE_CURRENT_SOURCE_DIR}/test/testLeastSquaresVertexFitter/*.py"
