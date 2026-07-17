@@ -68,10 +68,11 @@ edm4hep::TrackState getExtrapolationAtCalorimeter(const pandora::CartesianVector
 
   // fill the TrackState parameters
   trackState_AtCalorimeter.location = edm4hep::TrackState::AtCalorimeter;
-  trackState_AtCalorimeter.D0 = helixAtCalorimeter.getD0();
+  // The calorimeter position is the reference point of this local TrackState.
+  trackState_AtCalorimeter.D0 = 0.;
   trackState_AtCalorimeter.phi = std::atan2(momAtCalorimeter[1], momAtCalorimeter[0]);
   trackState_AtCalorimeter.omega = helixAtCalorimeter.getOmega();
-  trackState_AtCalorimeter.Z0 = helixAtCalorimeter.getZ0();
+  trackState_AtCalorimeter.Z0 = 0.;
   trackState_AtCalorimeter.tanLambda = helixAtCalorimeter.getTanLambda();
   trackState_AtCalorimeter.referencePoint =
       edm4hep::Vector3f(posAtCalorimeter[0], posAtCalorimeter[1], posAtCalorimeter[2]);

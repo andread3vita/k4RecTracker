@@ -74,10 +74,14 @@ struct LCFIPlusVertexFinder final
 
   extension::VertexCollection operator()(const edm4hep::TrackCollection& inputTracks) const override {
     extension::VertexCollection output;
+
+    // Keep the EDM track together with the state used by all trial fits.
     const auto tracks = makeTrackEntries(inputTracks);
     if (tracks.size() < 2U)
       return output;
 
+    // Start inclusively: the primary fit itself decides which tracks do not
+    // belong to the interaction point.
     auto primaryIndices = allIndices(tracks.size());
     std::vector<std::size_t> nonPrimaryIndices;
     auto primaryFit = selectPrimary(tracks, primaryIndices, nonPrimaryIndices);
@@ -89,16 +93,19 @@ struct LCFIPlusVertexFinder final
       nonPrimaryIndices = allIndices(tracks.size());
     }
 
+    // Secondary finding only sees tracks rejected by the primary hypothesis.
     auto remaining = gather(tracks, nonPrimaryIndices);
     if (m_rejectV0s)
       remaining = removeV0Tracks(remaining, primaryFit.position, true);
 
+    // Build one secondary vertex at a time, remove its tracks, and repeat.
     while (remaining.size() > 1U) {
       const auto seed = bestSeed(remaining, primaryFit.position);
       if (!seed.has_value())
         break;
 
       auto selected = seed->indices;
+      // addBestTrack returns the same list when no compatible track remains.
       while (true) {
         const auto enlarged = addBestTrack(remaining, selected, primaryFit.position);
         if (enlarged.size() == selected.size())
@@ -203,12 +210,28 @@ private:
     return result;
   }
 
+  /**
+   * @brief Fit one track combination to a common vertex.
+   *
+   * The helper configures a fresh LinearizedHelixVertexFitter for every trial.
+   * Only primary hypotheses may receive the beam-spot constraint; secondary
+   * hypotheses use the displaced-vertex seed-radius configuration.
+   *
+   * @param tracks Full track list from which the combination is selected.
+   * @param indices Indices of the tracks participating in this fit.
+   * @param primary Whether the combination is a primary-vertex hypothesis.
+   * @return Fit position, covariance, total chi2, NDF and per-track chi2. The
+   *         returned result is invalid when the numerical fit fails.
+   */
   FitResult fit(const std::vector<TrackEntry>& tracks, const std::vector<std::size_t>& indices, bool primary) const {
     FitResult result;
     LinearizedHelixVertexFitter fitter;
     fitter.setMaxIterations(m_maxIterations);
     fitter.setConvergenceThreshold(m_convergenceThreshold);
     fitter.setSeedStartRadius(primary ? -1. : m_secondarySeedStartRadius.value());
+
+    // The beam spot is a prior for the primary vertex only. Displaced vertices
+    // must remain free to move away from the interaction point.
     if (primary && m_useBeamSpotConstraint) {
       TMatrixDSym covariance(3);
       covariance.Zero();
@@ -234,8 +257,23 @@ private:
     return result;
   }
 
+  /**
+   * @brief Select the tracks compatible with the primary vertex.
+   *
+   * All tracks initially participate in the primary fit. If the largest
+   * individual chi2 exceeds PrimaryTrackChi2Cut, that track is moved to the
+   * rejected list and the reduced combination is fitted again.
+   *
+   * @param tracks All usable event tracks.
+   * @param selected In/out indices of tracks retained in the primary vertex.
+   * @param rejected Output indices passed to secondary-vertex reconstruction.
+   * @return The accepted primary fit, or an invalid result if fewer than two
+   *         compatible tracks remain or a fit fails.
+   */
   FitResult selectPrimary(const std::vector<TrackEntry>& tracks, std::vector<std::size_t>& selected,
                           std::vector<std::size_t>& rejected) const {
+    // Refit after every removal because all per-track chi2 contributions
+    // change when the common vertex moves.
     while (selected.size() >= 2U) {
       const auto candidate = fit(tracks, selected, true);
       if (!candidate.valid)
@@ -252,12 +290,28 @@ private:
     return {};
   }
 
+  /**
+   * @brief Recover a track momentum from its EDM4hep helix parameters.
+   *
+   * @param track Track and selected TrackState.
+   * @return Momentum vector in GeV for the configured constant Bz field.
+   */
   TVector3 momentum(const TrackEntry& track) const {
+    // EDM4hep stores curvature in 1/mm, hence the mm-to-GeV conversion in
+    // ptConversion. The input phi and tanLambda then set the 3D direction.
     const auto transverseMomentum = ptConversion * std::abs(m_magneticFieldZ.value() / track.state.omega);
     return {transverseMomentum * std::cos(track.state.phi), transverseMomentum * std::sin(track.state.phi),
             transverseMomentum * track.state.tanLambda};
   }
 
+  /**
+   * @brief Compute the invariant mass of a selected track combination.
+   *
+   * @param tracks Full track list.
+   * @param indices Selected track indices.
+   * @param masses Mass hypothesis in GeV for each selected track, in the same order.
+   * @return Invariant mass in GeV.
+   */
   double invariantMass(const std::vector<TrackEntry>& tracks, const std::vector<std::size_t>& indices,
                        const std::vector<double>& masses) const {
     TVector3 momentumSum;
@@ -279,6 +333,16 @@ private:
     return result;
   }
 
+  /**
+   * @brief Measure whether a candidate momentum points away from the primary vertex.
+   *
+   * @param tracks Full track list.
+   * @param indices Tracks forming the candidate.
+   * @param position Fitted candidate position.
+   * @param primaryPosition Fitted primary-vertex position.
+   * @return Cosine between the summed momentum and PV-to-candidate displacement,
+   *         or -1 when either vector has zero length.
+   */
   double pointingCosine(const std::vector<TrackEntry>& tracks, const std::vector<std::size_t>& indices,
                         const TVector3& position, const TVector3& primaryPosition) const {
     TVector3 momentumSum;
@@ -290,6 +354,20 @@ private:
     return momentumSum.Dot(displacement) / (momentumSum.Mag() * displacement.Mag());
   }
 
+  /**
+   * @brief Apply the FCCAnalyses secondary-vertex candidate cuts.
+   *
+   * Every candidate must pass the total chi2, pion-mass, energy and pointing
+   * requirements. When growing an existing seed, the last track must also pass
+   * the individual AddedTrackChi2Cut.
+   *
+   * @param tracks Full track list.
+   * @param indices Candidate track indices; the newly tested track is last.
+   * @param candidate Result of fitting this exact combination.
+   * @param primaryPosition Fitted primary-vertex position.
+   * @param seed True for a two-track seed, false while adding a track.
+   * @return True when all applicable constraints are satisfied.
+   */
   bool passesConstraints(const std::vector<TrackEntry>& tracks, const std::vector<std::size_t>& indices,
                          const FitResult& candidate, const TVector3& primaryPosition, bool seed) const {
     if (!candidate.valid || candidate.chi2 >= m_chi2Cut)
@@ -300,11 +378,29 @@ private:
       return false;
     if (pointingCosine(tracks, indices, candidate.position, primaryPosition) < 0.)
       return false;
+
+    // For an enlarged candidate the newly tested track is deliberately last.
     return seed || (!candidate.trackChi2.empty() && candidate.trackChi2.back() < m_addedTrackChi2Cut);
   }
 
+  /**
+   * @brief Test whether an oppositely charged pair is compatible with a V0 decay.
+   *
+   * The fitted pair is checked against the K-short, both Lambda mass assignments,
+   * and photon-conversion windows. Each window combines invariant mass,
+   * displacement from the primary vertex and momentum pointing.
+   *
+   * @param tracks Full track list.
+   * @param first Index of the first track.
+   * @param second Index of the second track.
+   * @param primaryPosition Fitted primary-vertex position.
+   * @param tight Select the tight event-level or loose seed-level windows.
+   * @return True if the pair matches at least one V0 hypothesis.
+   */
   bool isV0Pair(const std::vector<TrackEntry>& tracks, std::size_t first, std::size_t second,
                 const TVector3& primaryPosition, bool tight) const {
+    // Equal curvature signs correspond to equal charges and cannot form the
+    // neutral two-body candidates considered here.
     if (tracks[first].state.omega * tracks[second].state.omega > 0.)
       return false;
     const std::vector<std::size_t> indices{first, second};
@@ -322,6 +418,17 @@ private:
            insideWindow(invariantMass(tracks, indices, {electronMass, electronMass}), distance, pointing, gamma);
   }
 
+  /**
+   * @brief Remove tracks assigned to non-overlapping V0 candidates.
+   *
+   * Once a track is assigned to a V0 pair it is not considered in another pair,
+   * matching the ordering used by the FCCAnalyses implementation.
+   *
+   * @param tracks Non-primary tracks to inspect.
+   * @param primaryPosition Fitted primary-vertex position.
+   * @param tight Select the tight or loose V0 windows.
+   * @return A copy containing only tracks not assigned to a V0 pair.
+   */
   std::vector<TrackEntry> removeV0Tracks(const std::vector<TrackEntry>& tracks, const TVector3& primaryPosition,
                                          bool tight) const {
     std::vector<bool> rejected(tracks.size(), false);
@@ -343,11 +450,23 @@ private:
     return result;
   }
 
+  /**
+   * @brief Find the best valid two-track secondary-vertex seed.
+   *
+   * Every pair is subjected to loose V0 rejection and the common secondary
+   * constraints. Among the surviving pairs, the one with the smallest chi2/NDF
+   * is selected.
+   *
+   * @param tracks Available non-primary tracks.
+   * @param primaryPosition Fitted primary-vertex position.
+   * @return The best fitted seed and its indices, or std::nullopt if none passes.
+   */
   std::optional<Candidate> bestSeed(const std::vector<TrackEntry>& tracks, const TVector3& primaryPosition) const {
     std::optional<Candidate> best;
     auto minimumChi2 = std::numeric_limits<double>::infinity();
     for (std::size_t first = 0; first + 1U < tracks.size(); ++first) {
       for (std::size_t second = first + 1U; second < tracks.size(); ++second) {
+        // FCCAnalyses uses the looser V0 windows while choosing SV seeds.
         if (isV0Pair(tracks, first, second, primaryPosition, false))
           continue;
         const std::vector<std::size_t> indices{first, second};
@@ -364,6 +483,17 @@ private:
     return best;
   }
 
+  /**
+   * @brief Add the best compatible remaining track to a secondary candidate.
+   *
+   * Each unused track is appended temporarily, fitted, and checked. The valid
+   * extension with the smallest total chi2 wins.
+   *
+   * @param tracks Available non-primary tracks.
+   * @param selected Indices currently assigned to the candidate.
+   * @param primaryPosition Fitted primary-vertex position.
+   * @return The enlarged index list, or the unchanged list when no track passes.
+   */
   std::vector<std::size_t> addBestTrack(const std::vector<TrackEntry>& tracks, const std::vector<std::size_t>& selected,
                                         const TVector3& primaryPosition) const {
     std::optional<std::size_t> best;
@@ -394,11 +524,21 @@ private:
     return result;
   }
 
+  /**
+   * @brief Store a successful fit in the extension vertex collection.
+   *
+   * @param output Destination collection.
+   * @param tracks Track list used by the fit.
+   * @param indices Tracks associated with the new vertex.
+   * @param fitResult Successful fit result to persist.
+   * @param primary Whether to set the primary rather than secondary flag.
+   */
   void appendVertex(extension::VertexCollection& output, const std::vector<TrackEntry>& tracks,
                     const std::vector<std::size_t>& indices, const FitResult& fitResult, bool primary) const {
     auto vertex = output.create();
     vertex.setPosition({static_cast<float>(fitResult.position.X()), static_cast<float>(fitResult.position.Y()),
                         static_cast<float>(fitResult.position.Z())});
+    // EDM4hep packs the symmetric 3x3 covariance as xx, xy, yy, xz, yz, zz.
     const std::array<float, 6> covariance{
         static_cast<float>(fitResult.covariance(0, 0)), static_cast<float>(fitResult.covariance(1, 0)),
         static_cast<float>(fitResult.covariance(1, 1)), static_cast<float>(fitResult.covariance(2, 0)),
