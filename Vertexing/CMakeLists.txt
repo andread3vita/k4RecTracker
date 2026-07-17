@@ -286,6 +286,22 @@ set_tests_properties(
       vertex_finder_output
 )
 
+# A deterministic unit-level event which proves that the finder separates a
+# prompt three-track primary vertex from a displaced three-track secondary one.
+add_test(
+  NAME test_LCFIPlusVertexFinderTwoVertices
+  COMMAND sh test_twoVertexFinder.sh
+)
+
+set_test_env(test_LCFIPlusVertexFinderTwoVertices)
+
+set_tests_properties(
+  test_LCFIPlusVertexFinderTwoVertices
+  PROPERTIES
+    WORKING_DIRECTORY
+      "${CMAKE_CURRENT_BINARY_DIR}/test/testLCFIPlusVertexFinder"
+)
+
 file(
   GLOB simple_vertex_finder_test_scripts
   CONFIGURE_DEPENDS
