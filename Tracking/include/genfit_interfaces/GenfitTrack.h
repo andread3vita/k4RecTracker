@@ -159,7 +159,8 @@ private:
 
   HelperInitialization ComputeInitialParameters(double Bz);
 
-  edm4hep::TrackState UpdateTrackState(genfit::MeasuredStateOnPlane MeasuredState, int location);
+  edm4hep::TrackState UpdateTrackState(genfit::MeasuredStateOnPlane MeasuredState, TVector3 ReferencePoint,
+                                       int location);
 
   PCAInfoHelper PCAInfo(TVector3 position, TVector3 momentum, int charge, TVector3 refPoint, double Bz);
 
@@ -170,13 +171,17 @@ private:
   TVector3 m_momInit = TVector3(0., 0., 0.);
   TMatrixDSym m_covInit;
 
+  // Non-owning alias: ownership is transferred to m_genfitTrack when it is constructed.
   genfit::AbsTrackRep* m_genfitTrackRep = nullptr;
+  // Owns its TrackReps, TrackPoints, and measurements.
   genfit::Track* m_genfitTrack = nullptr;
 
   edm4hep::MutableTrack m_edm4hepTrack;
   edm4hep::MutableTrack m_trackWithFit;
 
   TVector3 m_VP_referencePoint{0., 0., 0.};
+  TVector3 m_FirstHit_referencePoint{0., 0., 0.};
+  TVector3 m_LastHit_referencePoint{0., 0., 0.};
 
   const dd4hep::rec::WireTracker_info_struct* m_wire_info;
   const dd4hep::DDSegmentation::BitFieldCoder* m_dc_decoder;
