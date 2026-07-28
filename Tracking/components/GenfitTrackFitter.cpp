@@ -306,6 +306,7 @@ struct GenfitTrackFitter final
   operator()(const edm4hep::TrackCollection& tracks_input) const override {
 
     debug() << "Event number: " << event_counter++ << endmsg;
+    num_tracks_event = 0;
 
     // These collections store the output of the fit
     edm4hep::TrackCollection FittedTracks;
@@ -313,24 +314,23 @@ struct GenfitTrackFitter final
     edm4hep::TrackerHitPlaneCollection FittedHits;
 
     // Loop over the tracks created by the pattern recognition step
-    uint num_track_event = 0;
     for (const auto& track : tracks_input) {
 
       num_tracks++;
-      num_track_event++;
+      num_tracks_event++;
 
       // Skip unmatched tracks if the option is enabled
       if (m_ListOfTypesToSkip.size() > 0 && std::find(m_ListOfTypesToSkip.begin(), m_ListOfTypesToSkip.end(),
                                                       track.getType()) != m_ListOfTypesToSkip.end()) {
         num_skip += 1;
-        warning() << "Skipping track " << num_track_event - 1 << " with type " << track.getType() << "\n" << endmsg;
+        debug() << "Skipping track " << num_tracks_event << " with type " << track.getType() << "\n" << endmsg;
         continue;
       }
 
       // skip tracks with less then 3 hits (seed initialization needs 3 hits)
       if (track.getTrackerHits().size() < 3) {
         num_skip += 1;
-        warning() << "Track " << num_track_event - 1 << ": less than 3 hits, skipping fit.\n" << endmsg;
+        debug() << "Track " << num_tracks_event << ": less than 3 hits, skipping fit.\n" << endmsg;
         continue;
       }
 
@@ -347,7 +347,7 @@ struct GenfitTrackFitter final
         int winning_hypothesis = FindBestHypothesis(track, FittedHits, false);
 
         if (winning_hypothesis == -1) {
-          debug() << "Track " << num_track_event - 1 << ": fit failed for all hypotheses, trying with less hits."
+          debug() << "Track " << num_tracks_event << ": fit failed for all hypotheses, trying with less hits."
                   << endmsg;
         } else {
 
@@ -368,8 +368,8 @@ struct GenfitTrackFitter final
           if (!isSuccess) {
 
             number_failures += 1;
-            debug() << "Track " << num_track_event - 1
-                    << ": fit failed for single evaluation hypothesis, skipping track." << endmsg;
+            debug() << "Track " << num_tracks_event << ": fit failed for single evaluation hypothesis, skipping track."
+                    << endmsg;
             auto failedTrack = FittedTracks.create();
             auto failedFittedTrack = FittedTracksWithFilteredHits.create();
 
@@ -388,7 +388,7 @@ struct GenfitTrackFitter final
 
           if (winning_hypothesis == -1) {
 
-            debug() << "Track " << num_track_event - 1 << ": fit failed for all hypotheses." << endmsg;
+            debug() << "Track " << num_tracks_event << ": fit failed for all hypotheses." << endmsg;
             number_failures += 1;
             auto failedTrack = FittedTracks.create();
             auto failedFittedTrack = FittedTracksWithFilteredHits.create();
@@ -434,6 +434,7 @@ public:
 
   // Num_tracks = num_processed_tracks + num_skip
   mutable int num_tracks = 0;           // Total number of tracks seen (including skipped ones)
+  mutable int num_tracks_event = 0;     // Total number of tracks seen in one event (including skipped ones)
   mutable int num_skip = 0;             // Number of tracks skipped (e.g. failing pre-selection)
   mutable int num_processed_tracks = 0; // Number of tracks actually processed (i.e. not skipped)
   mutable int number_failures = 0;      // Number of track fits that failed
@@ -445,9 +446,9 @@ private:
 
   // Debug level for track fitting and initialization printouts
   // 0       : no printouts
-  // INFO    : prints fit results
-  // DEBUG   : prints fit results + initial track parameters + track states
-  // VERBOSE : prints detailed internal fit information
+  // INFO    : prints the final fit summary
+  // DEBUG   : INFO + initial track parameters, measurements, track states, and fit failures
+  // VERBOSE : DEBUG + detailed internal fitter information
   uint m_printoutLevel;
 
   /////////////////////////
@@ -654,8 +655,9 @@ private:
                                     m_omega_factor.value(), m_z0_factor.value(), m_sigma_tanLambda.value());
 
     auto track_init = track_interface.GetInitialization();
+    const bool showDebugOutput = m_printoutLevel == uint(MSG::DEBUG) || m_printoutLevel == uint(MSG::VERBOSE);
 
-    debug() << "Track " << num_tracks - 1 << " with " << track.getTrackerHits().size()
+    debug() << "Track " << num_tracks_event << " with " << track.getTrackerHits().size()
             << " hits: initial seed for track fit:" << endmsg;
 
     debug() << "  Initial position [mm]: (" << track_init.Position.X() / dd4hep::mm << ", "
@@ -667,14 +669,14 @@ private:
     debug() << "  Charge hypothesis: " << track_init.Charge << endmsg;
     debug() << "  Max hit for loopers: " << track_init.NumHits << endmsg;
 
-    if (m_printoutLevel == uint(MSG::DEBUG)) {
+    if (showDebugOutput) {
       debug() << "  Initial covariance matrix:" << endmsg;
       track_init.CovMatrix.Print();
     }
 
     debug() << endmsg;
 
-    int debug_track = (m_printoutLevel == uint(MSG::DEBUG)) ? 1 : 0;
+    int debug_track = showDebugOutput ? 1 : 0;
 
     track_interface.CreateGenFitTrack(particleHypothesis, debug_track);
 
@@ -682,7 +684,7 @@ private:
                                      m_Beta_steps, m_filterTrackHits);
 
     if (!isFit) {
-      debug() << "Track fit FAILED for track " << num_tracks - 1 << endmsg;
+      debug() << "Track fit FAILED for track " << num_tracks_event << endmsg;
       return false;
     }
 
@@ -704,7 +706,7 @@ private:
                                             m_eCalBarrelMaxZ, m_eCalEndCapInnerR, m_eCalEndCapOuterR,
                                             m_eCalEndCapInnerZ);
 
-      if (m_printoutLevel == uint(MSG::DEBUG)) {
+      if (showDebugOutput) {
         auto trackStates = edm4hep_track.getTrackStates();
         edm4hep::TrackState trackStateCalo;
         for (const auto& ts : trackStates) {
@@ -739,7 +741,7 @@ private:
                                               m_eCalBarrelInnerR, m_eCalBarrelMaxZ, m_eCalEndCapInnerR,
                                               m_eCalEndCapOuterR, m_eCalEndCapInnerZ);
 
-        if (m_printoutLevel == uint(MSG::DEBUG)) {
+        if (showDebugOutput) {
           auto trackStates = edm4hep_track.getTrackStates();
           edm4hep::TrackState trackStateCalo;
           for (const auto& ts : trackStates) {

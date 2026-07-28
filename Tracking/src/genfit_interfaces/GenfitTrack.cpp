@@ -19,7 +19,7 @@
 
 #include "GenfitTrack.h"
 
-#include <TGeoManager.h>
+#include "GenfitDebugLevel.h"
 
 namespace GenfitInterface {
 
@@ -855,10 +855,10 @@ void GenfitTrack::CreateGenFitTrack(int particle_hypotesis, int debug_lvl) {
  *        - "DAF"        : Deterministic Annealing Filter
  *        - "KALMAN"     : Standard Kalman filter
  *        - "KALMAN_REF" : Kalman filter with reference track
- * @param debug_lvl   Verbosity level for debug output
- *                       - 0 = silent,
- *                       - 1 = fitter printout
- *                       - 2 = fitter printout + fit results
+ * @param debug_lvl   Gaudi-compatible verbosity level for debug output
+ *                       - 0 or >= 3 = silent
+ *                       - 2 = fit results, track states, and fit failures
+ *                       - 1 = level 2 output + detailed fitter information
  * @param Beta_init   Initial annealing parameter (only for DAF, default = 100)
  * @param Beta_final  Final annealing parameter (only for DAF, default = 0.1)
  * @param Beta_steps  Number of annealing steps (only for DAF, default = 10)
@@ -872,6 +872,10 @@ void GenfitTrack::CreateGenFitTrack(int particle_hypotesis, int debug_lvl) {
 bool GenfitTrack::Fit(edm4hep::TrackerHitPlaneCollection& fittedHits, std::string FitterType = "DAF", int debug_lvl = 0,
                       std::optional<double> Beta_init = 100., std::optional<double> Beta_final = 0.1,
                       std::optional<int> Beta_steps = 10, std::optional<bool> FilterHits = true) {
+
+  const bool showFitDiagnostics = (debug_lvl == 1 || debug_lvl == 2);
+  const bool showFitterDiagnostics = (debug_lvl == 1);
+  ScopedFitDiagnostics fitDiagnostics(!showFitDiagnostics);
 
   edm4hep::Track Track_temp = m_edm4hepTrack;
   for (size_t i = 0; i < Track_temp.trackStates_size(); ++i) {
@@ -904,10 +908,7 @@ bool GenfitTrack::Fit(edm4hep::TrackerHitPlaneCollection& fittedHits, std::strin
     throw std::invalid_argument("Unknown fit method: " + FitterType);
   }
 
-  int debug_lvl_fit = debug_lvl;
-  if (debug_lvl > 1)
-    debug_lvl_fit = 0;
-  genfitFitter->setDebugLvl(debug_lvl_fit);
+  genfitFitter->setDebugLvl(showFitterDiagnostics ? 1 : 0);
 
   // Reset the global TGeoManager navigator to a canonical state before fitting.
   // The navigator (current node, point, direction, safety/step caches) is process-global
@@ -927,7 +928,9 @@ bool GenfitTrack::Fit(edm4hep::TrackerHitPlaneCollection& fittedHits, std::strin
 
   } catch (const genfit::Exception& e) {
 
-    std::cerr << "Exception during track fitting: " << e.what() << std::endl;
+    if (showFitDiagnostics) {
+      std::cerr << "Exception during track fitting: " << e.what() << std::endl;
+    }
     m_edm4hepTrack.setChi2(-1);
     m_edm4hepTrack.setNdf(-1);
 
@@ -1064,29 +1067,53 @@ bool GenfitTrack::Fit(edm4hep::TrackerHitPlaneCollection& fittedHits, std::strin
       }
     }
 
+    // getFittedState() averages the forward/backward Kalman states and can throw
+    // a genfit::Exception (e.g. an ill-conditioned covariance)
     genfit::MeasuredStateOnPlane fittedState;
 
-    // trackState First Hit
-    fittedState = genfitTrack.getFittedState();
+    // trackState firstHit
+    try {
+      fittedState = genfitTrack.getFittedState();
+    } catch (const genfit::Exception& e) {
+      if (showFitDiagnostics) {
+        std::cerr << "Exception retrieving fitted state: " << e.what() << std::endl;
+      }
+      m_edm4hepTrack.setChi2(-1);
+      m_edm4hepTrack.setNdf(-1);
+      m_trackWithFit.setChi2(-1);
+      m_trackWithFit.setNdf(-1);
+      return false;
+    }
     edm4hep::TrackState trackStateFirstHit =
         UpdateTrackState(fittedState, m_FirstHit_referencePoint, edm4hep::TrackState::AtFirstHit);
 
     // trackState lastHit
-    fittedState = genfitTrack.getFittedState(genfitTrack.getNumPoints() - 1);
+    try {
+      fittedState = genfitTrack.getFittedState(genfitTrack.getNumPoints() - 1);
+    } catch (const genfit::Exception& e) {
+      if (showFitDiagnostics) {
+        std::cerr << "Exception retrieving fitted state: " << e.what() << std::endl;
+      }
+      m_edm4hepTrack.setChi2(-1);
+      m_edm4hepTrack.setNdf(-1);
+      m_trackWithFit.setChi2(-1);
+      m_trackWithFit.setNdf(-1);
+      return false;
+    }
     edm4hep::TrackState trackStateLastHit =
         UpdateTrackState(fittedState, m_LastHit_referencePoint, edm4hep::TrackState::AtLastHit);
 
-    // Extrapolate to the transverse PCA with respect to the configured
-    // vertex/IP. The returned position, momentum and covariance then describe
-    // the same nominal state used to build the AtIP TrackState.
+    // Extrapolation to IP
     genfit::TrackPoint* tp = genfitTrack.getPointWithFitterInfo(0);
     auto* fi = static_cast<genfit::KalmanFitterInfo*>(tp->getFitterInfo(trackRep));
-    fittedState = fi->getFittedState(true);
 
     try {
-      trackRep->extrapolateToLine(fittedState, m_VP_referencePoint, TVector3(0, 0, 1));
+      fittedState = fi->getFittedState(true);
+      trackRep->extrapolateToLine(fittedState, TVector3(0, 0, 0), TVector3(0, 0, 1));
     } catch (const genfit::Exception& e) {
-      std::cerr << "Exception during extrapolation to IP: " << e.what() << std::endl;
+      if (showFitDiagnostics) {
+        std::cerr << "Exception during extrapolation to IP: " << e.what() << std::endl;
+      }
 
       m_edm4hepTrack.setChi2(-1);
       m_edm4hepTrack.setNdf(-1);
@@ -1095,10 +1122,9 @@ bool GenfitTrack::Fit(edm4hep::TrackerHitPlaneCollection& fittedHits, std::strin
 
       return false;
     }
-
     edm4hep::TrackState trackStateIP = UpdateTrackState(fittedState, m_VP_referencePoint, edm4hep::TrackState::AtIP);
 
-    if (debug_lvl == 2) {
+    if (showFitDiagnostics) {
 
       std::cout << "GenfitTrack    DEBUG : TrackState at IP: " << std::endl;
       std::cout << "GenfitTrack    DEBUG :  D0: " << trackStateIP.D0 << " mm" << std::endl;
