@@ -1,5 +1,6 @@
-"""Create one idealised event with a prompt and a displaced three-track vertex."""
+"""Create one idealised event with a primary, secondary, and fitted K-short."""
 
+import math
 import edm4hep
 import podio
 from podio import root_io
@@ -33,6 +34,13 @@ tracks = edm4hep.TrackCollection()
 add_track(tracks, 0.0, -2.0, 0.2, 0.0010)
 add_track(tracks, 0.0, 0.2, -0.1, 0.0011)
 add_track(tracks, 0.0, 2.2, 0.3, 0.0009)
+
+# K-short candidate at (0, 0, 20) mm.  Equal and opposite transverse
+# momenta give a pion-pair mass of 0.497611 GeV; the positive longitudinal
+# components make its momentum point away from the primary vertex.
+ks_omega = 0.0029110082929612977
+add_track(tracks, 20.0, 0.0, 1.0, ks_omega)
+add_track(tracks, 20.0, math.pi, 1.0, -ks_omega)
 
 # Secondary vertex at (0, 0, 10) mm.  The positive longitudinal momenta make
 # the summed momentum point from the primary vertex towards this vertex.

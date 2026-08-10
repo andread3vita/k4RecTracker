@@ -13,10 +13,13 @@ vertex_finder = LCFIPlusVertexFinder(
     "LCFIPlusVertexFinder",
     InputFittedTracks=["InputTracks"],
     OutputVerticesCandidates=["VertexCandidates"],
+    OutputV0Vertices=["V0Vertices"],
     PrimaryTrackChi2Cut=25.0,
     Chi2Cut=25.0,
     AddedTrackChi2Cut=25.0,
     RejectV0s=True,
+    ReconstructV0Vertices=True,
+    IncludeV0InVertexCandidates=True,
     OutputLevel=INFO,
 )
 

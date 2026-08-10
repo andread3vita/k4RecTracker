@@ -68,8 +68,12 @@ struct PrimaryVertexFinderLCFIPlus final
 
     std::vector<edm4hep::Track> tracks;
     std::vector<edm4hep::TrackState> trackStates;
+    std::vector<std::size_t> inputTrackIndices;
     tracks.reserve(inputTracks.size());
     trackStates.reserve(inputTracks.size());
+    inputTrackIndices.reserve(inputTracks.size());
+
+    info() << "Searching for a primary vertex using " << inputTracks.size() << " input tracks" << endmsg;
 
     std::size_t trackIndex = 0;
     for (const auto& track : inputTracks) {
@@ -78,24 +82,35 @@ struct PrimaryVertexFinderLCFIPlus final
       for (const auto& trackState : track.getTrackStates()) {
         std::ostringstream trackStateContent;
         trackStateContent << trackState;
-        info() << "Track[" << trackIndex << "] TrackState[" << trackStateIndex << "]: " << trackStateContent.str()
-               << endmsg;
+        // info() << "Track[" << trackIndex << "] TrackState[" << trackStateIndex << "]: " << trackStateContent.str()
+        //        << endmsg;
 
         if (trackState.location == 1 && !foundTrackStateAtIP) {
           tracks.push_back(track);
           trackStates.push_back(trackState);
+          inputTrackIndices.push_back(trackIndex);
           foundTrackStateAtIP = true;
+
+          info() << "Selected Track[" << trackIndex << "] TrackState[" << trackStateIndex
+                 << "] at IP (location == 1): " << trackStateContent.str() << endmsg;
         }
         ++trackStateIndex;
       }
-      if (!foundTrackStateAtIP)
-        debug() << "Discarding a track without a TrackState at IP (location == 1)" << endmsg;
+      if (!foundTrackStateAtIP) {
+        warning() << "Discarding Track[" << trackIndex << "]: none of its " << trackStateIndex
+                  << " TrackStates is at IP (location == 1)" << endmsg;
+      }
       ++trackIndex;
     }
+
+    info() << "Selected " << tracks.size() << " of " << inputTracks.size()
+           << " input tracks with a TrackState at IP" << endmsg;
 
     // A geometrical vertex requires at least two tracks. Tracks without a
     // TrackState at IP have already been deliberately discarded.
     while (tracks.size() >= 2) {
+      info() << "Attempting primary-vertex fit with " << tracks.size() << " tracks" << endmsg;
+
       LinearizedHelixVertexFitter fitter;
       fitter.setMaxIterations(m_maxIterations);
       fitter.setConvergenceThreshold(m_convergenceThreshold);
@@ -126,9 +141,12 @@ struct PrimaryVertexFinderLCFIPlus final
       for (std::size_t index = 0; index < trackStates.size(); ++index) {
         const auto trackChi2 = fitter.trackChiSquared(index);
         if (!std::isfinite(trackChi2)) {
-          warning() << "Primary-vertex fit produced a non-finite track chi2" << endmsg;
+          warning() << "No primary vertex created: fit produced a non-finite chi2 for Track["
+                    << inputTrackIndices[index] << "]" << endmsg;
           return output;
         }
+        info() << "Primary-vertex chi2 contribution from Track[" << inputTrackIndices[index]
+               << "] = " << trackChi2 << endmsg;
         if (trackChi2 > largestTrackChi2) {
           largestTrackChi2 = trackChi2;
           worstTrackIndex = index;
@@ -154,16 +172,24 @@ struct PrimaryVertexFinderLCFIPlus final
         for (const auto& track : tracks)
           vertex.addToTracks(track);
 
+        info() << "Primary vertex created from " << tracks.size() << " tracks at (" << position.X() << ", "
+               << position.Y() << ", " << position.Z() << "), chi2 = " << fitter.chiSquared()
+               << ", ndf = " << fitter.numberOfDegreesOfFreedom() << endmsg;
+
         return output;
       }
 
       // As in FCCAnalyses get_PrimaryTracks, remove the worst contributor and
       // refit because every contribution changes when the vertex moves.
+      warning() << "Rejecting Track[" << inputTrackIndices[worstTrackIndex] << "] from the primary-vertex fit: chi2 = "
+                << largestTrackChi2 << " is not below TrackChi2Cut = " << m_trackChi2Cut << endmsg;
       tracks.erase(tracks.begin() + static_cast<std::ptrdiff_t>(worstTrackIndex));
       trackStates.erase(trackStates.begin() + static_cast<std::ptrdiff_t>(worstTrackIndex));
+      inputTrackIndices.erase(inputTrackIndices.begin() + static_cast<std::ptrdiff_t>(worstTrackIndex));
     }
 
-    debug() << "Fewer than two tracks survived primary-track selection" << endmsg;
+    warning() << "No primary vertex created: only " << tracks.size()
+              << " track(s) with a TrackState at IP survived selection; at least two are required" << endmsg;
     return output;
   }
 

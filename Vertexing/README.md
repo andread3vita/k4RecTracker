@@ -61,7 +61,7 @@ primary_vertex_finder = PrimaryVertexFinderLCFIPlus(
 
 ## `LCFIPlusVertexFinder`
 
-`LCFIPlusVertexFinder` is a complete event-level finder. It first fits a primary-vertex hypothesis using all usable tracks and iteratively rejects the track with the largest incompatible chi-squared contribution. The rejected tracks form the secondary-vertex input. The secondary stage follows the FCCAnalyses LCFIPlus workflow: V0 rejection, best two-track seed selection, greedy track addition, and candidate selection using fit quality, invariant mass, energy, and momentum pointing.
+`LCFIPlusVertexFinder` is a complete event-level finder. Its primary stage follows the same selection and fitting strategy as `PrimaryVertexFinderLCFIPlus`: only tracks with the requested state at IP are used by default, all selected tracks enter the first fit, and the largest incompatible chi-squared contributor is removed before refitting. The rejected tracks can optionally form the secondary-vertex input. When enabled, the secondary stage follows the FCCAnalyses LCFIPlus workflow: tight event-level V0 rejection, loose V0 rejection for seed pairs, best two-track seed selection, greedy track addition, and candidate selection using fit quality, invariant mass, energy, and momentum pointing. The finder can independently run the FCCAnalyses `get_V0s` reconstruction, including the two-track vertex fit and K-short, Lambda, and photon-conversion classification.
 
 All trial and final combinations are fitted internally with `LinearizedHelixVertexFitter`; a separate fitter component is therefore not required after this finder.
 
@@ -71,18 +71,27 @@ Input:
 
 Output:
 
-- `OutputVerticesCandidates` (`OutputVerticesCandidates`): `extension::VertexCollection`. The primary vertex is stored first and marked with `isPrimary()`. Accepted secondary vertices are marked with `isSecondary()`. Each vertex contains its associated tracks, fitted position and covariance, chi-squared, NDF, and algorithm type.
+- `OutputVerticesCandidates` (`OutputVerticesCandidates`): `extension::VertexCollection`. The primary vertex is stored first and marked with `isPrimary()`. Accepted secondary vertices are marked with `isSecondary()`. When `IncludeV0InVertexCandidates=true`, fitted V0 vertices are included as secondary vertices in this collection as well. Each vertex contains its associated tracks, fitted position and covariance, chi-squared, NDF, and algorithm type.
+- `OutputV0Vertices` (`V0Vertices`): `extension::VertexCollection`. Fitted V0 candidates are marked with `isSecondary()`. Because the extension EDM has no `FCCAnalysesV0` type, `parameters[0]` stores the absolute PDG code (`310`, `3122`, or `22`) and `parameters[1]` stores the selected invariant mass in GeV.
 
 Important properties:
 
 | Property | Default | Meaning |
 | --- | ---: | --- |
 | `TrackStateLocation` | `edm4hep::TrackState::AtIP` | Preferred track state for fitting |
-| `FallbackToFirstTrackState` | `true` | Use the first state if the requested location is absent |
+| `FallbackToFirstTrackState` | `false` | Use the first state if the requested location is absent |
 | `PrimaryTrackChi2Cut` | 25 | Maximum individual contribution retained in the primary fit |
 | `UseBeamSpotConstraint` | `true` | Apply a Gaussian prior to the primary vertex |
 | `BeamSpotPosition` | `[0, 0, 0]` mm | Beam-spot centre |
-| `BeamSpotSize` | `[0.01, 0.01, 0.1]` mm | Beam-spot standard deviations |
+| `BeamSpotSize` | `[0.0045, 0.00002, 0.3]` mm | FCC-ee Z-pole beam-spot standard deviations |
+| `FindSecondaryVertices` | `true` | Also find and fit secondary vertices from tracks rejected by the primary fit |
+| `ReconstructV0Vertices` | `true` | Independently fit V0 candidates and write `OutputV0Vertices` |
+| `IncludeV0InVertexCandidates` | `false` | Also include fitted V0 candidates in `OutputVerticesCandidates` |
+| `V0UseTightConstraints` | `true` | Use the FCCAnalyses tight V0 windows; `false` selects the loose windows |
+| `V0Chi2Cut` | 9 | Maximum chi-squared for a reconstructed V0 candidate |
+| `V0KsConstraints` | `[]` | Optional custom `[massLow, massHigh, minimumDistance, minimumPointingCosine]` for K-short reconstruction |
+| `V0LambdaConstraints` | `[]` | Optional custom window in the same order for Lambda reconstruction |
+| `V0GammaConstraints` | `[]` | Optional custom window in the same order for photon-conversion reconstruction |
 | `RejectV0s` | `true` | Remove K-short, Lambda, and photon-conversion candidates before secondary finding |
 | `Chi2Cut` | 9 | Maximum total candidate chi-squared |
 | `InvariantMassCut` | 10 GeV | Maximum pion-hypothesis candidate mass |
@@ -102,6 +111,9 @@ vertexFinder = LCFIPlusVertexFinder(
     "LCFIPlusVertexFinder",
     InputFittedTracks=["FittedTracks"],
     OutputVerticesCandidates=["VertexCandidates"],
+    OutputV0Vertices=["V0Vertices"],
+    FindSecondaryVertices=True,
+    ReconstructV0Vertices=True,
     MagneticFieldZ=2.0,
     RejectV0s=True,
 )

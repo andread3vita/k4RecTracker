@@ -28,14 +28,16 @@ double LinearizedHelixVertexFitter::dotProduct(const TVectorD& first, const TVec
 }
 
 // =============================================================================
-//  Reading EDM4hep track states (native: no Delphes conversion)
+//  EDM4hep -> Delphes TrackCovariance conversion
 // =============================================================================
 
 TVectorD LinearizedHelixVertexFitter::parametersFromTrackState(const edm4hep::TrackState& trackState) {
   TVectorD parameters(kNumberOfParameters);
   parameters[kD0] = trackState.D0;
   parameters[kPhi] = trackState.phi;
-  parameters[kOmega] = trackState.omega;
+  // Delphes uses the signed half-curvature C. FCCAnalyses uses the same
+  // conversion for EDM4hep TrackState objects.
+  parameters[kHalfCurvature] = -0.5 * trackState.omega;
   parameters[kZ0] = trackState.Z0;
   parameters[kTanLambda] = trackState.tanLambda;
   return parameters;
@@ -46,13 +48,14 @@ TMatrixDSym LinearizedHelixVertexFitter::covarianceFromTrackState(const edm4hep:
   // (CovMatrix6f, where the 6th parameter is time). For the spatial 5x5 block
   // the packed index of element (row, col) with row >= col is
   //     row * (row + 1) / 2 + col.
-  // We use the parameters as they are stored in EDM4hep (mm, 1/mm); no scaling
-  // and no sign flip are applied here.
+  // Convert with C_delphes = J * p_edm4hep, where
+  // J = diag(1, 1, -1/2, 1, 1). Units stay mm and 1/mm.
+  constexpr double parameterScale[kNumberOfParameters] = {1.0, 1.0, -0.5, 1.0, 1.0};
   TMatrixDSym covariance(kNumberOfParameters);
   for (int row = 0; row < kNumberOfParameters; ++row) {
     for (int col = 0; col <= row; ++col) {
       const int packedIndex = row * (row + 1) / 2 + col;
-      const double value = trackState.covMatrix[packedIndex];
+      const double value = trackState.covMatrix[packedIndex] * parameterScale[row] * parameterScale[col];
       covariance(row, col) = value;
       covariance(col, row) = value; // keep the matrix symmetric
     }
@@ -61,12 +64,7 @@ TMatrixDSym LinearizedHelixVertexFitter::covarianceFromTrackState(const edm4hep:
 }
 
 // =============================================================================
-//  Helix geometry, expressed directly in EDM4hep parameters
-//
-//  The closed-form helix uses the signed half-curvature C = -omega/2. We keep
-//  the algebra textually close to the original Delphes formulas (with C and the
-//  factor 2*C) so it can be checked against the reference, while naming every
-//  quantity explicitly.
+//  Delphes TrkUtil helix geometry
 // =============================================================================
 
 TVector3 LinearizedHelixVertexFitter::helixPointAtPhase(const TVectorD& parameters, double phase) {
@@ -74,8 +72,8 @@ TVector3 LinearizedHelixVertexFitter::helixPointAtPhase(const TVectorD& paramete
   const double phi = parameters[kPhi];
   const double tanLambda = parameters[kTanLambda];
 
-  const double halfCurvature = signedHalfCurvature(parameters[kOmega]); // C = -omega/2
-  const double twiceCurvature = 2.0 * halfCurvature;                    // 2C ( = -omega )
+  const double halfCurvature = parameters[kHalfCurvature];
+  const double twiceCurvature = 2.0 * halfCurvature;
 
   const double x = -impactParameter * std::sin(phi) + (std::sin(phase + phi) - std::sin(phi)) / twiceCurvature;
   const double y = impactParameter * std::cos(phi) - (std::cos(phase + phi) - std::cos(phi)) / twiceCurvature;
@@ -89,8 +87,8 @@ TMatrixD LinearizedHelixVertexFitter::positionDerivativesWrtParameters(const TVe
   const double phi = parameters[kPhi];
   const double tanLambda = parameters[kTanLambda];
 
-  const double halfCurvature = signedHalfCurvature(parameters[kOmega]); // C = -omega/2
-  const double twiceCurvature = 2.0 * halfCurvature;                    // 2C
+  const double halfCurvature = parameters[kHalfCurvature];
+  const double twiceCurvature = 2.0 * halfCurvature;
 
   TMatrixD derivatives(3, kNumberOfParameters);
 
@@ -104,16 +102,12 @@ TMatrixD LinearizedHelixVertexFitter::positionDerivativesWrtParameters(const TVe
   derivatives(1, kPhi) = -impactParameter * std::sin(phi) + (std::sin(phase + phi) - std::sin(phi)) / twiceCurvature;
   derivatives(2, kPhi) = 0.0;
 
-  // d(position) / d(omega).
-  // We first write the derivative with respect to the half-curvature C (the
-  // original Delphes form) and then apply the chain rule with dC/d(omega) = -1/2.
-  const double dC_dOmega = -0.5;
-  const double dx_dC = -(std::sin(phase + phi) - std::sin(phi)) / (2.0 * halfCurvature * halfCurvature);
-  const double dy_dC = (std::cos(phase + phi) - std::cos(phi)) / (2.0 * halfCurvature * halfCurvature);
-  const double dz_dC = -tanLambda * phase / (2.0 * halfCurvature * halfCurvature);
-  derivatives(0, kOmega) = dC_dOmega * dx_dC;
-  derivatives(1, kOmega) = dC_dOmega * dy_dC;
-  derivatives(2, kOmega) = dC_dOmega * dz_dC;
+  // d(position) / d(C), identical to Delphes TrkUtil::derXdPar.
+  derivatives(0, kHalfCurvature) =
+      -(std::sin(phase + phi) - std::sin(phi)) / (2.0 * halfCurvature * halfCurvature);
+  derivatives(1, kHalfCurvature) =
+      (std::cos(phase + phi) - std::cos(phi)) / (2.0 * halfCurvature * halfCurvature);
+  derivatives(2, kHalfCurvature) = -tanLambda * phase / (2.0 * halfCurvature * halfCurvature);
 
   // d(position) / d(z0)
   derivatives(0, kZ0) = 0.0;
@@ -131,7 +125,7 @@ TMatrixD LinearizedHelixVertexFitter::positionDerivativesWrtParameters(const TVe
 TVector3 LinearizedHelixVertexFitter::positionDerivativeWrtPhase(const TVectorD& parameters, double phase) {
   const double phi = parameters[kPhi];
   const double tanLambda = parameters[kTanLambda];
-  const double twiceCurvature = 2.0 * signedHalfCurvature(parameters[kOmega]);
+  const double twiceCurvature = 2.0 * parameters[kHalfCurvature];
 
   return TVector3(std::cos(phase + phi) / twiceCurvature, std::sin(phase + phi) / twiceCurvature,
                   tanLambda / twiceCurvature);
@@ -232,19 +226,24 @@ TMatrixDSym LinearizedHelixVertexFitter::regularizedInverse(const TMatrixDSym& i
 void LinearizedHelixVertexFitter::setBeamSpotConstraint(const TVector3& position, const TMatrixDSym& covariance) {
   m_useBeamSpotConstraint = true;
   m_beamSpotPosition = position;
+  // Delphes VertexFit::AddVtxConstraint uses ROOT's direct inversion here.
   m_beamSpotInverseCovariance.ResizeTo(3, 3);
-  m_beamSpotInverseCovariance = regularizedInverse(covariance);
+  m_beamSpotInverseCovariance = covariance;
+  m_beamSpotInverseCovariance.Invert();
 }
 
 void LinearizedHelixVertexFitter::addTrack(const edm4hep::TrackState& trackState) {
   m_trackParameters.push_back(parametersFromTrackState(trackState));
   m_trackCovariances.push_back(covarianceFromTrackState(trackState));
+  m_trackReferencePoints.emplace_back(trackState.referencePoint.x, trackState.referencePoint.y,
+                                      trackState.referencePoint.z);
   m_fitSucceeded = false;
 }
 
 void LinearizedHelixVertexFitter::clear() {
   m_trackParameters.clear();
   m_trackCovariances.clear();
+  m_trackReferencePoints.clear();
   m_trackPhases.clear();
   m_trackChiSquared.clear();
   m_chiSquared = 0.0;
@@ -276,14 +275,14 @@ void LinearizedHelixVertexFitter::computeInitialSeed() {
     // instead of at the perigee (helps for displaced vertices).
     double phase = 0.0;
     if (m_seedStartRadius > std::abs(parameters[kD0])) {
-      const double halfCurvature = signedHalfCurvature(parameters[kOmega]);
+      const double halfCurvature = parameters[kHalfCurvature];
       const double numerator = m_seedStartRadius * m_seedStartRadius - parameters[kD0] * parameters[kD0];
       const double denominator = 1.0 + 2.0 * halfCurvature * parameters[kD0];
       phase = 2.0 * std::asin(halfCurvature * std::sqrt(numerator / denominator));
     }
     startPhase[track] = phase;
 
-    seedPoint[track] = toVectorD(helixPointAtPhase(parameters, phase));
+    seedPoint[track] = toVectorD(helixPointAtPhase(parameters, phase) + m_trackReferencePoints[track]);
 
     const TVectorD tangent = toVectorD(positionDerivativeWrtPhase(parameters, phase));
     const TMatrixD parameterDerivatives = positionDerivativesWrtParameters(parameters, phase);
@@ -394,7 +393,7 @@ bool LinearizedHelixVertexFitter::fit() {
       inverseCovariance.Similarity(parameterDerivatives); // -> A C A^T (3x3)
       pointInverseCovariance[track] = inverseCovariance;
 
-      helixPoint[track] = toVectorD(helixPointAtPhase(parameters, phase));
+      helixPoint[track] = toVectorD(helixPointAtPhase(parameters, phase) + m_trackReferencePoints[track]);
       linearisationShift[track] = parameterDerivatives * (parameters - measuredParameters[track]);
 
       const TMatrixDSym weight = regularizedInverse(inverseCovariance); // W

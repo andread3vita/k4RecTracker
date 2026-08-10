@@ -7,8 +7,7 @@
 #include <TVector3.h>
 #include <TVectorD.h>
 
-// EDM4hep: the kernel reads track parameters directly from an edm4hep::TrackState,
-// so there is no intermediate "Delphes track" object and no parameter conversion step.
+// EDM4hep input is converted explicitly to the Delphes TrackCovariance convention.
 #include <edm4hep/TrackState.h>
 
 #include <vector>
@@ -19,40 +18,38 @@
  *  Least-squares vertex fit of several charged-particle helices to a common
  *  space point. The numerical method is the iterated, linearised vertex fit
  *  originally written by Franco Bedeschi for the Delphes fast simulation
- *  (the "TrackCovariance/VertexFit" class). It has been re-expressed here so
- *  that it works *natively* on EDM4hep track parameters:
+ *  (the "TrackCovariance/VertexFit" class). EDM4hep inputs are converted at
+ *  the boundary and the fitting kernel uses the original Delphes convention:
  *
- *    - input track parameters come straight from edm4hep::TrackState
- *      (d0, phi, omega, z0, tanLambda), in EDM4hep units (mm and 1/mm);
- *    - the input covariance is the edm4hep::TrackState covariance, used as-is;
+ *    - EDM4hep (d0, phi, omega, z0, tanLambda) is converted to Delphes
+ *      (D, phi0, C, z0, cot(theta)), with C = -omega/2;
+ *    - the covariance is transformed by the same Jacobian, so every covariance
+ *      involving omega gets a factor -1/2 and Var(omega) gets a factor 1/4;
+ *    - TrackState::referencePoint is added to every point on the local helix;
  *    - the fitted vertex position and covariance are returned in mm and mm^2.
  *
- *  The only place where the Delphes helix convention enters is inside the
- *  helix-geometry helpers below, where the signed half-curvature used by the
- *  closed-form helix equations is computed from omega as
- *
- *      signedHalfCurvature = -0.5 * omega
- *
- *  (the minus sign reproduces the EDM4hep<->Delphes mapping validated in
- *  FCCAnalyses). Because the derivative matrix is built with respect to the
- *  EDM4hep parameters directly, no covariance conversion is ever needed: the
- *  -1/2 factor cancels exactly between the derivative matrix and the
- *  covariance.
- *
- *  Conventions of the 5-parameter helix (EDM4hep perigee parametrisation):
- *    parameters[0] = d0        transverse impact parameter            [mm]
- *    parameters[1] = phi       azimuth of the momentum at the perigee [rad]
- *    parameters[2] = omega     signed curvature (sign of the charge)  [1/mm]
- *    parameters[3] = z0        longitudinal impact parameter          [mm]
- *    parameters[4] = tanLambda tangent of the dip angle               [-]
+ *  Internal 5-parameter convention (Delphes, in mm):
+ *    parameters[0] = D          transverse impact parameter            [mm]
+ *    parameters[1] = phi0       azimuth of the momentum at the perigee [rad]
+ *    parameters[2] = C          signed half-curvature                  [1/mm]
+ *    parameters[3] = z0         longitudinal impact parameter          [mm]
+ *    parameters[4] = cot(theta) (= EDM4hep tanLambda)                  [-]
  *
  *  The fit is purely geometric: it does NOT need the magnetic field, because
- *  the curvature is already contained in omega.
+ *  the curvature is already contained in C.
  */
 class LinearizedHelixVertexFitter {
 public:
   /// Index of each parameter inside the 5-vector, named for readability.
-  enum ParameterIndex { kD0 = 0, kPhi = 1, kOmega = 2, kZ0 = 3, kTanLambda = 4, kNumberOfParameters = 5 };
+  enum ParameterIndex {
+    kD0 = 0,
+    kPhi = 1,
+    kHalfCurvature = 2,
+    kOmega = kHalfCurvature, // compatibility alias; internal value is C, not omega
+    kZ0 = 3,
+    kTanLambda = 4,
+    kNumberOfParameters = 5
+  };
 
   LinearizedHelixVertexFitter() = default;
 
@@ -109,14 +106,15 @@ public:
   double trackChiSquared(std::size_t trackIndex) const { return m_trackChiSquared.at(trackIndex); }
 
   // ---------------------------------------------------------------------------
-  //  Helix geometry in the EDM4hep convention (public + static so they can be
+  //  Helix geometry in the Delphes convention (public + static so they can be
   //  unit-tested and reused on their own)
   // ---------------------------------------------------------------------------
 
-  /// Copy the five helix parameters out of an EDM4hep track state into a vector.
+  /// Convert an EDM4hep track state to (D, phi0, C, z0, cot(theta)), with
+  /// C = -omega/2. Lengths remain in mm.
   static TVectorD parametersFromTrackState(const edm4hep::TrackState& trackState);
 
-  /// Copy the 5x5 parameter covariance out of an EDM4hep track state.
+  /// Convert the EDM4hep 5x5 covariance to the Delphes parameter convention.
   static TMatrixDSym covarianceFromTrackState(const edm4hep::TrackState& trackState);
 
   /// 3D point on the helix as a function of the helix phase (the angle swept
@@ -124,7 +122,7 @@ public:
   static TVector3 helixPointAtPhase(const TVectorD& parameters, double phase);
 
   /// Matrix of derivatives d(position)/d(parameter): 3 rows (x,y,z) by
-  /// 5 columns (d0, phi, omega, z0, tanLambda).
+  /// 5 columns (D, phi0, C, z0, cot(theta)).
   static TMatrixD positionDerivativesWrtParameters(const TVectorD& parameters, double phase);
 
   /// Derivative d(position)/d(phase): a 3-vector tangent to the helix.
@@ -140,10 +138,6 @@ private:
   /// Build a quick, non-iterative starting vertex and per-track phases.
   /// (Port of Delphes VertexFit::VtxFitNoSteer.)
   void computeInitialSeed();
-
-  /// Signed half-curvature used by the closed-form helix equations, derived
-  /// from the EDM4hep curvature omega.
-  static double signedHalfCurvature(double omega) { return -0.5 * omega; }
 
   /// Small helpers to move between ROOT's TVector3 and a length-3 TVectorD.
   static TVectorD toVectorD(const TVector3& vector);
@@ -161,6 +155,7 @@ private:
   // --- inputs --------------------------------------------------------------
   std::vector<TVectorD> m_trackParameters;     ///< one 5-vector per track
   std::vector<TMatrixDSym> m_trackCovariances; ///< one 5x5 matrix per track
+  std::vector<TVector3> m_trackReferencePoints; ///< exact EDM4hep reference points [mm]
 
   // --- working / output ----------------------------------------------------
   std::vector<double> m_trackPhases; ///< fitted helix phase per track
