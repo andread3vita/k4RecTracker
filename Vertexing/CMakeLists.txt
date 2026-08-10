@@ -303,6 +303,40 @@ set_tests_properties(
 )
 
 file(
+  GLOB primary_vertex_finder_test_scripts
+  CONFIGURE_DEPENDS
+  "${CMAKE_CURRENT_SOURCE_DIR}/test/testPrimaryVertexFinderLCFIPlus/*.py"
+  "${CMAKE_CURRENT_SOURCE_DIR}/test/testPrimaryVertexFinderLCFIPlus/*.sh"
+)
+
+file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test/testPrimaryVertexFinderLCFIPlus")
+
+file(
+  COPY ${primary_vertex_finder_test_scripts}
+  DESTINATION "${CMAKE_CURRENT_BINARY_DIR}/test/testPrimaryVertexFinderLCFIPlus"
+)
+
+install(
+  FILES ${primary_vertex_finder_test_scripts}
+  DESTINATION "test/testPrimaryVertexFinderLCFIPlus"
+  COMPONENT dev
+)
+
+add_test(
+  NAME test_PrimaryVertexFinderLCFIPlus
+  COMMAND sh test_primaryVertexFinder.sh
+)
+
+set_test_env(test_PrimaryVertexFinderLCFIPlus)
+
+set_tests_properties(
+  test_PrimaryVertexFinderLCFIPlus
+  PROPERTIES
+    WORKING_DIRECTORY
+      "${CMAKE_CURRENT_BINARY_DIR}/test/testPrimaryVertexFinderLCFIPlus"
+)
+
+file(
   GLOB simple_vertex_finder_test_scripts
   CONFIGURE_DEPENDS
   "${CMAKE_CURRENT_SOURCE_DIR}/test/testSimpleVertexFinder/*.py"

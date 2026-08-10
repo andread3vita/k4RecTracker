@@ -228,9 +228,25 @@ struct TracksFromGenParticles final
       trackState_IP.omega = helixFromGenParticle.getOmega();
       trackState_IP.Z0 = helixFromGenParticle.getZ0();
       trackState_IP.tanLambda = helixFromGenParticle.getTanLambda();
-      trackState_IP.referencePoint =
-          edm4hep::Vector3f(genParticleVertex[0], genParticleVertex[1], genParticleVertex[2]);
-      trackFromGen.addToTrackStates(trackState_IP);
+
+      constexpr float largeVariance = 100;
+      trackState_IP.setCovMatrix(
+          largeVariance, edm4hep::TrackParams::d0, edm4hep::TrackParams::d0);
+      trackState_IP.setCovMatrix(
+          largeVariance, edm4hep::TrackParams::phi, edm4hep::TrackParams::phi);
+      trackState_IP.setCovMatrix(
+          largeVariance, edm4hep::TrackParams::omega, edm4hep::TrackParams::omega);
+      trackState_IP.setCovMatrix(
+          largeVariance, edm4hep::TrackParams::z0, edm4hep::TrackParams::z0);
+      trackState_IP.setCovMatrix(
+          largeVariance, edm4hep::TrackParams::tanLambda,
+          edm4hep::TrackParams::tanLambda);
+      trackState_IP.setCovMatrix(
+          largeVariance, edm4hep::TrackParams::time, edm4hep::TrackParams::time);
+
+        trackState_IP.referencePoint =
+            edm4hep::Vector3f(genParticleVertex[0], genParticleVertex[1], genParticleVertex[2]);
+        trackFromGen.addToTrackStates(trackState_IP);
 
       // find SimTrackerHits associated to genParticle (and not produced by secondaries)
       // store hit position, momentum and time

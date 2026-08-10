@@ -1,15 +1,63 @@
 # Vertexing components
 
-The `Vertexing` package provides event-level primary and secondary vertex reconstruction and a reusable least-squares vertex-refitting stage. Both Gaudi components operate on the package's `extension::VertexCollection`, whose vertices can store track relations, fit results, and primary or secondary flags.
+The `Vertexing` package provides event-level primary and secondary vertex reconstruction and a reusable least-squares vertex-refitting stage. Its Gaudi components operate on the package's `extension::VertexCollection`, whose vertices can store track relations, fit results, and primary or secondary flags.
 
 Collection names shown below are the configurable Gaudi property names. The names in parentheses are their defaults.
+
+## Fitted-track event display
+
+[`scripts/display_fitted_tracks.py`](scripts/display_fitted_tracks.py) reads an EDM4hep ROOT file and draws the fitted tracks and reconstructed vertices in side-by-side XY and YZ projections. The positional argument is the `EventHeader` event number:
+
+```bash
+python scripts/display_fitted_tracks.py 0
+```
+
+This reads `/afs/cern.ch/work/a/adevita/public/workDir/vertexingMeeting/out_vertex_lcfiplus.root` and writes `event_display_0.png`. Use `--entry` to select by zero-based frame entry instead, or override the defaults with `--input`, `--tracks`, `--vertices`, and `--output`:
+
+```bash
+python scripts/display_fitted_tracks.py 5 --entry \
+  --input events.root \
+  --output event_5.png
+```
 
 ## Component overview
 
 | Component | Purpose | Input | Output |
 | --- | --- | --- | --- |
+| `PrimaryVertexFinderLCFIPlus` | Select prompt tracks and reconstruct one primary vertex | All fitted tracks | One primary vertex with selected-track relations |
 | `LCFIPlusVertexFinder` | Find and fit primary and secondary vertices from all tracks in an event | Fitted tracks | Primary and secondary vertices |
 | `LeastSquaresVertexFitter` | Independently refit existing vertex candidates | Vertex candidates with track relations | Refitted vertices |
+
+## `PrimaryVertexFinderLCFIPlus`
+
+`PrimaryVertexFinderLCFIPlus` implements the primary-vertex sequence used in the FCCAnalyses vertex example. It starts with every input track that has a state at IP (`location == 1`), fits a common vertex, and iteratively discards the track with the largest individual chi-squared contribution while that contribution is at least the configured cut. Tracks without a state at IP are discarded. The output collection is empty when fewer than two compatible tracks remain; otherwise it contains exactly one vertex, marked primary, whose track relations contain only the selected tracks.
+
+Input and output:
+
+- `InputTracks` (`InputTracks`): all fitted `edm4hep::Track` objects in the event.
+- `OutputPrimaryVertex` (`PrimaryVertex`): an `extension::VertexCollection` containing zero or one primary vertex.
+
+Important properties:
+
+| Property | Default | Meaning |
+| --- | ---: | --- |
+| `TrackChi2Cut` | 25 | Reject the largest contributor while its individual chi-squared is at least this value |
+| `UseBeamSpotConstraint` | `true` | Apply a Gaussian beam-spot prior |
+| `BeamSpotPosition` | `[0, 0, 0]` mm | Beam-spot centre |
+| `BeamSpotSize` | `[0.0045, 0.00002, 0.3]` mm | FCC-ee Z-pole beam-spot widths used by the reference example |
+| `MaxIterations` | 100 | Maximum fitter iterations |
+| `ConvergenceThreshold` | `1e-12` | Fitter convergence criterion |
+| `AlgorithmType` | 1 | Identifier written to the output vertex |
+
+```python
+from Configurables import PrimaryVertexFinderLCFIPlus
+
+primary_vertex_finder = PrimaryVertexFinderLCFIPlus(
+    "PrimaryVertexFinderLCFIPlus",
+    InputTracks=["FittedTracks"],
+    OutputPrimaryVertex=["PrimaryVertex"],
+)
+```
 
 ## `LCFIPlusVertexFinder`
 
