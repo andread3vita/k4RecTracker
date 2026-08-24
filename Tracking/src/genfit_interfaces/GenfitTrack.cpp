@@ -977,15 +977,25 @@ bool GenfitTrack::Fit(edm4hep::TrackerHitPlaneCollection& fittedHits, std::strin
         }
 
         if (isAccepted) {
-          // Retrieve the fitted state from the KalmanFitterInfo
-          genfit::StateOnPlane state = kfi->getFittedState();
-          genfit::MeasuredStateOnPlane measState = kfi->getFittedState();
+          // Retrieving the fitted state averages the forward and backward Kalman
+          // states. This can fail for an otherwise fitted track when one point has
+          // an ill-conditioned covariance matrix. Do not let such a point abort the
+          // full event; omit it from the filtered-hit output instead.
+          genfit::MeasuredStateOnPlane measState;
+          try {
+            measState = kfi->getFittedState();
+          } catch (const genfit::Exception& e) {
+            if (showFitDiagnostics) {
+              std::cerr << "Exception retrieving fitted hit state: " << e.what() << std::endl;
+            }
+            continue;
+          }
 
           // Extract the 3D position of the fitted state
-          TVector3 pos = state.getPos();
+          TVector3 pos = measState.getPos();
 
           // Extract the measurement plane's orientation vectors
-          auto planeMeas = state.getPlane();
+          auto planeMeas = measState.getPlane();
           auto U = planeMeas->getU(); // Plane u-direction
           auto V = planeMeas->getV(); // Plane v-direction
           auto O = planeMeas->getO(); // Plane origin
