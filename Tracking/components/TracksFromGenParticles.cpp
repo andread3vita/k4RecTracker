@@ -69,6 +69,13 @@ struct TracksFromGenParticles final
 
   StatusCode initialize() override {
 
+    if (!m_trackParameterResolutions.value().empty() && m_trackParameterResolutions.value().size() != 5) {
+      error() << "TrackParameterResolutions must be empty or contain exactly five values ordered as "
+                 "[d0, phi, omega, z0, tanLambda]."
+              << endmsg;
+      return StatusCode::FAILURE;
+    }
+
     // retrieve B field
     m_Bz = getFieldFromCompact();
     debug() << "B field (T) is : " << m_Bz << endmsg;
@@ -234,6 +241,7 @@ struct TracksFromGenParticles final
       trackState_IP.tanLambda = helixFromGenParticle.getTanLambda();
       trackState_IP.referencePoint =
           edm4hep::Vector3f(genParticleVertex[0], genParticleVertex[1], genParticleVertex[2]);
+      setConfiguredCovariance(trackState_IP);
       trackFromGen.addToTrackStates(trackState_IP);
 
       // find SimTrackerHits associated to genParticle (and not produced by secondaries)
@@ -302,6 +310,7 @@ struct TracksFromGenParticles final
         trackState_AtFirstHit.Z0 = helixAtFirstHit.getZ0();
         trackState_AtFirstHit.tanLambda = helixAtFirstHit.getTanLambda();
         trackState_AtFirstHit.referencePoint = edm4hep::Vector3f(posAtFirstHit[0], posAtFirstHit[1], posAtFirstHit[2]);
+        setConfiguredCovariance(trackState_AtFirstHit);
         trackFromGen.addToTrackStates(trackState_AtFirstHit);
 
         // TrackState at Last Hit
@@ -324,6 +333,7 @@ struct TracksFromGenParticles final
         trackState_AtLastHit.Z0 = helixAtLastHit.getZ0();
         trackState_AtLastHit.tanLambda = helixAtLastHit.getTanLambda();
         trackState_AtLastHit.referencePoint = edm4hep::Vector3f(posAtLastHit[0], posAtLastHit[1], posAtLastHit[2]);
+        setConfiguredCovariance(trackState_AtLastHit);
         // attach the TrackState to the track
         trackFromGen.addToTrackStates(trackState_AtLastHit);
 
@@ -419,6 +429,17 @@ struct TracksFromGenParticles final
   }
 
 private:
+  void setConfiguredCovariance(edm4hep::TrackState& state) const {
+    if (m_trackParameterResolutions.value().empty())
+      return;
+
+    for (std::size_t index = 0; index < m_trackParameterResolutions.value().size(); ++index) {
+      const auto sigma = m_trackParameterResolutions.value()[index];
+      state.setCovMatrix(static_cast<float>(sigma * sigma), static_cast<edm4hep::TrackParams>(index),
+                         static_cast<edm4hep::TrackParams>(index));
+    }
+  }
+
   /// Solenoid magnetic field, to be retrieved from detector
   float m_Bz;
 
@@ -467,6 +488,13 @@ private:
   /// to encode the systemID in the hits of the various tracking devices
   /// (we do not care about the other fields of the readout)
   Gaudi::Property<std::string> m_systemEncoding{this, "SystemEncoding", "system:5", "System encoding string"};
+
+  /// Optional diagonal resolutions for generator-derived track states. Keeping
+  /// this empty preserves the historical zero-covariance output. The order and
+  /// units are d0 [mm], phi [rad], omega [1/mm], z0 [mm], tan(lambda).
+  Gaudi::Property<std::vector<double>> m_trackParameterResolutions{
+      this, "TrackParameterResolutions", {},
+      "Optional track-parameter resolutions [d0, phi, omega, z0, tanLambda] used to build a diagonal covariance"};
 
   /// Used to retrieve systemID by index rather than by string
   int m_indexSystem;
