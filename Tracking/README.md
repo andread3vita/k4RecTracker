@@ -23,20 +23,31 @@ We implemented a **Geometric Graph Track Finder (GGTF)** in `k4RecTracker/Tracki
 Its workflow can be summarized as follows:
 
 1. **Input Extraction**
-   - From the hit collections, a 7-dimensional tensor is built.
-   - The components are:
-     - **[0–2]**: 3D position of the silicon detector hits (e.g., vertex and wrapper).
-     - **[3]**: hit type (`0` = silicon detector hit, `1` = drift chamber hit).
-     - **[4–6]**: vector components pointing from the left to the right positions along the circles that identify the drift chamber hits (set to `0` for silicon hits).
+   - From the hit collections, a 7-dimensional tensor is built, with one row per hit following
+     the convention the model was trained with:
+     - **[0–2]**: position in mm — the hit position for planar (silicon) hits; for drift-chamber
+       hits the midpoint `(left + right) / 2` of the two drift-ambiguity solutions.
+     - **[3]**: hit type (`1` = planar silicon hit, `0` = drift chamber hit).
+     - **[4–6]**: for drift-chamber hits, half the vector between the drift-ambiguity solutions,
+       `(right - left) / 2`; `(0, 0, 0)` for planar hits.
+   - All arithmetic mirrors the training pipeline exactly (float32 values, float32 operations).
+   - Rows are appended planar-first, then wire hits, as in training. For an exact correspondence
+     configure `InputPlanarHitCollections` in the training order
+     (`VTXDDigis`, `VTXBDigis`, `SiWrDDigis`, `SiWrBDigis`); any other ordering changes the
+     results only at the fp32-noise level, since the network treats hits
+     permutation-equivariantly and the algorithm keeps the hit bookkeeping parallel to the
+     feature rows.
 
 2. **Machine Learning Step**
-   - The 7-dimensional inputs are mapped into a collection of 4-dimensional points in an embedding space.
-   - Each 4D point consists of **3 geometric coordinates** and **1 charge-like component**.
+   - The 7-dimensional inputs are mapped into a collection of points in an embedding space whose number of coordinates is set by the `EmbeddingCoordinates` property (default: 3).
+   - Each point consists of the embedding coordinates plus a trailing **charge-like component** (beta); models trained with a helix-proxy head append further columns, which are ignored here.
    - Intuitively, this charge can be seen as a potential that **attracts hits of the same cluster** and **repels unrelated ones**.
    - This step is implemented with an [`Ort::Session`](https://onnx.ai/) initialized with a `.onnx` model.
 
 3. **Clustering Step**
-   - The 4D embedded points are clustered into sub-collections.
+   - The embedded points are clustered in the `EmbeddingCoordinates`-dimensional space:
+     beta (the model emits it as a logit; the algorithm applies a sigmoid) selects cluster seeds
+     above `Tbeta`, and hits within distance `Td` of a seed join its cluster.
    - Each cluster corresponds **one-to-one** to a reconstructed track.
 
 4. **Track Creation**
