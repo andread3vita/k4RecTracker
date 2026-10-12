@@ -18,6 +18,7 @@
  */
 
 // Standard Library
+#include <array>
 #include <atomic>
 #include <cmath>
 #include <cstdint>
@@ -105,6 +106,19 @@ struct GGTFTrackFinder final : k4FWCore::MultiTransformer<std::tuple<edm4hep::Tr
       Ort::AllocatorWithDefaultOptions allocator;
       m_inputName = m_session->GetInputNameAllocated(0, allocator).get();
       m_outputName = m_session->GetOutputNameAllocated(0, allocator).get();
+
+      // Layout contract: [N, EmbeddingCoordinates + 1 (+4 helix-proxy values)]; the value right
+      // after the embedding coordinates is the cluster potential (beta logit).
+      // Reject a mismatching statically-declared output already here.
+      const auto outputShape = m_session->GetOutputTypeInfo(0).GetTensorTypeAndShapeInfo().GetShape();
+      if (outputShape.size() == 2 && outputShape[1] > 0 &&
+          static_cast<std::size_t>(outputShape[1]) != m_embeddingCoordinates.value() + 1 &&
+          static_cast<std::size_t>(outputShape[1]) != m_embeddingCoordinates.value() + 5) {
+        error() << "The configured model returns " << outputShape[1]
+                << " values per hit; expected EmbeddingCoordinates (" << m_embeddingCoordinates.value()
+                << ") + 1 cluster potential, plus optionally 4 helix-proxy values." << endmsg;
+        return StatusCode::FAILURE;
+      }
     } catch (const Ort::Exception& exception) {
       error() << "Failed to initialize ONNX Runtime: " << exception.what() << endmsg;
       return StatusCode::FAILURE;
@@ -147,8 +161,12 @@ struct GGTFTrackFinder final : k4FWCore::MultiTransformer<std::tuple<edm4hep::Tr
     appendPlanarHits(inputPlanarHitCollections, batch);
     appendWireHits(inputWireHitCollections, batch);
 
-    const torch::Tensor modelOutput = runInference(batch.features);
-    const torch::Tensor clusterIds = get_clustering(modelOutput, m_tbeta, m_td, m_embeddingCoordinates.value());
+    torch::Tensor modelOutput = runInference(batch.features);
+    // The model emits the cluster potential as a logit; the clustering consumes sigmoid(beta),
+    // exactly like the training-side evaluation (`torch.sigmoid(output[:, embedding_dim])`).
+    modelOutput.select(/*dim=*/1, /*index=*/static_cast<std::int64_t>(m_embeddingCoordinates.value())).sigmoid_();
+    const torch::Tensor clusterIds =
+        get_clustering(modelOutput, m_tbeta, m_td, m_embeddingCoordinates.value());
 
     buildTracks(clusterIds, batch, inputPlanarHitCollections, inputWireHitCollections, outputTracks);
 
@@ -238,9 +256,11 @@ private:
   /**
    * @brief Append wire hits to the flattened model input.
    *
-   * Each drift-chamber hit is represented by one left/right ambiguity segment:
-   * the first three features contain the left point, the fourth identifies a
-   * wire hit, and the final three contain the vector from left to right.
+   * Each drift-chamber hit is encoded exactly as in training
+   * (`create_graph_tracking_global`, vector mode): the first three features
+   * contain the midpoint of the two drift-ambiguity solutions,
+   * `(left + right) / 2`, the fourth identifies a wire hit, and the final
+   * three contain half the ambiguity vector, `(right - left) / 2`.
    *
    * @param collections Input wire-hit collections.
    * @param batch Destination event batch.
@@ -277,12 +297,22 @@ private:
             xPrime * leftLocal.X() + yPrime * leftLocal.Y() + zPrime * leftLocal.Z() + wirePositionVector;
         const TVector3 rightGlobal =
             xPrime * rightLocal.X() + yPrime * rightLocal.Y() + zPrime * rightLocal.Z() + wirePositionVector;
-        const TVector3 ambiguityVector = rightGlobal - leftGlobal;
+        // Training-convention features: ambiguity midpoint and half the
+        // left-to-right vector (NOT the left point and the full vector).
+        // The training computes these in float32 from float32-stored
+        // left/right positions (Parquet); do the cast first and the assembly
+        // in float so the inputs are bit-identical, not 1-ulp off.
+        const std::array<float, 3> leftF = {static_cast<float>(leftGlobal.X()),
+                                            static_cast<float>(leftGlobal.Y()),
+                                            static_cast<float>(leftGlobal.Z())};
+        const std::array<float, 3> rightF = {static_cast<float>(rightGlobal.X()),
+                                             static_cast<float>(rightGlobal.Y()),
+                                             static_cast<float>(rightGlobal.Z())};
 
         batch.features.insert(batch.features.end(),
-                              {static_cast<float>(leftGlobal.X()), static_cast<float>(leftGlobal.Y()),
-                               static_cast<float>(leftGlobal.Z()), 0.0F, static_cast<float>(ambiguityVector.X()),
-                               static_cast<float>(ambiguityVector.Y()), static_cast<float>(ambiguityVector.Z())});
+                              {0.5F * (leftF[0] + rightF[0]), 0.5F * (leftF[1] + rightF[1]),
+                               0.5F * (leftF[2] + rightF[2]), 0.0F, 0.5F * (rightF[0] - leftF[0]),
+                               0.5F * (rightF[1] - leftF[1]), 0.5F * (rightF[2] - leftF[2])});
         batch.hitTypes.push_back(HitType::Wire);
         batch.collectionIndices.push_back(collectionIndex);
         batch.hitIndices.push_back(hitIndex);
@@ -295,8 +325,10 @@ private:
    * @brief Run the ONNX model for one event.
    *
    * @param features Flattened input feature buffer containing seven float values per hit.
-   * @return Owned CPU tensor containing EmbeddingCoordinates + 1 float values per hit (the last one is the
-   *         cluster potential).
+   * @return Owned CPU tensor [nHits, valuesPerHit] with the leading
+   *         EmbeddingCoordinates columns holding the embedding coordinates, followed by the cluster
+   *         potential as a *logit*; any further trailing columns (e.g. the helix-proxy values of some
+   *         checkpoints) are carried through but ignored by the clustering.
    * @throws std::logic_error if the session is not initialized.
    * @throws std::runtime_error if the input or output shape is invalid.
    */
@@ -326,12 +358,17 @@ private:
 
     const auto outputInfo = outputs.front().GetTensorTypeAndShapeInfo();
     const std::size_t outputElementCount = outputInfo.GetElementCount();
-    const std::size_t valuesPerHit = m_embeddingCoordinates.value() + 1; // embedding coordinates + cluster potential
-    const std::size_t expectedElementCount = nHits * valuesPerHit;
-    if (outputElementCount != expectedElementCount) {
-      throw std::runtime_error("Unexpected ONNX output size: expected " + std::to_string(valuesPerHit) +
-                               " values per hit (" + std::to_string(m_embeddingCoordinates.value()) +
-                               " embedding coordinates + 1 cluster potential)");
+    if (outputElementCount % nHits != 0) {
+      throw std::runtime_error("ONNX output size " + std::to_string(outputElementCount) +
+                               " is not a multiple of the hit count " + std::to_string(nHits));
+    }
+    const std::size_t valuesPerHit = outputElementCount / nHits;
+    // Layout contract: [embedding coordinates, beta logit, (optional) 4 helix-proxy values].
+    if (valuesPerHit != m_embeddingCoordinates.value() + 1 && valuesPerHit != m_embeddingCoordinates.value() + 5) {
+      throw std::runtime_error("The model returns " + std::to_string(valuesPerHit) +
+                               " values per hit; expected EmbeddingCoordinates (" +
+                               std::to_string(m_embeddingCoordinates.value()) +
+                               ") + 1 cluster potential, plus optionally 4 helix-proxy values");
     }
 
     const float* outputData = outputs.front().GetTensorData<float>();
@@ -415,8 +452,9 @@ private:
   Gaudi::Property<std::string> m_modelPath{this, "ModelPath", "", "Path to the ONNX model file"};
   Gaudi::Property<std::size_t> m_embeddingCoordinates{
       this, "EmbeddingCoordinates", 3,
-      "Number of embedding-space coordinates per hit in the ONNX model output; the model must produce one "
-      "additional trailing value per hit, the cluster potential (beta)"};
+      "Number of leading embedding-space coordinates per hit in the ONNX model output. The model must produce "
+      "at least one additional value per hit, the cluster potential beta as a logit (a sigmoid is applied "
+      "in this algorithm); any further trailing columns are ignored"};
   Gaudi::Property<std::size_t> m_maxHits{this, "MaxHits", 20000, "Maximum number of hits accepted per event"};
   Gaudi::Property<double> m_tbeta{this, "Tbeta", 0.6, "Threshold used to identify cluster core points"};
   Gaudi::Property<double> m_td{this, "Td", 0.3, "Radius used to assign nearby hits to a cluster core"};
