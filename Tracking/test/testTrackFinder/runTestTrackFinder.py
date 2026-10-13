@@ -149,6 +149,7 @@ GGTF = GGTFTrackFinder(
     InputPlanarHitCollections=["VTXBDigis", "VTXDDigis", "SiWrBDigis", "SiWrDDigis"],
     InputWireHitCollections=["DCH_DigiCollection"],
     OutputTracksGGTF=["GGTFTracks"],
+    EmbeddingCoordinates=4,
     ModelPath=args.modelPath,
     Tbeta=args.tbeta,
     Td=args.td,
