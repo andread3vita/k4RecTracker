@@ -485,6 +485,14 @@ void GenfitTrack::SelectFirstArcHits(bool force, double pTThresholdGeV, double R
     z_val.push_back(pos.z);
   }
 
+  // The products of the first-arc analysis depend only on the hit geometry: they are
+  // computed once per track and re-used across fit attempts and particle hypotheses through
+  // the per-track cache (nothing is shared between tracks or events).
+  TrackFitCache::Geometry localGeometry;
+  TrackFitCache::Geometry& geo = m_cache ? m_cache->geometry : localGeometry;
+
+  if (!geo.valid) {
+
   // (1) circle fit in the xy plane
   FastCircleFit circle(points_xy);
 
@@ -550,10 +558,6 @@ void GenfitTrack::SelectFirstArcHits(bool force, double pTThresholdGeV, double R
       (dd4hep::tesla / dd4hep::kilogauss); // From kilogauss to Tesla
   const double pT_est = std::abs(0.3 * Bz * circle.rho()) / 1000.0; // 1000 is used to convert from m to mm
 
-  if (!force && pT_est >= pTThresholdGeV) {
-    return;
-  }
-
   // (3) phi around the center of the fitted circle for every hit
   constexpr double kTwoPi = 6.28318530717958647692;
   const double x0 = circle.x0();
@@ -585,19 +589,6 @@ void GenfitTrack::SelectFirstArcHits(bool force, double pTThresholdGeV, double R
   const double stepZ = meanStep(zOrder);
   const std::vector<std::size_t>& order = (stepNatural <= stepZ) ? natural : zOrder;
 
-  if (std::min(stepNatural, stepZ) > 0.5) {
-    return; // no geometrically ordered sequence: the sawtooth would be meaningless
-  }
-
-  // The validated sequence is also the order used to seed and fit the track: GENFIT propagates
-  // from hit to hit along the point order, so a scrambled input order breaks the fit even when
-  // the arc identification is correct. All its hits are kept unless the first arc is cut below.
-  m_fitHits.assign(order.begin(), order.end());
-  const auto seqFirst = hits[m_fitHits.front()].getPosition();
-  const auto seqLast = hits[m_fitHits.back()].getPosition();
-  m_firstHitReferencePoint = TVector3(seqFirst.x * dd4hep::mm, seqFirst.y * dd4hep::mm, seqFirst.z * dd4hep::mm);
-  m_lastHitReferencePoint = TVector3(seqLast.x * dd4hep::mm, seqLast.y * dd4hep::mm, seqLast.z * dd4hep::mm);
-
   // phi_local along the sequence, oriented along the trajectory and zeroed at its start.
   // The first arc is the first full turn: it ends at the first peak of the sawtooth, i.e. when
   // the unwrapped angle has advanced by 2*pi (or when phi_local wraps and restarts near 0).
@@ -622,15 +613,43 @@ void GenfitTrack::SelectFirstArcHits(bool force, double pTThresholdGeV, double R
     }
   }
 
-  if (wrap == N) {
+  geo.z_vertex = z_vertex;
+  geo.x0 = x0;
+  geo.y0 = y0;
+  geo.rho = circle.rho();
+  geo.pT_est = pT_est;
+  geo.stepMin = std::min(stepNatural, stepZ);
+  geo.wrap = wrap;
+  geo.order.assign(order.begin(), order.end());
+  geo.valid = true;
+  }
+
+  if (!force && geo.pT_est >= pTThresholdGeV) {
+    return;
+  }
+
+  if (geo.stepMin > 0.5) {
+    return; // no geometrically ordered sequence: the sawtooth would be meaningless
+  }
+
+  // The validated sequence is also the order used to seed and fit the track: GENFIT propagates
+  // from hit to hit along the point order, so a scrambled input order breaks the fit even when
+  // the arc identification is correct. All its hits are kept unless the first arc is cut below.
+  m_fitHits.assign(geo.order.begin(), geo.order.end());
+  const auto seqFirst = hits[m_fitHits.front()].getPosition();
+  const auto seqLast = hits[m_fitHits.back()].getPosition();
+  m_firstHitReferencePoint = TVector3(seqFirst.x * dd4hep::mm, seqFirst.y * dd4hep::mm, seqFirst.z * dd4hep::mm);
+  m_lastHitReferencePoint = TVector3(seqLast.x * dd4hep::mm, seqLast.y * dd4hep::mm, seqLast.z * dd4hep::mm);
+
+  if (geo.wrap == N) {
     return; // no wrap of phi_local: single arc, fit all the hits
   }
-  if (wrap < 3) {
+  if (geo.wrap < 3) {
     return; // fewer than 3 hits before the wrap: the first arc cannot be fitted on its own
   }
 
   // (5) keep the hits before the first peak
-  m_fitHits.assign(order.begin(), order.begin() + wrap);
+  m_fitHits.assign(geo.order.begin(), geo.order.begin() + geo.wrap);
 
   const auto firstPos = hits[m_fitHits.front()].getPosition();
   const auto lastPos = hits[m_fitHits.back()].getPosition();
@@ -976,6 +995,29 @@ TMatrixDSym GenfitTrack::ComputeInitialCovarianceMatrix(double Bz, int Charge, s
  */
 GenfitTrack::HelperInitialization GenfitTrack::ComputeInitialParameters(double Bz) {
 
+  // The seed depends only on the selected hits, the field at the seed and the reference
+  // point: identical inputs are re-used across fit attempts and particle hypotheses of the
+  // same track (per-track cache; the cached value is the exact output of the computation).
+  const TrackFitCache::SeedKey key{m_fitHits, Bz, m_vpReferencePoint.X(), m_vpReferencePoint.Y(),
+                                   m_vpReferencePoint.Z()};
+  if (m_cache) {
+    for (const auto& entry : m_cache->seeds) {
+      if (entry.first == key) {
+        return entry.second;
+      }
+    }
+  }
+
+  HelperInitialization result = ComputeInitialParametersUncached(Bz);
+
+  if (m_cache) {
+    m_cache->seeds.emplace_back(key, result);
+  }
+  return result;
+}
+
+GenfitTrack::HelperInitialization GenfitTrack::ComputeInitialParametersUncached(double Bz) {
+
   Point2D_xy referencePoint_xy(m_vpReferencePoint.X() / dd4hep::mm, m_vpReferencePoint.Y() / dd4hep::mm); // in mm
 
   auto hits = m_edm4hepTrack.getTrackerHits();
@@ -1162,23 +1204,45 @@ void GenfitTrack::CreateGenFitTrack(int particle_hypotesis, int debug_lvl) {
   // - A genfit::Track owns its TrackPoints
   // - Deleting a Track automatically deletes all associated TrackPoints
   // - Deleting a TrackPoint also releases the underlying measurement object used to create it
-  for (const std::size_t idx : m_fitHits) {
+  //
+  // Measurement masters are cached per hit (per-track cache, shared only between the fit
+  // attempts and hypotheses of this track) and cloned for every TrackPoint: the clone is
+  // owned by the TrackPoint, the master by the cache. The clone carries the same raw
+  // measurement and the same hitId as a directly constructed measurement.
+  auto buildMeasurement = [&](std::size_t idx, int hitId) -> genfit::AbsMeasurement* {
     auto hit = hits_for_genfit[idx];
-    const int hitId = static_cast<int>(idx) + 1;
 
     if (hit.isA<edm4hep::TrackerHitPlane>()) {
       detID = 0;
       auto planar_hit = hit.as<edm4hep::TrackerHitPlane>();
       GenfitInterface::PlanarMeasurement measurement(planar_hit, detID, hitId, debug_lvl);
-      m_genfitTrack->insertPoint(new genfit::TrackPoint(measurement.getGenFit(), m_genfitTrack.get()));
+      return measurement.getGenFit();
     } else if (hit.isA<edm4hep::SenseWireHit>()) {
       detID = 1;
       auto wire_hit = hit.as<edm4hep::SenseWireHit>();
       GenfitInterface::WireMeasurement measurement(wire_hit, m_wireInfo, m_dcDecoder, has_sectors, detID, hitId,
                                                    debug_lvl);
-      m_genfitTrack->insertPoint(new genfit::TrackPoint(measurement.getGenFit(), m_genfitTrack.get()));
-    } else {
-      throw std::runtime_error("InitializeTrack: Unknown hit type encountered - Hit will be skipped.");
+      return measurement.getGenFit();
+    }
+    throw std::runtime_error("InitializeTrack: Unknown hit type encountered - Hit will be skipped.");
+  };
+
+  if (m_cache) {
+    auto& masters = m_cache->measurements;
+    if (masters.size() < hits_for_genfit.size()) {
+      masters.resize(hits_for_genfit.size());
+    }
+    for (const std::size_t idx : m_fitHits) {
+      const int hitId = static_cast<int>(idx) + 1;
+      if (!masters[idx]) {
+        masters[idx].reset(buildMeasurement(idx, hitId));
+      }
+      m_genfitTrack->insertPoint(new genfit::TrackPoint(masters[idx]->clone(), m_genfitTrack.get()));
+    }
+  } else {
+    for (const std::size_t idx : m_fitHits) {
+      const int hitId = static_cast<int>(idx) + 1;
+      m_genfitTrack->insertPoint(new genfit::TrackPoint(buildMeasurement(idx, hitId), m_genfitTrack.get()));
     }
   }
 }
@@ -1218,19 +1282,13 @@ void GenfitTrack::CreateGenFitTrack(int particle_hypotesis, int debug_lvl) {
  * @note If any exception occurs during fitting or state extrapolation, the function
  *       returns false and does not update the track.
  */
-bool GenfitTrack::Fit(edm4hep::TrackerHitPlaneCollection& fittedHits, std::string FitterType = "DAF", int debug_lvl = 0,
+bool GenfitTrack::Fit(std::string FitterType = "DAF", int debug_lvl = 0,
                       std::optional<double> Beta_init = 100., std::optional<double> Beta_final = 0.1,
                       std::optional<int> Beta_steps = 10, std::optional<bool> FilterHits = true,
                       bool NoMaterial = false) {
 
   const bool showFitDiagnostics = (debug_lvl == 1 || debug_lvl == 2);
   const bool showFitterDiagnostics = (debug_lvl == 1);
-
-  edm4hep::Track Track_temp = m_edm4hepTrack;
-  for (size_t i = 0; i < Track_temp.trackStates_size(); ++i) {
-
-    Track_temp.getTrackStates(i) = edm4hep::TrackState();
-  }
 
   // The navigator is process-global. GeoNavigatorStateGuard saves a backup of the navigator and
   // restores it when GeoNavigatorStateGuard is destroyed.
@@ -1311,17 +1369,8 @@ bool GenfitTrack::Fit(edm4hep::TrackerHitPlaneCollection& fittedHits, std::strin
 
   if (genfitFitter->isTrackFitted(&genfitTrack, trackRep)) {
 
-    struct PendingFittedHit {
-      TVector3 position;
-      TMatrixDSym covariance;
-      double du;
-      double dv;
-      TVector3 u;
-      TVector3 v;
-      uint64_t cellID;   // cellID of the digi hit measured at this point
-      int32_t hitIndex;  // index of that digi hit in the fitted track's hit list (FittedTracks)
-    };
-    std::vector<PendingFittedHit> pendingFittedHits;
+    // The fitted hit data is collected in m_pendingFittedHits (class member): the caller
+    // decides the output collection via CreateFilteredHits().
 
     // Hit Filtering based on measurement weights (if FitterType == "DAF" and FilterHits == true)
     if (FilterHits.value() && FitterType == "DAF") {
@@ -1434,7 +1483,7 @@ bool GenfitTrack::Fit(edm4hep::TrackerHitPlaneCollection& fittedHits, std::strin
           const int hitId = point_track->getRawMeasurement(0)->getHitId();
           const uint64_t digiCellID = m_edm4hepTrack.getTrackerHits(hitId - 1).getCellID();
 
-          pendingFittedHits.push_back({pos, covXYZ, err_u, err_v, u, v, digiCellID, hitId - 1});
+          m_pendingFittedHits.push_back({pos, covXYZ, err_u, err_v, u, v, digiCellID, hitId - 1});
         }
       }
     }
@@ -1509,29 +1558,9 @@ bool GenfitTrack::Fit(edm4hep::TrackerHitPlaneCollection& fittedHits, std::strin
       }
     }
 
-    // Commit fitted hits only after all operations that can make the fit fail have succeeded.
-    for (const auto& pendingHit : pendingFittedHits) {
-      auto hit3D = fittedHits.create();
-      hit3D.setPosition(edm4hep::Vector3d(pendingHit.position.X() / dd4hep::mm, pendingHit.position.Y() / dd4hep::mm,
-                                          pendingHit.position.Z() / dd4hep::mm));
-      hit3D.setCovMatrix({
-          static_cast<float>(pendingHit.covariance(0, 0)), // xx
-          static_cast<float>(pendingHit.covariance(1, 0)), // yx
-          static_cast<float>(pendingHit.covariance(1, 1)), // yy
-          static_cast<float>(pendingHit.covariance(2, 0)), // zx
-          static_cast<float>(pendingHit.covariance(2, 1)), // zy
-          static_cast<float>(pendingHit.covariance(2, 2))  // zz
-      });
-      hit3D.setDu(pendingHit.du);
-      hit3D.setDv(pendingHit.dv);
-      // plane axes as (theta, phi) of the unit vectors, following the edm4hep TrackerHitPlane convention
-      hit3D.setU({static_cast<float>(pendingHit.u.Theta()), static_cast<float>(pendingHit.u.Phi())});
-      hit3D.setV({static_cast<float>(pendingHit.v.Theta()), static_cast<float>(pendingHit.v.Phi())});
-      hit3D.setCellID(pendingHit.cellID);
-      hit3D.setQuality(pendingHit.hitIndex);
-
-      m_trackWithFit.addToTrackerHits(hit3D);
-    }
+    // The filtered hits are committed by CreateFilteredHits(): they must be created in the
+    // collection where they will live (an EDM4hep object cannot be shared between two
+    // collections), and only the caller knows that collection.
 
     if (showFitDiagnostics) {
 
@@ -1597,6 +1626,43 @@ bool GenfitTrack::Fit(edm4hep::TrackerHitPlaneCollection& fittedHits, std::strin
 
     return false;
   }
+}
+
+/**
+ * @brief Create the filtered hits collected by Fit() in the given output collection.
+ *
+ * The hits are created with the same fields Fit() computed (position, covariance, plane
+ * axes, digi cellID and the digi hit index in getQuality()) and are related to the
+ * filtered-hit track, exactly as when Fit() created them directly. The hits must be created
+ * in the collection where they will live (an EDM4hep object cannot be shared between two
+ * collections), which is why the caller passes it here. Call at most once per fitted track:
+ * the pending hits are consumed.
+ */
+void GenfitTrack::CreateFilteredHits(edm4hep::TrackerHitPlaneCollection& out) {
+
+  for (const auto& pendingHit : m_pendingFittedHits) {
+    auto hit3D = out.create();
+    hit3D.setPosition(edm4hep::Vector3d(pendingHit.position.X() / dd4hep::mm, pendingHit.position.Y() / dd4hep::mm,
+                                        pendingHit.position.Z() / dd4hep::mm));
+    hit3D.setCovMatrix({
+        static_cast<float>(pendingHit.covariance(0, 0)), // xx
+        static_cast<float>(pendingHit.covariance(1, 0)), // yx
+        static_cast<float>(pendingHit.covariance(1, 1)), // yy
+        static_cast<float>(pendingHit.covariance(2, 0)), // zx
+        static_cast<float>(pendingHit.covariance(2, 1)), // zy
+        static_cast<float>(pendingHit.covariance(2, 2))  // zz
+    });
+    hit3D.setDu(pendingHit.du);
+    hit3D.setDv(pendingHit.dv);
+    // plane axes as (theta, phi) of the unit vectors, following the edm4hep TrackerHitPlane convention
+    hit3D.setU({static_cast<float>(pendingHit.u.Theta()), static_cast<float>(pendingHit.u.Phi())});
+    hit3D.setV({static_cast<float>(pendingHit.v.Theta()), static_cast<float>(pendingHit.v.Phi())});
+    hit3D.setCellID(pendingHit.cellID);
+    hit3D.setQuality(pendingHit.hitIndex);
+
+    m_trackWithFit.addToTrackerHits(hit3D);
+  }
+  m_pendingFittedHits.clear();
 }
 
 /**

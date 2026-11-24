@@ -30,6 +30,7 @@
 
 #include <AbsBField.h>
 #include <AbsFitterInfo.h>
+#include <AbsMeasurement.h>
 #include <AbsTrackRep.h>
 #include <DAF.h>
 #include <EventDisplay.h>
@@ -103,9 +104,13 @@ public:
   bool RestrictToSiliconHits();
   void RestrictToEvenlySpacedHits(std::size_t target);
   bool RestrictToCircleInliers(double toleranceMm);
-  bool Fit(edm4hep::TrackerHitPlaneCollection& fittedHits, std::string FitterType, int debug_lvl,
-           std::optional<double> Beta_init, std::optional<double> Beta_final, std::optional<int> Beta_steps,
-           std::optional<bool> FilterHits, bool NoMaterial);
+  bool Fit(std::string FitterType, int debug_lvl, std::optional<double> Beta_init, std::optional<double> Beta_final,
+           std::optional<int> Beta_steps, std::optional<bool> FilterHits, bool NoMaterial);
+  // Create the filtered hits collected by Fit() in the given output collection and relate
+  // them to the filtered-hit track. The hits must be created in the collection where they
+  // will live: an EDM4hep object cannot be shared between two collections. Call this at most
+  // once per fitted track (it consumes the pending hits).
+  void CreateFilteredHits(edm4hep::TrackerHitPlaneCollection& out);
 
   edm4hep::MutableTrack& GetTrack_edm4hep() { return m_edm4hepTrack; }
   edm4hep::MutableTrack& GetTrackWithFit_edm4hep() { return m_trackWithFit; }
@@ -113,6 +118,17 @@ public:
   int GetCharge() { return m_chargeHypothesis; }
 
   void SetVPPosition(TVector3 referencePoint) { m_vpReferencePoint = referencePoint; }
+
+  // Per-track cache for the expensive, geometry-only products of initialization (first-arc
+  // analysis, seed parameters) and for the GENFIT measurement masters. One cache is created
+  // per input track and shared only between the fit attempts and particle hypotheses of that
+  // track; it is destroyed with the track processing, so results cannot depend on the order
+  // of tracks or events. The measurement masters are owned by the cache and every
+  // genfit::TrackPoint receives (and owns) a clone of the relevant master.
+  struct TrackFitCache;
+  void SetTrackCache(std::shared_ptr<TrackFitCache> cache) { m_cache = std::move(cache); }
+
+  const std::vector<std::size_t>& GetFitHits() const { return m_fitHits; }
 
   static TMatrixDSym InitialCovarianceMatrixHelixToCartesian(const TMatrixDSym& helixCovariance,
                                                              const TVector3& positionCm, const TVector3& momentumGeV,
@@ -156,6 +172,7 @@ private:
                                              std::optional<double> sigma_z0, std::optional<double> sigma_tanLambda);
 
   HelperInitialization ComputeInitialParameters(double Bz);
+  HelperInitialization ComputeInitialParametersUncached(double Bz);
 
   edm4hep::TrackState UpdateTrackState(genfit::MeasuredStateOnPlane measuredState, TVector3 referencePointCm,
                                        int location);
@@ -171,10 +188,25 @@ private:
 
   edm4hep::MutableTrack m_edm4hepTrack;
   edm4hep::MutableTrack m_trackWithFit;
+  std::shared_ptr<TrackFitCache> m_cache;
 
   // Indices of the hits used for seeding and fitting: all of them, or only the
   // hits of the first arc for looping tracks (see SelectFirstArcHits)
   std::vector<std::size_t> m_fitHits;
+
+  // Fitted hit data collected by Fit() when hit filtering is enabled, waiting to be created
+  // in the caller's output collection by CreateFilteredHits()
+  struct PendingFittedHit {
+    TVector3 position;
+    TMatrixDSym covariance;
+    double du = 0.;
+    double dv = 0.;
+    TVector3 u;
+    TVector3 v;
+    uint64_t cellID = 0;  // cellID of the digi hit measured at this point
+    int32_t hitIndex = 0; // index of that digi hit in the fitted track's hit list
+  };
+  std::vector<PendingFittedHit> m_pendingFittedHits;
 
   TVector3 m_vpReferencePoint{0., 0., 0.};
   TVector3 m_firstHitReferencePoint{0., 0., 0.};
@@ -183,6 +215,50 @@ private:
   const dd4hep::rec::WireTracker_info_struct* m_wireInfo;
   const dd4hep::DDSegmentation::BitFieldCoder* m_dcDecoder;
   const GenfitInterface::GenfitField* m_fieldMap;
+};
+
+/**
+ * Per-track cache of the expensive, geometry-only products of track initialization and of
+ * the GENFIT measurement masters. Defined after the class so that producers of the cache
+ * (the fitter) can create it.
+ *
+ * Scope and ownership:
+ *  - one cache exists per input track and is shared only between the fit attempts and
+ *    particle hypotheses of THAT track; it is destroyed with the track processing, so no
+ *    state survives into another track or event and results cannot depend on processing
+ *    order;
+ *  - the geometry and seed entries are plain values; the cached seeds are exact results of
+ *    ComputeInitialParameters for the recorded key (hit selection, Bz, reference point);
+ *  - the measurement masters are owned here (unique_ptr); every genfit::TrackPoint is
+ *    created with a clone of the relevant master and owns that clone.
+ */
+struct GenfitTrack::TrackFitCache {
+  // Products of the first-arc analysis; independent of the force/threshold gates.
+  struct Geometry {
+    bool valid = false;
+    double z_vertex = 0.;
+    double x0 = 0., y0 = 0., rho = 0.;
+    double pT_est = 0.;
+    double stepMin = 0.;
+    std::size_t wrap = 0;
+    std::vector<std::size_t> zOrder;
+    std::vector<double> phi_val;
+    std::vector<std::size_t> order;
+  } geometry;
+
+  // Seed parameters, keyed by the inputs that determine them.
+  struct SeedKey {
+    std::vector<std::size_t> fitHits;
+    double Bz = 0.;
+    double vpX = 0., vpY = 0., vpZ = 0.;
+    bool operator==(const SeedKey& o) const {
+      return Bz == o.Bz && vpX == o.vpX && vpY == o.vpY && vpZ == o.vpZ && fitHits == o.fitHits;
+    }
+  };
+  std::vector<std::pair<SeedKey, HelperInitialization>> seeds;
+
+  // GENFIT measurement masters, keyed by the hit index in the ordered track.
+  std::vector<std::unique_ptr<genfit::AbsMeasurement>> measurements;
 };
 
 } // namespace GenfitInterface

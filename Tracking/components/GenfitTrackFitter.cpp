@@ -347,27 +347,31 @@ struct GenfitTrackFitter final
 
       num_processed_tracks += 1;
 
+      // Per-track cache and attempt ledger: both live only for this track's processing and
+      // are never shared with other tracks or events, so the results cannot depend on the
+      // order of tracks in the event or on the order of events.
+      auto cache = std::make_shared<GenfitInterface::GenfitTrack::TrackFitCache>();
+      std::vector<AttemptKey> attempted;
+
       // Attempt chain: all hits (with the automatic first-arc selection for loopers), the forced
       // first-arc selection, the silicon-only fallback, a thinned hit set, a scan of alternative
       // momentum seeds on the thinned set, and finally fits without material effects
       auto tryFit = [&](bool forceFirstArc, bool siOnly, int thinTarget, double seedOverride, bool noMaterial,
                         bool ransacInliers) -> int {
         ransacInliers = ransacInliers && m_ransacFallback;
+        std::optional<FittedResult> result;
         if (m_singleEvaluation) {
-          return ProcessTrack(track, forceFirstArc, siOnly, ransacInliers, thinTarget, seedOverride, noMaterial,
-                              m_particleHypothesis[0], FittedTracks, FittedTracksWithFilteredHits, FittedHits,
-                              m_runCalorimeterExtrapolation.value())
-                     ? 1
-                     : 0;
+          result = FitTrack(track, forceFirstArc, siOnly, ransacInliers, thinTarget, seedOverride, noMaterial,
+                            m_particleHypothesis[0], cache, attempted);
+        } else {
+          result = FitBestHypothesis(track, forceFirstArc, siOnly, ransacInliers, thinTarget, seedOverride,
+                                     noMaterial, cache, attempted);
         }
-        int winning_hypothesis = FindBestHypothesis(track, FittedHits, forceFirstArc, siOnly, ransacInliers, thinTarget,
-                                                    seedOverride, noMaterial);
-        if (winning_hypothesis == -1) {
+        if (!result) {
           return 0;
         }
-        ProcessTrack(track, forceFirstArc, siOnly, ransacInliers, thinTarget, seedOverride, noMaterial,
-                     winning_hypothesis, FittedTracks, FittedTracksWithFilteredHits, FittedHits,
-                     m_runCalorimeterExtrapolation.value());
+        FillOutput(std::move(*result), track, FittedTracks, FittedTracksWithFilteredHits, FittedHits,
+                   m_runCalorimeterExtrapolation.value());
         return 1;
       };
 
@@ -632,48 +636,49 @@ private:
   // Fit Helpers //
   /////////////////
 
-  /**
-   * @brief Process and fit a reconstructed track using Genfit, with optional hit filtering
-   *        and calorimeter extrapolation.
-   *
-   * This method takes an input `edm4hep::Track`, initializes a corresponding Genfit track,
-   * performs the fit using the chosen fitting algorithm, and stores the resulting fitted
-   * track(s) in the provided output collections.
-   *
-   * The procedure includes:
-   *   - Initialization of the Genfit track with configurable seeding options
-   *     (initial position, momentum, and hit selection: first arc of the loop for loopers)
-   *   - Execution of the track fit using the selected fitter
-   *   - Extraction of the fitted `edm4hep::Track`
-   *   - Optional extrapolation of the track to the calorimeter surfaces if a magnetic field is present
-   *   - Optional filtering of hits (e.g. using DAF weights) and storage of filtered tracks and hits
-   *
-   * Debug information about the initialization (position, momentum, covariance, etc.)
-   * is printed depending on the configured verbosity level.
-   *
-   * @param track Input reconstructed track to be processed and fitted
-   * @param ForceFirstArc If true, force the first-arc hit selection for looping tracks (used for the second fit
-   * attempt), ignoring the LooperPTThreshold gate
-   * @param SiOnly If true, restrict the hits used for the fit to the silicon (planar) hits (last-resort fallback)
-   * @param particleHypothesis PDG-based hypothesis used for the track fit (affects mass/charge assumptions)
-   * @param FittedTracks Output collection storing the fitted tracks
-   * @param FittedTracksWithFilteredHits Output collection storing fitted tracks after hit filtering (if enabled)
-   * @param FittedHits Output collection storing the filtered fitted hits (if enabled)
-   * @param runCalorimeterExtrapolation If true, performs extrapolation to calorimeter surfaces and stores track states
-   *
-   * @return true if the track fit was successful, false otherwise
-   *
-   * @note If the fit fails, the function exits early and no track is added to the output collections.
-   * @note Calorimeter extrapolation is applied only if a non-zero magnetic field (Bz > 0) is found
-   *       at the last hit position.
-   */
-  bool ProcessTrack(const edm4hep::Track& track, bool ForceFirstArc, bool SiOnly, bool RansacInliers, int ThinTarget,
-                    double SeedMomentumOverride, bool NoMaterial, int particleHypothesis,
-                    edm4hep::TrackCollection& FittedTracks, edm4hep::TrackCollection& FittedTracksWithFilteredHits,
-                    edm4hep::TrackerHitPlaneCollection& FittedHits, bool runCalorimeterExtrapolation) const {
+  // Result of a successful fit: the interface owns the fitted EDM4hep tracks, and the
+  // filtered hits were produced by this fit only. Both are local to one track's processing:
+  // nothing is shared between tracks or events, so results cannot depend on the processing
+  // order of tracks or events.
+  struct FittedResult {
+    std::unique_ptr<GenfitInterface::GenfitTrack> interface;
+  };
 
-    GenfitInterface::GenfitTrack track_interface(track, m_skipTrackOrdering, m_wire_info, m_dc_decoder,
-                                                 m_genfitField.get());
+  // Identity of a fit configuration: the effective hit selection, the seed, the material
+  // setting and the particle hypothesis. The fit is deterministic, so a configuration that
+  // has already been attempted in this track's fallback chain (and failed, since the chain
+  // stops at the first success) cannot succeed on a second execution and is skipped.
+  struct AttemptKey {
+    std::vector<std::size_t> fitHits;
+    double seed = 0.;
+    bool noMaterial = false;
+    int pdg = 0;
+    bool operator==(const AttemptKey& other) const {
+      return seed == other.seed && noMaterial == other.noMaterial && pdg == other.pdg && fitHits == other.fitHits;
+    }
+  };
+
+  /**
+   * @brief Initialize and fit one configuration of one track, returning the fitted result.
+   *
+   * This is the per-configuration unit of work of ProcessTrack: initialization (seeded with
+   * the cached geometry products of the track), hit restrictions, GENFIT track creation
+   * (cloned cached measurements) and the fit itself. Identical configurations are executed
+   * at most once per track (deterministic fit). Everything is local to the call apart from
+   * the per-track cache and the per-track attempt ledger passed in by the caller.
+   *
+   * @return the fitted result, or std::nullopt if the configuration is restricted away,
+   *         duplicated, or the fit fails or throws.
+   */
+  std::optional<FittedResult>
+  FitTrack(const edm4hep::Track& track, bool ForceFirstArc, bool SiOnly, bool RansacInliers, int ThinTarget,
+           double SeedMomentumOverride, bool NoMaterial, int particleHypothesis,
+           const std::shared_ptr<GenfitInterface::GenfitTrack::TrackFitCache>& cache,
+           std::vector<AttemptKey>& attempted) const {
+
+    auto track_interface = std::make_unique<GenfitInterface::GenfitTrack>(track, m_skipTrackOrdering, m_wire_info,
+                                                                         m_dc_decoder, m_genfitField.get());
+    track_interface->SetTrackCache(cache);
 
     TVector3 Init_position(m_init_position.value()[0] * dd4hep::mm, m_init_position.value()[1] * dd4hep::mm,
                            m_init_position.value()[2] * dd4hep::mm);
@@ -682,25 +687,31 @@ private:
 
     double RadialThresholdPromptTrack_cm = m_RadialThresholdPromptTrack.value() * dd4hep::mm;
 
-    track_interface.InitializeTrack(RadialThresholdPromptTrack_cm, m_useFirstHitAsReference, ForceFirstArc,
-                                    m_initializationType, m_trackStateLocation.value(), Init_position, Init_momentum,
-                                    m_looperPTThreshold.value(), SeedMomentumOverride, m_sigma_d0.value(),
-                                    m_sigma_phi.value(), m_omega_factor.value(), m_z0_factor.value(),
-                                    m_sigma_tanLambda.value());
+    track_interface->InitializeTrack(RadialThresholdPromptTrack_cm, m_useFirstHitAsReference, ForceFirstArc,
+                                     m_initializationType, m_trackStateLocation.value(), Init_position, Init_momentum,
+                                     m_looperPTThreshold.value(), SeedMomentumOverride, m_sigma_d0.value(),
+                                     m_sigma_phi.value(), m_omega_factor.value(), m_z0_factor.value(),
+                                     m_sigma_tanLambda.value());
 
-    if (SiOnly && !track_interface.RestrictToSiliconHits()) {
-      return false;
+    if (SiOnly && !track_interface->RestrictToSiliconHits()) {
+      return std::nullopt;
     }
 
-    if (RansacInliers && !track_interface.RestrictToCircleInliers(3.0)) {
-      return false;
+    if (RansacInliers && !track_interface->RestrictToCircleInliers(3.0)) {
+      return std::nullopt;
     }
 
     if (ThinTarget > 0) {
-      track_interface.RestrictToEvenlySpacedHits(static_cast<std::size_t>(ThinTarget));
+      track_interface->RestrictToEvenlySpacedHits(static_cast<std::size_t>(ThinTarget));
     }
 
-    auto track_init = track_interface.GetInitialization();
+    const AttemptKey key{track_interface->GetFitHits(), SeedMomentumOverride, NoMaterial, particleHypothesis};
+    if (std::find(attempted.begin(), attempted.end(), key) != attempted.end()) {
+      return std::nullopt; // identical configuration already attempted and failed: skip the duplicate fit
+    }
+    attempted.push_back(key);
+
+    auto track_init = track_interface->GetInitialization();
     const bool showDebugOutput = m_printoutLevel == uint(MSG::DEBUG) || m_printoutLevel == uint(MSG::VERBOSE);
 
     debug() << "Track " << num_tracks_event << " with " << track.getTrackerHits().size()
@@ -724,23 +735,43 @@ private:
 
     int debug_track = showDebugOutput ? 1 : 0;
 
-    track_interface.CreateGenFitTrack(particleHypothesis, debug_track);
+    track_interface->CreateGenFitTrack(particleHypothesis, debug_track);
+
+    FittedResult result;
+    result.interface = std::move(track_interface);
 
     bool isFit = false;
     try {
-      isFit = track_interface.Fit(FittedHits, m_Fitter_type.value(), m_printoutLevel, m_Beta_init, m_Beta_final,
-                                  m_Beta_steps, m_filterTrackHits, NoMaterial);
+      isFit = result.interface->Fit(m_Fitter_type.value(), m_printoutLevel, m_Beta_init, m_Beta_final, m_Beta_steps,
+                                    m_filterTrackHits, NoMaterial);
     } catch (const std::exception& e) {
       debug() << "Track fit threw for track " << num_tracks_event << ": " << e.what() << endmsg;
-      return false;
+      return std::nullopt;
     }
 
     if (!isFit) {
       debug() << "Track fit FAILED for track " << num_tracks_event << endmsg;
-      return false;
+      return std::nullopt;
     }
 
+    return result;
+  }
+
+  /**
+   * @brief Store the result of a successful fit in the output collections.
+   *
+   * The post-fit stage of the old ProcessTrack: field query at the last hit, optional
+   * calorimeter extrapolation, and the output copies (fitted track, filtered-hit track and
+   * filtered hits of this fit). The values written are the same ones the old code produced
+   * from the equivalent re-fit of the winning hypothesis.
+   */
+  void FillOutput(FittedResult&& result, const edm4hep::Track& track, edm4hep::TrackCollection& FittedTracks,
+                  edm4hep::TrackCollection& FittedTracksWithFilteredHits,
+                  edm4hep::TrackerHitPlaneCollection& FittedHits, bool runCalorimeterExtrapolation) const {
+
+    auto& track_interface = *result.interface;
     auto& edm4hep_track = track_interface.GetTrack_edm4hep();
+    const bool showDebugOutput = m_printoutLevel == uint(MSG::DEBUG) || m_printoutLevel == uint(MSG::VERBOSE);
 
     double Bz = 0.;
     for (auto ts : edm4hep_track.getTrackStates()) {
@@ -785,6 +816,12 @@ private:
 
     if (m_filterTrackHits) {
 
+      // The filtered hits of this fit are created directly in the output collection and
+      // related to the filtered-hit track (an EDM4hep object cannot be shared between two
+      // collections). Only the winning configuration reaches this point, so the output
+      // receives exactly the hits of the fit being reported.
+      track_interface.CreateFilteredHits(FittedHits);
+
       auto edm4hep_track_with_fit = track_interface.GetTrackWithFit_edm4hep();
 
       if (runCalorimeterExtrapolation && Bz > 0) {
@@ -807,91 +844,39 @@ private:
 
       FittedTracksWithFilteredHits.push_back(edm4hep_track_with_fit);
     }
-
-    return true;
   }
 
   /**
-   * @brief Determine the best particle hypothesis for a track by comparing fit quality.
+   * @brief Fit all particle hypotheses of one configuration and keep the best result.
    *
-   * This method tests multiple particle hypotheses (specified via PDG codes) by
-   * fitting the input `edm4hep::Track` separately for each hypothesis using Genfit.
-   * For each successful fit, the chi2/ndf is evaluated and the hypothesis yielding
-   * the lowest value is selected as the best candidate.
+   * Replaces the old FindBestHypothesis + re-fit pair: the hypotheses are fitted through
+   * FitTrack (which shares the per-track initialization products) and the fitted result of
+   * the best chi2/ndf is returned instead of being discarded and recomputed by a second fit.
+   * The chi2/ndf comparison is unchanged and the fit itself is identical for every
+   * hypothesis (hit filtering is a post-fit step and does not enter the comparison).
    *
-   * The procedure includes:
-   *   - Initialization of a Genfit track for each particle hypothesis using the same
-   *     seeding configuration (initial position, momentum, and hit selection)
-   *   - Execution of the track fit for each hypothesis
-   *   - Extraction of the fitted `edm4hep::Track` and computation of chi2/ndf
-   *   - Selection of the hypothesis with the best (lowest) chi2/ndf
-   *
-   * Fits that fail or produce invalid chi2/ndf values are ignored.
-   *
-   * @param track Input reconstructed track to be tested against different hypotheses
-   * @param ForceFirstArc If true, force the first-arc hit selection for looping tracks, ignoring the
-   * LooperPTThreshold gate
-   * @param SiOnly If true, restrict the hits used for the fit to the silicon (planar) hits
-   *
-   * @return The PDG code corresponding to the best particle hypothesis.
-   *         Returns -1 if no valid fit is found for any hypothesis.
-   *
-   * @note The comparison is purely based on chi2/ndf and does not include
-   *       additional physics constraints or likelihood-based criteria.
-   * @note All fits are performed with debug output disabled and without hit filtering.
+   * @return the fitted result of the winning hypothesis, or std::nullopt if no hypothesis
+   *         produced a valid fit.
    */
-  int FindBestHypothesis(const edm4hep::Track& track, edm4hep::TrackerHitPlaneCollection& fittedHits,
-                         bool ForceFirstArc, bool SiOnly, bool RansacInliers, int ThinTarget,
-                         double SeedMomentumOverride, bool NoMaterial) const {
+  std::optional<FittedResult>
+  FitBestHypothesis(const edm4hep::Track& track, bool ForceFirstArc, bool SiOnly, bool RansacInliers, int ThinTarget,
+                    double SeedMomentumOverride, bool NoMaterial,
+                    const std::shared_ptr<GenfitInterface::GenfitTrack::TrackFitCache>& cache,
+                    std::vector<AttemptKey>& attempted) const {
 
-    TVector3 Init_position(m_init_position.value()[0] * dd4hep::mm, m_init_position.value()[1] * dd4hep::mm,
-                           m_init_position.value()[2] * dd4hep::mm);
-
-    TVector3 Init_momentum(m_init_momentum.value()[0], m_init_momentum.value()[1], m_init_momentum.value()[2]);
-
-    double RadialThresholdPromptTrack_cm = m_RadialThresholdPromptTrack.value() * dd4hep::mm;
-
-    int winning_hypothesis = -1;
+    std::optional<FittedResult> best;
     double winning_chi2_ndf = std::numeric_limits<double>::max();
 
     for (int pdgCode : m_particleHypothesis) {
 
-      GenfitInterface::GenfitTrack track_interface(track, m_skipTrackOrdering, m_wire_info, m_dc_decoder,
-                                                   m_genfitField.get());
+      auto result = FitTrack(track, ForceFirstArc, SiOnly, RansacInliers, ThinTarget, SeedMomentumOverride,
+                             NoMaterial, pdgCode, cache, attempted);
 
-      track_interface.InitializeTrack(RadialThresholdPromptTrack_cm, m_useFirstHitAsReference, ForceFirstArc,
-                                      m_initializationType, m_trackStateLocation.value(), Init_position, Init_momentum,
-                                      m_looperPTThreshold.value(), SeedMomentumOverride, m_sigma_d0.value(),
-                                      m_sigma_phi.value(), m_omega_factor.value(), m_z0_factor.value(),
-                                      m_sigma_tanLambda.value());
-
-      if (SiOnly && !track_interface.RestrictToSiliconHits()) {
+      if (!result) {
         continue;
       }
 
-      if (RansacInliers && !track_interface.RestrictToCircleInliers(3.0)) {
-        continue;
-      }
-
-      if (ThinTarget > 0) {
-        track_interface.RestrictToEvenlySpacedHits(static_cast<std::size_t>(ThinTarget));
-      }
-
-      track_interface.CreateGenFitTrack(pdgCode, 0);
-
-      bool isFit = false;
-      try {
-        isFit = track_interface.Fit(fittedHits, m_Fitter_type.value(), 0, m_Beta_init, m_Beta_final, m_Beta_steps,
-                                    false, NoMaterial);
-      } catch (const std::exception& e) {
-        debug() << "Hypothesis " << pdgCode << " fit threw: " << e.what() << endmsg;
-        continue;
-      }
-
-      if (!isFit)
-        continue;
-
-      auto& edm4hep_track = track_interface.GetTrack_edm4hep();
+      auto& edm4hep_track = result->interface->GetTrack_edm4hep();
 
       float chi2 = edm4hep_track.getChi2();
       int ndf = edm4hep_track.getNdf();
@@ -904,11 +889,11 @@ private:
       if (chi2_ndf < winning_chi2_ndf) {
 
         winning_chi2_ndf = chi2_ndf;
-        winning_hypothesis = pdgCode;
+        best = std::move(result);
       }
     }
 
-    return winning_hypothesis;
+    return best;
   }
 };
 
