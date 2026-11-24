@@ -134,11 +134,14 @@ struct GenfitTrackFitter final
     if (m_useBrems) {
       genfit::MaterialEffects::getInstance()->setEnergyLossBrems(true);
       genfit::MaterialEffects::getInstance()->setNoiseBrems(true);
-      genfit::MaterialEffects::getInstance()->setMscModel("Highland");
     } else {
       genfit::MaterialEffects::getInstance()->setEnergyLossBrems(false);
       genfit::MaterialEffects::getInstance()->setNoiseBrems(false);
     }
+    genfit::MaterialEffects::getInstance()->setMscModel(m_mscModel.value());
+    genfit::MaterialEffects::getInstance()->setEnergyLossBetheBloch(m_energyLossBetheBloch.value());
+    genfit::MaterialEffects::getInstance()->setNoiseBetheBloch(m_noiseBetheBloch.value());
+    genfit::MaterialEffects::getInstance()->setNoiseCoulomb(m_noiseCoulomb.value());
 
     int debug_lvl_material = 0;
     if (m_printoutLevel == uint(MSG::VERBOSE)) {
@@ -344,62 +347,76 @@ struct GenfitTrackFitter final
 
       num_processed_tracks += 1;
 
-      int isSuccess = 0;
-      if (m_singleEvaluation) {
-
-        isSuccess = ProcessTrack(track, false, m_particleHypothesis[0], FittedTracks, FittedTracksWithFilteredHits,
-                                 FittedHits, m_runCalorimeterExtrapolation.value());
-
-      } else {
-
-        int winning_hypothesis = FindBestHypothesis(track, FittedHits, false);
-
-        if (winning_hypothesis == -1) {
-          debug() << "Track " << num_tracks_event << ": fit failed for all hypotheses, trying with less hits."
-                  << endmsg;
-        } else {
-
-          isSuccess = 1;
-          int pdgCode = winning_hypothesis;
-          ProcessTrack(track, false, pdgCode, FittedTracks, FittedTracksWithFilteredHits, FittedHits,
-                       m_runCalorimeterExtrapolation.value());
+      // Attempt chain: all hits (with the automatic first-arc selection for loopers), the forced
+      // first-arc selection, the silicon-only fallback, a thinned hit set, a scan of alternative
+      // momentum seeds on the thinned set, and finally fits without material effects
+      auto tryFit = [&](bool forceFirstArc, bool siOnly, int thinTarget, double seedOverride, bool noMaterial,
+                        bool ransacInliers) -> int {
+        ransacInliers = ransacInliers && m_ransacFallback;
+        if (m_singleEvaluation) {
+          return ProcessTrack(track, forceFirstArc, siOnly, ransacInliers, thinTarget, seedOverride, noMaterial,
+                              m_particleHypothesis[0], FittedTracks, FittedTracksWithFilteredHits, FittedHits,
+                              m_runCalorimeterExtrapolation.value())
+                     ? 1
+                     : 0;
         }
+        int winning_hypothesis = FindBestHypothesis(track, FittedHits, forceFirstArc, siOnly, ransacInliers, thinTarget,
+                                                    seedOverride, noMaterial);
+        if (winning_hypothesis == -1) {
+          return 0;
+        }
+        ProcessTrack(track, forceFirstArc, siOnly, ransacInliers, thinTarget, seedOverride, noMaterial,
+                     winning_hypothesis, FittedTracks, FittedTracksWithFilteredHits, FittedHits,
+                     m_runCalorimeterExtrapolation.value());
+        return 1;
+      };
+
+      int isSuccess = tryFit(false, false, 0, 0., false, false);
+
+      if (!isSuccess) {
+        debug() << "Track " << num_tracks_event << ": fit failed, trying with the first-arc hit selection." << endmsg;
+        isSuccess = tryFit(true, false, 0, 0., false, false);
+      }
+
+      if (!isSuccess && m_siOnlyFallback) {
+        debug() << "Track " << num_tracks_event << ": fit failed, trying with the silicon hits only." << endmsg;
+        isSuccess = tryFit(false, true, 0, 0., false, false);
+      }
+
+      if (!isSuccess && m_ransacFallback) {
+        debug() << "Track " << num_tracks_event << ": fit failed, trying with the dominant-circle inliers." << endmsg;
+        isSuccess = tryFit(true, false, 0, 0., false, true);
       }
 
       if (!isSuccess) {
+        debug() << "Track " << num_tracks_event << ": fit failed, trying with a thinned hit set." << endmsg;
+        isSuccess = tryFit(true, false, 50, 0., false, true);
+      }
 
-        if (m_singleEvaluation) {
-
-          isSuccess = ProcessTrack(track, true, m_particleHypothesis[0], FittedTracks, FittedTracksWithFilteredHits,
-                                   FittedHits, m_runCalorimeterExtrapolation.value());
-
-          if (!isSuccess) {
-
-            number_failures += 1;
-            debug() << "Track " << num_tracks_event << ": fit failed for single evaluation hypothesis, skipping track."
-                    << endmsg;
-
-            continue;
-          }
-
-        } else {
-
-          int winning_hypothesis = FindBestHypothesis(track, FittedHits, true);
-
-          if (winning_hypothesis == -1) {
-
-            debug() << "Track " << num_tracks_event << ": fit failed for all hypotheses." << endmsg;
-            number_failures += 1;
-
-            continue;
-
-          } else {
-
-            int pdgCode = winning_hypothesis;
-            ProcessTrack(track, true, pdgCode, FittedTracks, FittedTracksWithFilteredHits, FittedHits,
-                         m_runCalorimeterExtrapolation.value());
-          }
+      for (double seedP : {0.2, 0.7, 2.0}) {
+        if (isSuccess) {
+          break;
         }
+        debug() << "Track " << num_tracks_event << ": fit failed, trying with a " << seedP << " GeV/c momentum seed."
+                << endmsg;
+        isSuccess = tryFit(true, false, 50, seedP, false, true);
+      }
+
+      if (!isSuccess) {
+        debug() << "Track " << num_tracks_event << ": fit failed, trying without material effects." << endmsg;
+        isSuccess = tryFit(true, false, 0, 0., true, true);
+      }
+
+      if (!isSuccess) {
+        debug() << "Track " << num_tracks_event << ": fit failed, trying a thinned set without material effects."
+                << endmsg;
+        isSuccess = tryFit(true, false, 50, 0., true, true);
+      }
+
+      if (!isSuccess) {
+        number_failures += 1;
+        debug() << "Track " << num_tracks_event << ": fit failed for all attempts, skipping track." << endmsg;
+        continue;
       }
     }
 
@@ -477,6 +494,16 @@ private:
 
   Gaudi::Property<bool> m_useBrems{this, "UseBrems", false, "Include Bremsstrahlung energy loss and noise in the fit"};
 
+  Gaudi::Property<std::string> m_mscModel{
+      this, "MscModel", "Highland",
+      "Multiple-scattering model used for the material noise (genfit MSC formulas)"};
+  Gaudi::Property<bool> m_energyLossBetheBloch{
+      this, "EnergyLossBetheBloch", true, "Include Bethe-Bloch energy loss in the material effects"};
+  Gaudi::Property<bool> m_noiseBetheBloch{
+      this, "NoiseBetheBloch", true, "Include Bethe-Bloch energy-loss noise in the material effects"};
+  Gaudi::Property<bool> m_noiseCoulomb{
+      this, "NoiseCoulomb", true, "Include multiple-scattering (Coulomb) noise in the material effects"};
+
   Gaudi::Property<std::string> m_Fitter_type{
       this, "FitterType", "DAF",
       "Fitter type to use [https://indico.cern.ch/event/258092/papers/1588579/files/4253-genfit.pdf]: 'DAF', 'KALMAN', "
@@ -541,14 +568,13 @@ private:
   Gaudi::Property<std::vector<double>> m_init_momentum{
       this, "InitMomentum", {0., 0., 0.}, "User-defined initial momentum [in GeV/c] for InitializationType = 3"};
 
-  Gaudi::Property<double> m_epsilon{
-      this, "Epsilon", 1e-4,
-      "Threshold to detect sign changes in the first derivative during track initialization. "
-      "Used to identify hits from the first round of the looper"};
-
-  Gaudi::Property<int> m_smoothWindow{
-      this, "SmoothWindow", 5,
-      "Number of hits used for smoothing before computing the first derivative in track initialization"};
+  Gaudi::Property<double> m_looperPTThreshold{
+      this, "LooperPTThreshold", 0.7,
+      "Transverse momentum threshold [GeV/c] below which a track is treated as a looper: the circle is fitted in the "
+      "xy plane, phi_local (the angle around the fitted circle center, zeroed at the hit closest to the z-origin) is "
+      "computed, and only the hits before the first peak of the sawtooth in the (z, phi_local) plane are seeded and "
+      "fitted, i.e. the first arc of the loop. Tracks curling inside the tracker scale with the magnetic field "
+      "(pT ~ 0.3 * B[T] * R[m]): adjust the threshold when the field is changed (0.7 GeV/c corresponds to B = 2 T)."};
 
   ////////////////////////////////////
   // Track Filtering and Evaluation //
@@ -570,6 +596,18 @@ private:
       "Filter track hits after fitting based on their quality (weights assigned by the fitter). "
       "This also resolves the left/right ambiguity in drift chamber hits: only the hit with the higher weight is "
       "considered."};
+
+  Gaudi::Property<bool> m_siOnlyFallback{
+      this, "SiliconOnlyFallback", true,
+      "If true, tracks whose fit fails both with all the hits and with the first-arc hits of a looper are retried "
+      "fitting only the silicon (planar) hits of the selected hit set: those are much more precise than the drift "
+      "chamber ones (whose z resolution is of the order of cm) and the fit often converges on them alone."};
+
+  Gaudi::Property<bool> m_ransacFallback{
+      this, "CircleInlierFallback", true,
+      "If true, tracks whose fit fails with the other hit sets are retried on the inliers of a robust (RANSAC) "
+      "circle fit, ordered along the dominant circle: this isolates one turn of one particle in impure (merged) "
+      "tracks and gives the fitter a proper hit order."};
 
   Gaudi::Property<bool> m_runCalorimeterExtrapolation{
       this, "RunCalorimeterExtrapolation", true,
@@ -604,7 +642,7 @@ private:
    *
    * The procedure includes:
    *   - Initialization of the Genfit track with configurable seeding options
-   *     (initial position, momentum, hit selection, and smoothing parameters)
+   *     (initial position, momentum, and hit selection: first arc of the loop for loopers)
    *   - Execution of the track fit using the selected fitter
    *   - Extraction of the fitted `edm4hep::Track`
    *   - Optional extrapolation of the track to the calorimeter surfaces if a magnetic field is present
@@ -614,7 +652,9 @@ private:
    * is printed depending on the configured verbosity level.
    *
    * @param track Input reconstructed track to be processed and fitted
-   * @param LimitHits If true, limits the number of hits used during initialization
+   * @param ForceFirstArc If true, force the first-arc hit selection for looping tracks (used for the second fit
+   * attempt), ignoring the LooperPTThreshold gate
+   * @param SiOnly If true, restrict the hits used for the fit to the silicon (planar) hits (last-resort fallback)
    * @param particleHypothesis PDG-based hypothesis used for the track fit (affects mass/charge assumptions)
    * @param FittedTracks Output collection storing the fitted tracks
    * @param FittedTracksWithFilteredHits Output collection storing fitted tracks after hit filtering (if enabled)
@@ -627,7 +667,8 @@ private:
    * @note Calorimeter extrapolation is applied only if a non-zero magnetic field (Bz > 0) is found
    *       at the last hit position.
    */
-  bool ProcessTrack(const edm4hep::Track& track, bool LimitHits, int particleHypothesis,
+  bool ProcessTrack(const edm4hep::Track& track, bool ForceFirstArc, bool SiOnly, bool RansacInliers, int ThinTarget,
+                    double SeedMomentumOverride, bool NoMaterial, int particleHypothesis,
                     edm4hep::TrackCollection& FittedTracks, edm4hep::TrackCollection& FittedTracksWithFilteredHits,
                     edm4hep::TrackerHitPlaneCollection& FittedHits, bool runCalorimeterExtrapolation) const {
 
@@ -641,10 +682,23 @@ private:
 
     double RadialThresholdPromptTrack_cm = m_RadialThresholdPromptTrack.value() * dd4hep::mm;
 
-    track_interface.InitializeTrack(RadialThresholdPromptTrack_cm, m_useFirstHitAsReference, LimitHits,
+    track_interface.InitializeTrack(RadialThresholdPromptTrack_cm, m_useFirstHitAsReference, ForceFirstArc,
                                     m_initializationType, m_trackStateLocation.value(), Init_position, Init_momentum,
-                                    m_epsilon.value(), m_smoothWindow.value(), m_sigma_d0.value(), m_sigma_phi.value(),
-                                    m_omega_factor.value(), m_z0_factor.value(), m_sigma_tanLambda.value());
+                                    m_looperPTThreshold.value(), SeedMomentumOverride, m_sigma_d0.value(),
+                                    m_sigma_phi.value(), m_omega_factor.value(), m_z0_factor.value(),
+                                    m_sigma_tanLambda.value());
+
+    if (SiOnly && !track_interface.RestrictToSiliconHits()) {
+      return false;
+    }
+
+    if (RansacInliers && !track_interface.RestrictToCircleInliers(3.0)) {
+      return false;
+    }
+
+    if (ThinTarget > 0) {
+      track_interface.RestrictToEvenlySpacedHits(static_cast<std::size_t>(ThinTarget));
+    }
 
     auto track_init = track_interface.GetInitialization();
     const bool showDebugOutput = m_printoutLevel == uint(MSG::DEBUG) || m_printoutLevel == uint(MSG::VERBOSE);
@@ -659,7 +713,7 @@ private:
             << track_init.Momentum.Z() << ")" << endmsg;
 
     debug() << "  Charge hypothesis: " << track_init.Charge << endmsg;
-    debug() << "  Max hit for loopers: " << track_init.NumHits << endmsg;
+    debug() << "  Hits used for the fit: " << track_init.NumHits << " / " << track.getTrackerHits().size() << endmsg;
 
     if (showDebugOutput) {
       debug() << "  Initial covariance matrix:" << endmsg;
@@ -672,15 +726,21 @@ private:
 
     track_interface.CreateGenFitTrack(particleHypothesis, debug_track);
 
-    bool isFit = track_interface.Fit(FittedHits, m_Fitter_type.value(), m_printoutLevel, m_Beta_init, m_Beta_final,
-                                     m_Beta_steps, m_filterTrackHits);
+    bool isFit = false;
+    try {
+      isFit = track_interface.Fit(FittedHits, m_Fitter_type.value(), m_printoutLevel, m_Beta_init, m_Beta_final,
+                                  m_Beta_steps, m_filterTrackHits, NoMaterial);
+    } catch (const std::exception& e) {
+      debug() << "Track fit threw for track " << num_tracks_event << ": " << e.what() << endmsg;
+      return false;
+    }
 
     if (!isFit) {
       debug() << "Track fit FAILED for track " << num_tracks_event << endmsg;
       return false;
     }
 
-    auto edm4hep_track = track_interface.GetTrack_edm4hep();
+    auto& edm4hep_track = track_interface.GetTrack_edm4hep();
 
     double Bz = 0.;
     for (auto ts : edm4hep_track.getTrackStates()) {
@@ -769,7 +829,9 @@ private:
    * Fits that fail or produce invalid chi2/ndf values are ignored.
    *
    * @param track Input reconstructed track to be tested against different hypotheses
-   * @param LimitHits If true, limits the number of hits used during initialization
+   * @param ForceFirstArc If true, force the first-arc hit selection for looping tracks, ignoring the
+   * LooperPTThreshold gate
+   * @param SiOnly If true, restrict the hits used for the fit to the silicon (planar) hits
    *
    * @return The PDG code corresponding to the best particle hypothesis.
    *         Returns -1 if no valid fit is found for any hypothesis.
@@ -779,7 +841,8 @@ private:
    * @note All fits are performed with debug output disabled and without hit filtering.
    */
   int FindBestHypothesis(const edm4hep::Track& track, edm4hep::TrackerHitPlaneCollection& fittedHits,
-                         bool LimitHits) const {
+                         bool ForceFirstArc, bool SiOnly, bool RansacInliers, int ThinTarget,
+                         double SeedMomentumOverride, bool NoMaterial) const {
 
     TVector3 Init_position(m_init_position.value()[0] * dd4hep::mm, m_init_position.value()[1] * dd4hep::mm,
                            m_init_position.value()[2] * dd4hep::mm);
@@ -796,21 +859,39 @@ private:
       GenfitInterface::GenfitTrack track_interface(track, m_skipTrackOrdering, m_wire_info, m_dc_decoder,
                                                    m_genfitField.get());
 
-      track_interface.InitializeTrack(RadialThresholdPromptTrack_cm, m_useFirstHitAsReference, LimitHits,
+      track_interface.InitializeTrack(RadialThresholdPromptTrack_cm, m_useFirstHitAsReference, ForceFirstArc,
                                       m_initializationType, m_trackStateLocation.value(), Init_position, Init_momentum,
-                                      m_epsilon.value(), m_smoothWindow.value(), m_sigma_d0.value(),
+                                      m_looperPTThreshold.value(), SeedMomentumOverride, m_sigma_d0.value(),
                                       m_sigma_phi.value(), m_omega_factor.value(), m_z0_factor.value(),
                                       m_sigma_tanLambda.value());
 
+      if (SiOnly && !track_interface.RestrictToSiliconHits()) {
+        continue;
+      }
+
+      if (RansacInliers && !track_interface.RestrictToCircleInliers(3.0)) {
+        continue;
+      }
+
+      if (ThinTarget > 0) {
+        track_interface.RestrictToEvenlySpacedHits(static_cast<std::size_t>(ThinTarget));
+      }
+
       track_interface.CreateGenFitTrack(pdgCode, 0);
 
-      bool isFit =
-          track_interface.Fit(fittedHits, m_Fitter_type.value(), 0, m_Beta_init, m_Beta_final, m_Beta_steps, false);
+      bool isFit = false;
+      try {
+        isFit = track_interface.Fit(fittedHits, m_Fitter_type.value(), 0, m_Beta_init, m_Beta_final, m_Beta_steps,
+                                    false, NoMaterial);
+      } catch (const std::exception& e) {
+        debug() << "Hypothesis " << pdgCode << " fit threw: " << e.what() << endmsg;
+        continue;
+      }
 
       if (!isFit)
         continue;
 
-      auto edm4hep_track = track_interface.GetTrack_edm4hep();
+      auto& edm4hep_track = track_interface.GetTrack_edm4hep();
 
       float chi2 = edm4hep_track.getChi2();
       int ndf = edm4hep_track.getNdf();

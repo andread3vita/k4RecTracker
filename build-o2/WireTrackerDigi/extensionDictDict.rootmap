@@ -1,0 +1,87 @@
+{ decls }
+namespace std {  }
+namespace extension {  }
+
+[ libextensionDict.so ]
+# List of selected classes
+class extension::DriftChamberDigi
+class extension::DriftChamberDigiCollection
+class extension::DriftChamberDigiData
+class extension::DriftChamberDigiLocal
+class extension::DriftChamberDigiLocalCollection
+class extension::DriftChamberDigiLocalData
+class extension::DriftChamberDigiV2
+class extension::DriftChamberDigiV2Collection
+class extension::DriftChamberDigiV2Data
+class extension::MCRecoDriftChamberDigiAssociation
+class extension::MCRecoDriftChamberDigiAssociationCollection
+class extension::MCRecoDriftChamberDigiAssociationData
+class extension::MCRecoDriftChamberDigiV2Association
+class extension::MCRecoDriftChamberDigiV2AssociationCollection
+class extension::MCRecoDriftChamberDigiV2AssociationData
+class extension::MutableDriftChamberDigi
+class extension::MutableDriftChamberDigiLocal
+class extension::MutableDriftChamberDigiV2
+class extension::MutableMCRecoDriftChamberDigiAssociation
+class extension::MutableMCRecoDriftChamberDigiV2Association
+class extension::MutableSenseWireHit
+class extension::MutableSenseWireHitSimTrackerHitLink
+class extension::MutableTrack
+class extension::SenseWireHit
+class extension::SenseWireHitCollection
+class extension::SenseWireHitData
+class extension::SenseWireHitSimTrackerHitLink
+class extension::SenseWireHitSimTrackerHitLinkCollection
+class extension::SenseWireHitSimTrackerHitLinkData
+class extension::Track
+class extension::TrackCollection
+class extension::TrackData
+class extension::v1::DriftChamberDigiData
+class extension::v1::DriftChamberDigiLocalData
+class extension::v1::DriftChamberDigiV2Data
+class extension::v1::MCRecoDriftChamberDigiAssociationData
+class extension::v1::MCRecoDriftChamberDigiV2AssociationData
+class extension::v1::SenseWireHitData
+class extension::v1::SenseWireHitSimTrackerHitLinkData
+class extension::v1::TrackData
+class vector<extension::DriftChamberDigiData>
+class vector<extension::DriftChamberDigiLocalData>
+class vector<extension::DriftChamberDigiV2Data>
+class vector<extension::MCRecoDriftChamberDigiAssociationData>
+class vector<extension::MCRecoDriftChamberDigiV2AssociationData>
+class vector<extension::SenseWireHitData>
+class vector<extension::SenseWireHitSimTrackerHitLinkData>
+class vector<extension::TrackData>
+class vector<extension::v1::DriftChamberDigiData>
+class vector<extension::v1::DriftChamberDigiLocalData>
+class vector<extension::v1::DriftChamberDigiV2Data>
+class vector<extension::v1::MCRecoDriftChamberDigiAssociationData>
+class vector<extension::v1::MCRecoDriftChamberDigiV2AssociationData>
+class vector<extension::v1::SenseWireHitData>
+class vector<extension::v1::SenseWireHitSimTrackerHitLinkData>
+class vector<extension::v1::TrackData>
+header extension/DriftChamberDigi.h
+header extension/DriftChamberDigiData.h
+header extension/DriftChamberDigiLocal.h
+header extension/DriftChamberDigiLocalData.h
+header extension/DriftChamberDigiV2.h
+header extension/DriftChamberDigiV2Data.h
+header extension/MCRecoDriftChamberDigiAssociation.h
+header extension/MCRecoDriftChamberDigiAssociationData.h
+header extension/MCRecoDriftChamberDigiV2Association.h
+header extension/MCRecoDriftChamberDigiV2AssociationData.h
+header extension/MutableDriftChamberDigi.h
+header extension/MutableDriftChamberDigiLocal.h
+header extension/MutableDriftChamberDigiV2.h
+header extension/MutableMCRecoDriftChamberDigiAssociation.h
+header extension/MutableMCRecoDriftChamberDigiV2Association.h
+header extension/MutableSenseWireHit.h
+header extension/MutableSenseWireHitSimTrackerHitLink.h
+header extension/MutableTrack.h
+header extension/SenseWireHit.h
+header extension/SenseWireHitData.h
+header extension/SenseWireHitSimTrackerHitLink.h
+header extension/SenseWireHitSimTrackerHitLinkData.h
+header extension/Track.h
+header extension/TrackData.h
+# List of selected typedefs and outer classes

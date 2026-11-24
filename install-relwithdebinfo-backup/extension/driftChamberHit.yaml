@@ -1,0 +1,160 @@
+---
+schema_version: 1
+options:
+  # should getters / setters be prefixed with get / set?
+  getSyntax: True
+  setSyntax: True
+  # should POD members be exposed with getters/setters in classes that have them as members?
+  exposePODMembers: False
+  includeSubfolder: True
+
+datatypes:
+
+  extension::DriftChamberDigiLocal:
+    Description: "Drift chamber digitized hit (before tracking) in local coordinates"
+    Author: "B. Francois, CERN"
+    Members:
+      - uint64_t cellID               // ID of the wire that created this hit
+      - float distanceToWire          // smeared distance of closest approach between the wire and the hit [mm]
+      - float zPositionAlongWire      // smeared z position in the local wire coordinate system [mm]
+      - float time                    // time of the hit [ns].
+      - float eDep                    // energy deposited on the hit [GeV].
+      - float eDepError               // error measured on eDep [GeV].
+      - uint32_t clusterCount         // number of clusters associated to this hit
+
+  extension::DriftChamberDigi:
+    Description: "Drift chamber digitized hit (before tracking) in global coordinates. Assumes that the hits are radially in the middle of the cells"
+    Author: "B. Francois, CERN"
+    Members:
+      - uint64_t cellID               // ID of the wire that created this hit
+      - edm4hep::Vector3d leftPosition // position of the hit assuming it was on the left side of the wire, radially in the middle of the cell [mm]
+      - edm4hep::Vector3d rightPosition // position of the hit assuming it was on the right side of the wire, radially in the middle of the cell [mm]
+      - float time                    // time of the hit [ns].
+      - float eDep                    // energy deposited on the hit [GeV].
+      - float eDepError               // error measured on eDep [GeV].
+      - uint32_t clusterCount         // number of clusters associated to this hit
+      - int32_t type // type of the raw data hit
+      - int32_t quality // quality bit flag of the hit
+      - edm4hep::Vector3d position [mm] // hit position
+
+  extension::MCRecoDriftChamberDigiAssociation:
+    Description: "Association between a DriftChamberDigi and the corresponding simulated hit"
+    Author: "B. Francois, CERN"
+    Members:
+      - float weight              // weight of this association
+    OneToOneRelations:
+      - extension::DriftChamberDigi digi    // reference to the digitized hit
+      - edm4hep::SimTrackerHit sim // reference to the simulated hit
+
+  extension::DriftChamberDigiV2:
+    Description: "Digitized hit (before tracking) for Drift Chamber v2 (requires data extension)."
+    Author: "A. Tolosa-Delgado, B. Francois, CERN"
+    Members:
+      - uint64_t cellID               // ID of the sensor that created this hit
+      - int32_t type                  // type of the raw data hit
+      - int32_t quality               // quality bit flag of the hit
+      - float time                    // time of the hit [ns]
+      - float eDep                    // energy deposited on the hit [GeV]
+      - float eDepError               // error measured on eDep [GeV]
+      - edm4hep::Vector3d position    // point on the sensitive wire (SW) which is closest to the simhit [mm]
+      - edm4hep::Vector3d directionSW // direction of SW
+      - float distanceToWire          // distance hit-wire [mm]
+      - uint32_t nCluster             // number of clusters associated to this hit
+    VectorMembers:
+      - uint16_t nElectrons           // number of electrons for each cluster
+
+  extension::MCRecoDriftChamberDigiV2Association:
+    Description: "Association between a DriftChamberDigi and the corresponding simulated hit"
+    Author: "B. Francois, CERN"
+    Members:
+      - float weight              // weight of this association
+    OneToOneRelations:
+      - extension::DriftChamberDigiV2 digi    // reference to the digitized hit
+      - edm4hep::SimTrackerHit sim // reference to the simulated hit
+
+  extension::Track:
+    Description: "Reconstructed track"
+    Author: "EDM4hep authors"
+    Members:
+      - int32_t type                         // flagword that defines the type of track.Bits 16-31 are used internally
+      - float chi2                       // Chi^2 of the track fit
+      - int32_t ndf                          // number of degrees of freedom of the track fit
+      - float dEdx                       // dEdx of the track
+      - float dEdxError                  // error of dEdx
+      - float radiusOfInnermostHit       // radius of the innermost hit that has been used in the track fit
+    VectorMembers:
+      - int32_t subdetectorHitNumbers        // number of hits in particular subdetectors
+      - edm4hep::TrackState trackStates  // track states
+      - edm4hep::Quantity dxQuantities // different measurements of dx quantities
+    OneToManyRelations:
+      - extension::TrackerHit trackerHits  // hits that have been used to create this track
+      - extension::Track tracks            // tracks (segments) that have been combined to create this track
+
+# new version of digitized drift chamber digi, resulting from https://github.com/key4hep/EDM4hep/pull/385 discussion
+# defined here for validation before to merge in central edm4hep
+  extension::SenseWireHit:
+    Description: "Sense wire hit, before the hit position degeneracy is resolved. The circle representing possible positions is parametrized with its center, radius and normal vector (given by the wire direction)."
+    Author: "EDM4hep authors"
+    Members:
+      - uint64_t cellID // ID of the sensor that created this hit
+      - int32_t type // type of the raw data hit
+      - int32_t quality // quality bit flag of the hit
+      - float time [ns] // time of the hit
+      - float eDep [GeV] // energy deposited by the hit
+      - float eDepError [GeV] // error on eDep
+      - float wireStereoAngle // angle between the sense wire axis and the drift chamber axis (usually the z-axis) - use it together with wireAzimuthalAngle to get the wire direction
+      - float wireAzimuthalAngle // azimuthal angle at the middle of the sense wire - use it together with wireStereoAngle to get the wire direction
+      - edm4hep::Vector3d position [mm] // point on the sense wire which is closest to the hit (center of the circle)
+      - double positionAlongWireError [mm] // error on the hit position along the wire direction
+      - float distanceToWire [mm] // distance between the hit and the wire (radius of the circle)
+      - float distanceToWireError [mm] // error on distanceToWire
+    VectorMembers:
+      - uint16_t nElectrons // number of electrons for each cluster (number of clusters = vector size)
+    ExtraCode:
+      declaration: "
+        /// Return the number of clusters associated to the hit\n
+        auto getNClusters() const { return getNElectrons().size(); }\n
+        "
+
+  extension::SenseWireHitSimTrackerHitLink:
+    Description: "Link between a SenseWireHit and a SimTrackerHit"
+    Author: "EDM4hep authors"
+    Members:
+      - float weight                      // weight of this link
+    OneToOneRelations:
+     - extension::SenseWireHit from     // reference to the SenseWireHit
+     - edm4hep::SimTrackerHit to          // reference to the SimTrackerHit
+
+interfaces:
+  extension::TrackerHit:
+    Description: "Tracker hit interface class"
+    Author: "Thomas Madlener, DESY"
+    Members:
+      - uint64_t cellID // ID of the sensor that created this hit
+      - int32_t type // type of the raw data hit
+      - int32_t quality // quality bit flag of the hit
+      - float time [ns] // time of the hit
+      - float eDep [GeV] // energy deposited on the hit
+      - float eDepError [GeV] // error measured on eDep
+      - edm4hep::Vector3d position [mm] // hit position
+    Types:
+      - edm4hep::TrackerHitPlane
+      - edm4hep::TrackerHit3D
+      - extension::SenseWireHit
+      - extension::DriftChamberDigi
+
+  extension::TrackerHit_dev:
+    Description: "Tracker hit interface class to test the mixing of extension and edm4hep data types"
+    Author: "Thomas Madlener, DESY"
+    Members:
+      - uint64_t cellID // ID of the sensor that created this hit
+      - int32_t type // type of the raw data hit
+      - int32_t quality // quality bit flag of the hit
+      - float time [ns] // time of the hit
+      - float eDep [GeV] // energy deposited on the hit
+      - float eDepError [GeV] // error measured on eDep
+      - edm4hep::Vector3d position [mm] // hit position
+    Types:
+      - edm4hep::TrackerHitPlane
+      - edm4hep::TrackerHit3D
+      - extension::SenseWireHit

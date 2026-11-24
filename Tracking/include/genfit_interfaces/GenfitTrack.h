@@ -92,17 +92,20 @@ public:
 
   ~GenfitTrack();
 
-  void InitializeTrack(double RadiusForDisplacedTracking, bool UseFirstHitAsReference, bool LimitHits,
+  void InitializeTrack(double RadiusForDisplacedTracking, bool UseFirstHitAsReference, bool ForceFirstArc,
                        int InitializationType, std::optional<int> TrackStateLocation,
                        std::optional<TVector3> Init_position, std::optional<TVector3> Init_momentum,
-                       std::optional<double> Epsilon, std::optional<int> Window, std::optional<double> sigma_d0,
+                       double LooperPTThreshold, double MomentumSeedOverride, std::optional<double> sigma_d0,
                        std::optional<double> sigma_phi, std::optional<double> sigma_omega,
                        std::optional<double> sigma_z0, std::optional<double> sigma_tanLambda);
 
   void CreateGenFitTrack(int particle_hypotesis, int debug_lvl);
+  bool RestrictToSiliconHits();
+  void RestrictToEvenlySpacedHits(std::size_t target);
+  bool RestrictToCircleInliers(double toleranceMm);
   bool Fit(edm4hep::TrackerHitPlaneCollection& fittedHits, std::string FitterType, int debug_lvl,
            std::optional<double> Beta_init, std::optional<double> Beta_final, std::optional<int> Beta_steps,
-           std::optional<bool> FilterHits);
+           std::optional<bool> FilterHits, bool NoMaterial);
 
   edm4hep::MutableTrack& GetTrack_edm4hep() { return m_edm4hepTrack; }
   edm4hep::MutableTrack& GetTrackWithFit_edm4hep() { return m_trackWithFit; }
@@ -138,8 +141,7 @@ public:
 
   HelperInitialization GetInitialization() {
 
-    return {m_posInit, m_momInit, m_covInit, m_chargeHypothesis,
-            static_cast<int>(m_edm4hepTrack.getTrackerHits().size())};
+    return {m_posInit, m_momInit, m_covInit, m_chargeHypothesis, static_cast<int>(m_fitHits.size())};
   }
 
 private:
@@ -147,7 +149,7 @@ private:
 
   void CheckInitialization();
   void OrderHits(const edm4hep::Track& track, bool skipTrackOrdering);
-  void LimitNumberHits(double epsilon, int smoothWindow);
+  void SelectFirstArcHits(bool force, double pTThresholdGeV, double RadiusForDisplacedTracking);
 
   TMatrixDSym ComputeInitialCovarianceMatrix(double Bz, int Charge, std::optional<double> sigma_d0,
                                              std::optional<double> sigma_phi, std::optional<double> sigma_omega,
@@ -169,6 +171,10 @@ private:
 
   edm4hep::MutableTrack m_edm4hepTrack;
   edm4hep::MutableTrack m_trackWithFit;
+
+  // Indices of the hits used for seeding and fitting: all of them, or only the
+  // hits of the first arc for looping tracks (see SelectFirstArcHits)
+  std::vector<std::size_t> m_fitHits;
 
   TVector3 m_vpReferencePoint{0., 0., 0.};
   TVector3 m_firstHitReferencePoint{0., 0., 0.};

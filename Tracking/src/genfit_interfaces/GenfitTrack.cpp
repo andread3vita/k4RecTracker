@@ -17,6 +17,10 @@
  * limitations under the License.
  */
 
+#include <algorithm>
+#include <cmath>
+#include <numeric>
+
 #include "GenfitTrack.h"
 
 namespace GenfitInterface {
@@ -159,11 +163,10 @@ void GenfitTrack::OrderHits(const edm4hep::Track& track, bool skipTrackOrdering)
  * ---
  * Initialization workflow:
  *
- * 1. Optional hit reduction:
- *    - If `LimitHits` is true, the tracker hits are preprocessed using
- *      `LimitNumberHits(Epsilon, Window)`.
- *    - This step is intended to reduce the number of hits, retaining only those associated with the first loop of
- * looping tracks.
+ * 1. Looper handling:
+ *    - The tracker hits are preprocessed with `SelectFirstArcHits(force, LooperPTThreshold)`.
+ *    - For looping tracks only the hits of the first arc of the loop (the hits before the first
+ *      peak of the sawtooth in the (z, phi_local) plane) are used to seed and fit the track.
  *
  * 2. Definition of initial track parameters (controlled by InitializationType):
  *
@@ -215,7 +218,7 @@ void GenfitTrack::OrderHits(const edm4hep::Track& track, bool skipTrackOrdering)
  * @param RadiusForDisplacedTracking If > 0, enables displaced tracking logic:
  *        tracks with first hit outside this radius may use a different reference point.
  * @param UseFirstHitAsReference If true, the first hit is always used as reference point.
- * @param LimitHits If true, reduces the number of hits before initialization.
+ * @param ForceFirstArc If true, force the first-arc hit selection for looping tracks, ignoring the pT threshold.
  * @param InitializationType Strategy selector:
  *        0 = default (first two hits),
  *        1 = refined (computed parameters),
@@ -228,8 +231,8 @@ void GenfitTrack::OrderHits(const edm4hep::Track& track, bool skipTrackOrdering)
  *        3 = edm4hep::TrackState::AtCalorimeter
  * @param Init_position Custom initial position (required if InitializationType == 3).
  * @param Init_momentum Custom initial momentum (required if InitializationType == 3).
- * @param Epsilon Parameter for hit reduction (required if LimitHits == true).
- * @param Window Parameter for hit reduction (required if LimitHits == true).
+ * @param LooperPTThreshold Transverse momentum threshold [GeV/c] for the looper treatment: below it the first-arc
+ * hits are selected whenever the sawtooth of phi_local shows a wrap.
  * @param sigma_d0        Optional standard deviation for d0 (used in covariance construction).
  * @param sigma_phi       Optional standard deviation for phi (used in covariance construction).
  * @param omega_factor    Optional factor for omega (used in covariance construction).
@@ -250,24 +253,21 @@ void GenfitTrack::OrderHits(const edm4hep::Track& track, bool skipTrackOrdering)
  * covariance is directly taken from the input TrackState and transformed
  * to Cartesian coordinates.
  */
-void GenfitTrack::InitializeTrack(double RadiusForDisplacedTracking, bool UseFirstHitAsReference, bool LimitHits,
+void GenfitTrack::InitializeTrack(double RadiusForDisplacedTracking, bool UseFirstHitAsReference, bool ForceFirstArc,
                                   int InitializationType, std::optional<int> TrackStateLocation,
                                   std::optional<TVector3> Init_position, std::optional<TVector3> Init_momentum,
-                                  std::optional<double> Epsilon, std::optional<int> Window,
+                                  double LooperPTThreshold, double MomentumSeedOverride,
                                   std::optional<double> sigma_d0, std::optional<double> sigma_phi,
                                   std::optional<double> omega_factor, std::optional<double> z0_factor,
                                   std::optional<double> sigma_tanLambda) {
 
-  // -------------------------
-  // Optional hit preprocessing
-  // -------------------------
-  if (LimitHits) {
-    if (Epsilon.has_value() && Window.has_value()) {
-      LimitNumberHits(Epsilon.value(), Window.value());
-    } else {
-      throw std::runtime_error("InitializeTrack: Epsilon and Window are required when LimitHits is true");
-    }
-  }
+  // -------------------------------------------------
+  // Looper handling: select the hits of the first arc
+  // -------------------------------------------------
+  // Looping tracks are seeded and fitted with the hits of the first arc only. ForceFirstArc
+  // applies the selection whenever the sawtooth of phi_local shows a wrap, without the pT
+  // gate on LooperPTThreshold (used for the second fit attempt).
+  SelectFirstArcHits(ForceFirstArc, LooperPTThreshold, RadiusForDisplacedTracking);
 
   // =========================
   // Initialization strategies
@@ -277,12 +277,12 @@ void GenfitTrack::InitializeTrack(double RadiusForDisplacedTracking, bool UseFir
   {
     auto hits = m_edm4hepTrack.getTrackerHits();
 
-    if (hits.size() < 2) {
+    if (m_fitHits.size() < 2) {
       throw std::runtime_error("InitializeTrack: Not enough hits for InitializationType == 0");
     }
 
-    auto pos1 = hits[0].getPosition();
-    auto pos2 = hits[1].getPosition();
+    auto pos1 = hits[m_fitHits[0]].getPosition();
+    auto pos2 = hits[m_fitHits[1]].getPosition();
 
     TVector3 p1(pos1.x * dd4hep::mm, pos1.y * dd4hep::mm, pos1.z * dd4hep::mm);
     TVector3 p2(pos2.x * dd4hep::mm, pos2.y * dd4hep::mm, pos2.z * dd4hep::mm);
@@ -308,7 +308,7 @@ void GenfitTrack::InitializeTrack(double RadiusForDisplacedTracking, bool UseFir
       throw std::runtime_error("InitializeTrack: No hits available for InitializationType == 1");
     }
 
-    auto firstHit = hits[0].getPosition();
+    auto firstHit = hits[m_fitHits[0]].getPosition();
 
     TVector3 firstHitVec(firstHit.x * dd4hep::mm, firstHit.y * dd4hep::mm, firstHit.z * dd4hep::mm);
 
@@ -411,110 +411,418 @@ void GenfitTrack::InitializeTrack(double RadiusForDisplacedTracking, bool UseFir
   else {
     throw std::runtime_error("InitializeTrack: Unknown InitializationType");
   }
+
+  // Optional seed override (recovery attempts): keep the seeded direction but impose the
+  // momentum magnitude, with a consistent initial covariance
+  if (MomentumSeedOverride > 0. && m_momInit.Mag() > 0.) {
+    m_momInit = m_momInit.Unit() * MomentumSeedOverride;
+    const double Bz = m_fieldMap->getBz(m_posInit) / (dd4hep::tesla / dd4hep::kilogauss); // From kilogauss to Tesla
+    m_covInit = ComputeInitialCovarianceMatrix(Bz, m_chargeHypothesis, sigma_d0, sigma_phi, omega_factor, z0_factor,
+                                               sigma_tanLambda);
+  }
 }
 
 /**
- * @brief Limits the number of tracker hits in the track based on a local extremum
- *        along the y-coordinate after smoothing.
+ * @brief Identify the first arc of a looping track and select the hits used for the fit.
  *
- * This method identifies the first significant local extremum (maximum or minimum)
- * in the y-coordinate of the track hits, after applying a moving average smoothing.
- * It then truncates the track to include only hits up to that extremum.
+ * Below a few hundred MeV/c charged particles curl up in the magnetic field and the
+ * reconstructed track contains several loops of the same particle: the loops cannot be
+ * fitted with a single helix, only the hits of the first arc can.
  *
- * Procedure:
- * 1. Extracts the z and y positions of all tracker hits.
- * 2. Applies a moving average smoothing to the y-coordinates using the specified window.
- * 3. Computes the first derivative of the smoothed y with respect to z.
- * 4. Finds the first index where the derivative changes sign and exceeds the
- *    specified threshold epsilon, indicating a local extremum.
- * 5. If such an extremum is found, rebuilds the track keeping only hits up to that index.
+ * The first arc is identified geometrically in the (z, phi_local) plane:
+ *   1. a circle is fitted to the xy projection of all the hits (FastCircleFit);
+ *   2. the start of the trajectory is identified from the hit closest to the IP: if it lies
+ *      inside the vertex region the particle comes from the IP and the start is the hit with
+ *      the smallest |z| (z_vertex = 0); if it lies outside, the particle is produced away from
+ *      the IP (e.g. in the drift chamber) and the start is the z end with the larger local
+ *      radius of curvature (the outermost arc: the particle is born with its maximum momentum
+ *      and spirals inward), z_vertex being its z. The hits are ordered by their distance from
+ *      the vertex along z (|z - z_vertex|), starting from the start of the trajectory, which
+ *      defines phi_local = 0; tracks going to +z and tracks going to -z are treated alike;
+ *   3. the hit sequence along the trajectory is selected geometrically: phi must progress
+ *      continuously between consecutive hits, so both the natural hit order (path order when
+ *      the input is ordered) and the order by distance from the vertex along z are tried, and
+ *      the more continuous one is used (if neither is continuous the arc is not identifiable
+ *      and all the hits are kept);
+ *   4. phi_local is the angle around the center of the fitted circle, unwrapped along the
+ *      sequence: a looping track produces a sawtooth (phi_local wraps by 2*pi at the end of
+ *      every loop) and the first arc is the first full turn, i.e. the hits before the first
+ *      peak of the sawtooth.
  *
- * @param epsilon       Threshold for detecting significant changes in the derivative.
- * @param smoothWindow  Size of the smoothing window (number of hits) for the moving average.
+ * The pT estimated from the fitted circle (pT = 0.3 * Bz * rho) selects which tracks can
+ * loop at all: the first-arc hits are used only for pT < pTThresholdGeV, or unconditionally
+ * when force is true. Tracks without a wrap of phi_local keep all their hits.
+ *
+ * m_edm4hepTrack keeps all its hits: only m_fitHits (the hits used for seeding and fitting)
+ * is restricted to the first arc.
+ *
+ * @param force          If true, apply the first-arc selection whenever a wrap of phi_local
+ *                       is found, ignoring the pT threshold.
+ * @param pTThresholdGeV Transverse momentum threshold for the looper treatment [GeV/c].
  */
-void GenfitTrack::LimitNumberHits(double epsilon, int smoothWindow) {
+void GenfitTrack::SelectFirstArcHits(bool force, double pTThresholdGeV, double RadiusForDisplacedTracking) {
 
   auto hits = m_edm4hepTrack.getTrackerHits();
-  int maxHit = hits.size();
-  int n = maxHit;
+  const std::size_t N = hits.size();
 
-  if (maxHit == 0) {
-    throw std::runtime_error("Internal edm4hep::Track is empty.");
+  // Default: seed and fit with all the hits
+  m_fitHits.resize(N);
+  std::iota(m_fitHits.begin(), m_fitHits.end(), std::size_t{0});
+
+  if (N < 3) {
+    return;
   }
 
-  if (n < smoothWindow || n < 3)
-    maxHit = -1;
-  int W = smoothWindow / 2;
-
+  // Hit positions [mm]
+  std::vector<Point2D_xy> points_xy;
+  points_xy.reserve(N);
   std::vector<double> z_val;
-  std::vector<double> y_val_raw;
-  z_val.reserve(hits.size());
-  y_val_raw.reserve(hits.size());
+  z_val.reserve(N);
 
-  // Extract positions
   for (const auto& hit : hits) {
-    auto pos = hit.getPosition();
+    const auto pos = hit.getPosition();
+    points_xy.emplace_back(pos.x, pos.y);
     z_val.push_back(pos.z);
-    y_val_raw.push_back(pos.y);
   }
 
-  // Apply moving average smoothing
-  std::vector<double> y_val;
-  y_val.reserve(hits.size());
-  for (std::size_t i = 0; i < hits.size(); ++i) {
-    int start = (i < static_cast<std::size_t>(W)) ? 0 : i - W;
-    int end = std::min(i + W + 1, hits.size());
+  // (1) circle fit in the xy plane
+  FastCircleFit circle(points_xy);
 
-    double sum = 0.0;
-    for (int j = start; j < end; ++j)
-      sum += y_val_raw[j];
-    y_val.push_back(sum / (end - start));
+  // (2) start of the trajectory: the hit closest to the IP decides the particle class. If it
+  //     lies inside the vertex region (RadiusForDisplacedTracking), the particle comes from the
+  //     IP: z_vertex = 0 and the start is the hit closest to it (smallest |z|). If it lies
+  //     outside, the particle is produced away from the IP (e.g. in the drift chamber): it is
+  //     born with its maximum momentum and spirals inward, so the start of the trajectory is
+  //     the z end with the larger local radius of curvature (the outermost arc, i.e. the hit
+  //     closest to its own vertex); z_vertex is its z. The hits are then ordered by their
+  //     distance from the vertex along z (|z - z_vertex|), starting from the start of the
+  //     trajectory, which defines phi_local = 0. Tracks going to +z and tracks going to -z
+  //     are treated in the same way.
+  double z_vertex = 0.;
+  if (RadiusForDisplacedTracking > 0.) {
+    std::size_t closest = 0;
+    double dMin = std::numeric_limits<double>::max();
+    for (std::size_t i = 0; i < N; ++i) {
+      const double d = std::hypot(points_xy[i].x, points_xy[i].y, z_val[i]);
+      if (d < dMin) {
+        dMin = d;
+        closest = i;
+      }
+    }
+    const auto p = hits[closest].getPosition();
+    const TVector3 closestPos(p.x * dd4hep::mm, p.y * dd4hep::mm, p.z * dd4hep::mm);
+    if (closestPos.Mag() > RadiusForDisplacedTracking) {
+      std::vector<std::size_t> zSorted(N);
+      std::iota(zSorted.begin(), zSorted.end(), std::size_t{0});
+      std::ranges::stable_sort(zSorted, [&z_val](std::size_t i, std::size_t j) { return z_val[i] < z_val[j]; });
+
+      // Local radius of curvature at the two z ends, from the first/last hits along z
+      const std::size_t K = std::min<std::size_t>(5, N / 2);
+      double rhoLow = 0.;
+      double rhoHigh = 0.;
+      if (K >= 3) {
+        std::vector<Point2D_xy> ptsLow;
+        std::vector<Point2D_xy> ptsHigh;
+        ptsLow.reserve(K);
+        ptsHigh.reserve(K);
+        for (std::size_t k = 0; k < K; ++k) {
+          ptsLow.emplace_back(points_xy[zSorted[k]]);
+          ptsHigh.emplace_back(points_xy[zSorted[N - 1 - k]]);
+        }
+        rhoLow = FastCircleFit(ptsLow).rho();
+        rhoHigh = FastCircleFit(ptsHigh).rho();
+      }
+
+      z_vertex = (rhoLow >= rhoHigh) ? z_val[zSorted[0]] : z_val[zSorted[N - 1]];
+    }
   }
 
-  // Compute first derivative
-  std::vector<double> d(n, 0.0);
+  std::vector<std::size_t> zOrder(N);
+  std::iota(zOrder.begin(), zOrder.end(), std::size_t{0});
+  std::ranges::stable_sort(zOrder, [&z_val, z_vertex](std::size_t i, std::size_t j) {
+    return std::abs(z_val[i] - z_vertex) < std::abs(z_val[j] - z_vertex);
+  });
 
-  double dz0 = z_val[1] - z_val[0];
-  d[0] = (dz0 != 0.0) ? (y_val[1] - y_val[0]) / dz0 : 0.0;
+  // Looper gate: pT [GeV/c] = 0.3 * Bz [T] * rho [m], with rho from the fitted circle
+  const auto refPos = hits[zOrder[0]].getPosition();
+  const double Bz =
+      m_fieldMap->getBz(TVector3(refPos.x * dd4hep::mm, refPos.y * dd4hep::mm, refPos.z * dd4hep::mm)) /
+      (dd4hep::tesla / dd4hep::kilogauss); // From kilogauss to Tesla
+  const double pT_est = std::abs(0.3 * Bz * circle.rho()) / 1000.0; // 1000 is used to convert from m to mm
 
-  for (std::size_t i = 1; i < static_cast<std::size_t>(W - 1); ++i) {
-    double dz = z_val[i + 1] - z_val[i - 1];
-    d[i] = (dz != 0.0) ? (y_val[i + 1] - y_val[i - 1]) / dz : 0.0;
+  if (!force && pT_est >= pTThresholdGeV) {
+    return;
   }
 
-  double dzn = z_val[n - 1] - z_val[n - 2];
-  d[n - 1] = (dzn != 0.0) ? (y_val[n - 1] - y_val[n - 2]) / dzn : 0.0;
+  // (3) phi around the center of the fitted circle for every hit
+  constexpr double kTwoPi = 6.28318530717958647692;
+  const double x0 = circle.x0();
+  const double y0 = circle.y0();
 
-  // Find first significant extremum
-  bool MaxFound = false;
-  for (int i = 1; i < n - 1; ++i) {
-    if ((d[i - 1] > epsilon && d[i] < -epsilon) || (d[i - 1] < -epsilon && d[i] > epsilon)) {
-      maxHit = i;
-      MaxFound = true;
+  std::vector<double> phi_val(N);
+  for (std::size_t i = 0; i < N; ++i) {
+    phi_val[i] = std::atan2(points_xy[i].y - y0, points_xy[i].x - x0);
+  }
+
+  // (4) the hit sequence along the trajectory is the one where phi progresses continuously
+  //     (geometry validates the order): the natural hit order (path order when the input is
+  //     ordered) and the order by distance from the vertex along z are both tried, and the one
+  //     with the smaller mean |wrapToPi(dphi)| between consecutive hits is used. If neither is
+  //     continuous the first arc cannot be identified and all the hits are kept.
+  auto meanStep = [&phi_val](const std::vector<std::size_t>& seq) {
+    double sum = 0.;
+    for (std::size_t k = 1; k < seq.size(); ++k) {
+      double dphi = phi_val[seq[k]] - phi_val[seq[k - 1]];
+      dphi -= kTwoPi * std::round(dphi / kTwoPi); // wrap to (-pi, pi]
+      sum += std::abs(dphi);
+    }
+    return sum / (seq.size() - 1);
+  };
+
+  std::vector<std::size_t> natural(N);
+  std::iota(natural.begin(), natural.end(), std::size_t{0});
+  const double stepNatural = meanStep(natural);
+  const double stepZ = meanStep(zOrder);
+  const std::vector<std::size_t>& order = (stepNatural <= stepZ) ? natural : zOrder;
+
+  if (std::min(stepNatural, stepZ) > 0.5) {
+    return; // no geometrically ordered sequence: the sawtooth would be meaningless
+  }
+
+  // The validated sequence is also the order used to seed and fit the track: GENFIT propagates
+  // from hit to hit along the point order, so a scrambled input order breaks the fit even when
+  // the arc identification is correct. All its hits are kept unless the first arc is cut below.
+  m_fitHits.assign(order.begin(), order.end());
+  const auto seqFirst = hits[m_fitHits.front()].getPosition();
+  const auto seqLast = hits[m_fitHits.back()].getPosition();
+  m_firstHitReferencePoint = TVector3(seqFirst.x * dd4hep::mm, seqFirst.y * dd4hep::mm, seqFirst.z * dd4hep::mm);
+  m_lastHitReferencePoint = TVector3(seqLast.x * dd4hep::mm, seqLast.y * dd4hep::mm, seqLast.z * dd4hep::mm);
+
+  // phi_local along the sequence, oriented along the trajectory and zeroed at its start.
+  // The first arc is the first full turn: it ends at the first peak of the sawtooth, i.e. when
+  // the unwrapped angle has advanced by 2*pi (or when phi_local wraps and restarts near 0).
+  double psi = 0.;
+  std::size_t wrap = N;
+  double peak = 0.;
+  for (std::size_t k = 1; k < N; ++k) {
+    double dphi = phi_val[order[k]] - phi_val[order[k - 1]];
+    dphi -= kTwoPi * std::round(dphi / kTwoPi); // wrap to (-pi, pi]
+    psi += dphi;
+    if (std::abs(psi) >= kTwoPi) {
+      wrap = k;
       break;
     }
-  }
-
-  if (!MaxFound)
-    maxHit = -1;
-
-  // Rebuild track keeping only hits up to maxHit
-  if (maxHit != -1) {
-    auto temp_track = m_edm4hepTrack;
-    m_edm4hepTrack = edm4hep::MutableTrack();
-
-    int idx_fill_track = 0;
-    auto temp_hits = temp_track.getTrackerHits();
-    for (const auto& hit : temp_hits) {
-
-      auto pos = hit.getPosition();
-      m_lastHitReferencePoint = TVector3(pos.x * dd4hep::mm, pos.y * dd4hep::mm, pos.z * dd4hep::mm);
-      m_edm4hepTrack.addToTrackerHits(hit);
-      ++idx_fill_track;
-      if (idx_fill_track >= maxHit)
-        break;
+    const double phiLocal = std::abs(psi) - kTwoPi * std::floor(std::abs(psi) / kTwoPi);
+    if (k > 1 && peak - phiLocal > 3.14159265358979323846 && phiLocal < 1.57079632679489661923) {
+      wrap = k; // sawtooth restart near 0 before a full turn is accumulated
+      break;
+    }
+    if (phiLocal > peak) {
+      peak = phiLocal;
     }
   }
+
+  if (wrap == N) {
+    return; // no wrap of phi_local: single arc, fit all the hits
+  }
+  if (wrap < 3) {
+    return; // fewer than 3 hits before the wrap: the first arc cannot be fitted on its own
+  }
+
+  // (5) keep the hits before the first peak
+  m_fitHits.assign(order.begin(), order.begin() + wrap);
+
+  const auto firstPos = hits[m_fitHits.front()].getPosition();
+  const auto lastPos = hits[m_fitHits.back()].getPosition();
+  m_firstHitReferencePoint = TVector3(firstPos.x * dd4hep::mm, firstPos.y * dd4hep::mm, firstPos.z * dd4hep::mm);
+  m_lastHitReferencePoint = TVector3(lastPos.x * dd4hep::mm, lastPos.y * dd4hep::mm, lastPos.z * dd4hep::mm);
+}
+
+/**
+ * @brief Restrict the hits used for seeding and fitting to the silicon (planar) hits.
+ *
+ * Last-resort fallback when the fit with all the hits, or with the first-arc hits of a looper,
+ * fails: the silicon hits are much more precise than the drift chamber ones (whose z resolution
+ * is of the order of cm) and a fit with them alone often converges where the full one does not.
+ * The output track keeps all its hits as before.
+ *
+ * @return true if at least 3 silicon hits are available for the fit.
+ */
+bool GenfitTrack::RestrictToSiliconHits() {
+
+  auto hits = m_edm4hepTrack.getTrackerHits();
+
+  std::vector<std::size_t> silicon;
+  silicon.reserve(m_fitHits.size());
+  for (const std::size_t idx : m_fitHits) {
+    if (hits[idx].isA<edm4hep::TrackerHitPlane>()) {
+      silicon.push_back(idx);
+    }
+  }
+
+  if (silicon.size() < 3) {
+    return false;
+  }
+
+  m_fitHits = std::move(silicon);
+
+  const auto firstPos = hits[m_fitHits.front()].getPosition();
+  const auto lastPos = hits[m_fitHits.back()].getPosition();
+  m_firstHitReferencePoint = TVector3(firstPos.x * dd4hep::mm, firstPos.y * dd4hep::mm, firstPos.z * dd4hep::mm);
+  m_lastHitReferencePoint = TVector3(lastPos.x * dd4hep::mm, lastPos.y * dd4hep::mm, lastPos.z * dd4hep::mm);
+
+  return true;
+}
+
+/**
+ * @brief Thin the hits used for seeding and fitting to at most `target` evenly spaced hits.
+ *
+ * Recovery fallback for tracks whose fit does not converge even on the first arc: a strongly
+ * thinned hit set accumulates less multiple scattering and measurement noise, and the fit often
+ * converges where the full set does not. The output track keeps all its hits as before.
+ *
+ * @param target Maximum number of hits kept; must be >= 3, otherwise the hit set is unchanged.
+ */
+void GenfitTrack::RestrictToEvenlySpacedHits(std::size_t target) {
+
+  auto hits = m_edm4hepTrack.getTrackerHits();
+  const std::size_t n = m_fitHits.size();
+
+  if (target < 3 || n <= target) {
+    return;
+  }
+
+  std::vector<std::size_t> thinned;
+  thinned.reserve(target);
+  const std::size_t stride = (n + target - 1) / target;
+  for (std::size_t k = 0; k < n && thinned.size() < target; k += stride) {
+    thinned.push_back(m_fitHits[k]);
+  }
+  thinned.back() = m_fitHits.back(); // the last hit of the arc is always kept
+  m_fitHits = std::move(thinned);
+
+  const auto firstPos = hits[m_fitHits.front()].getPosition();
+  const auto lastPos = hits[m_fitHits.back()].getPosition();
+  m_firstHitReferencePoint = TVector3(firstPos.x * dd4hep::mm, firstPos.y * dd4hep::mm, firstPos.z * dd4hep::mm);
+  m_lastHitReferencePoint = TVector3(lastPos.x * dd4hep::mm, lastPos.y * dd4hep::mm, lastPos.z * dd4hep::mm);
+}
+
+/**
+ * @brief Restrict the hits used for the fit to the inliers of a robust (RANSAC) circle fit,
+ *        ordered along that circle.
+ *
+ * Recovery fallback for impure tracks (e.g. two particles merged into one hit list): the global
+ * circle fit lands between the particles and every fit attempt fails or returns garbage. The
+ * inliers of the dominant circle follow one turn of one particle, and ordering them by their
+ * angle around that circle (sequence starting after the largest angular gap) gives GENFIT the
+ * path order it needs. The output track keeps all its hits as before.
+ *
+ * @param toleranceMm Maximum distance from the fitted circle for a hit to count as an inlier.
+ * @return true if at least 8 inliers were found.
+ */
+bool GenfitTrack::RestrictToCircleInliers(double toleranceMm) {
+
+  auto hits = m_edm4hepTrack.getTrackerHits();
+  const std::size_t n = m_fitHits.size();
+  if (n < 8) {
+    return false;
+  }
+
+  std::vector<Point2D_xy> pts;
+  pts.reserve(n);
+  for (const std::size_t idx : m_fitHits) {
+    const auto p = hits[idx].getPosition();
+    pts.emplace_back(p.x, p.y);
+  }
+
+  // RANSAC: circumcircles of deterministic hit triplets, keep the largest inlier set
+  std::size_t bestCount = 0;
+  double bestX = 0., bestY = 0., bestRho = 0.;
+  std::vector<std::size_t> bestInliers;
+
+  for (std::size_t k = 0; k < 80; ++k) {
+    const std::size_t a = (k * 13) % n;
+    const std::size_t b = (a + n / 3) % n;
+    const std::size_t c = (b + n / 3) % n;
+    const Point2D_xy& p1 = pts[a];
+    const Point2D_xy& p2 = pts[b];
+    const Point2D_xy& p3 = pts[c];
+
+    const double det = 2. * (p1.x * (p2.y - p3.y) + p2.x * (p3.y - p1.y) + p3.x * (p1.y - p2.y));
+    if (std::abs(det) < 1e-9) {
+      continue;
+    }
+    const double s1 = p1.x * p1.x + p1.y * p1.y;
+    const double s2 = p2.x * p2.x + p2.y * p2.y;
+    const double s3 = p3.x * p3.x + p3.y * p3.y;
+    const double cx = (s1 * (p2.y - p3.y) + s2 * (p3.y - p1.y) + s3 * (p1.y - p2.y)) / det;
+    const double cy = (s1 * (p3.x - p2.x) + s2 * (p1.x - p3.x) + s3 * (p2.x - p1.x)) / det;
+    const double rho = std::hypot(p1.x - cx, p1.y - cy);
+    if (!(rho > 0.) || rho > 1e6) {
+      continue;
+    }
+
+    const double tol = std::max(toleranceMm, 0.01 * rho);
+    std::vector<std::size_t> inliers;
+    inliers.reserve(n);
+    for (std::size_t i = 0; i < n; ++i) {
+      if (std::abs(std::hypot(pts[i].x - cx, pts[i].y - cy) - rho) <= tol) {
+        inliers.push_back(i);
+      }
+    }
+    if (inliers.size() > bestCount) {
+      bestCount = inliers.size();
+      bestX = cx;
+      bestY = cy;
+      bestRho = rho;
+      bestInliers = std::move(inliers);
+    }
+  }
+
+  if (bestCount < 8) {
+    return false;
+  }
+
+  // Order the inliers by their angle around the dominant circle, sequence starting after the
+  // largest angular gap (the seam of the turn) so that consecutive hits stay neighbours
+  std::vector<std::pair<double, std::size_t>> angleIndex;
+  angleIndex.reserve(bestCount);
+  for (const std::size_t i : bestInliers) {
+    angleIndex.emplace_back(std::atan2(pts[i].y - bestY, pts[i].x - bestX), i);
+  }
+  std::ranges::sort(angleIndex);
+
+  std::size_t seam = 0;
+  double gapMax = -1.;
+  constexpr double kTwoPi = 6.28318530717958647692;
+  for (std::size_t k = 0; k < angleIndex.size(); ++k) {
+    const double gap = (k + 1 < angleIndex.size()) ? angleIndex[k + 1].first - angleIndex[k].first
+                                                   : angleIndex[0].first + kTwoPi - angleIndex[k].first;
+    if (gap > gapMax) {
+      gapMax = gap;
+      seam = k;
+    }
+  }
+
+  std::vector<std::size_t> ordered;
+  ordered.reserve(bestCount);
+  for (std::size_t k = 0; k < angleIndex.size(); ++k) {
+    ordered.push_back(angleIndex[(seam + 1 + k) % angleIndex.size()].second);
+  }
+
+  std::vector<std::size_t> fitOrdered;
+  fitOrdered.reserve(bestCount);
+  for (const std::size_t i : ordered) {
+    fitOrdered.push_back(m_fitHits[i]);
+  }
+  m_fitHits = std::move(fitOrdered);
+
+  const auto firstPos = hits[m_fitHits.front()].getPosition();
+  const auto lastPos = hits[m_fitHits.back()].getPosition();
+  m_firstHitReferencePoint = TVector3(firstPos.x * dd4hep::mm, firstPos.y * dd4hep::mm, firstPos.z * dd4hep::mm);
+  m_lastHitReferencePoint = TVector3(lastPos.x * dd4hep::mm, lastPos.y * dd4hep::mm, lastPos.z * dd4hep::mm);
+
+  return true;
 }
 
 /**
@@ -671,7 +979,7 @@ GenfitTrack::HelperInitialization GenfitTrack::ComputeInitialParameters(double B
   Point2D_xy referencePoint_xy(m_vpReferencePoint.X() / dd4hep::mm, m_vpReferencePoint.Y() / dd4hep::mm); // in mm
 
   auto hits = m_edm4hepTrack.getTrackerHits();
-  const size_t N = hits.size();
+  const size_t N = m_fitHits.size();
 
   if (N < 2) {
     throw std::runtime_error("Not enough hits to compute initial parameters");
@@ -683,9 +991,9 @@ GenfitTrack::HelperInitialization GenfitTrack::ComputeInitialParameters(double B
 
   double sumR = 0.0, sumZ = 0.0, sumRZ = 0.0, sumR2 = 0.0;
 
-  for (const auto& hit : hits) {
+  for (const std::size_t idx : m_fitHits) {
 
-    const auto p = hit.getPosition();
+    const auto p = hits[idx].getPosition();
 
     // XY for circle fit
     points_xy.emplace_back(p.x, p.y);
@@ -749,6 +1057,38 @@ GenfitTrack::HelperInitialization GenfitTrack::ComputeInitialParameters(double B
   helper.Momentum = init_mom;
   helper.Charge = charge;
 
+  // Sanity check: nearly degenerate hit geometries (e.g. almost collinear points) make the
+  // circle fit explode and give a meaningless position and momentum seed, which then
+  // degenerates the initial covariance and the fit. Reseed along the hit direction with a
+  // moderate momentum (same 1 GeV/c convention as InitializationType == 0) and at the mean
+  // hit position. The bound is only meant to catch fit explosions (1e3+ GeV), not real
+  // high-momentum tracks.
+  const double pMag = init_mom.Mag();
+  const bool badSeed = !std::isfinite(pMag) || pMag < 0.01 || pMag > 1e3 || !std::isfinite(helper.Position.Mag()) ||
+                       helper.Position.Mag() > 1e5; // > 1000 m from the origin cannot be a real seed
+  if (badSeed) {
+    double meanX = 0., meanY = 0., meanZ = 0.;
+    for (const std::size_t idx : m_fitHits) {
+      const auto p = hits[idx].getPosition();
+      meanX += p.x;
+      meanY += p.y;
+      meanZ += p.z;
+    }
+    meanX /= m_fitHits.size();
+    meanY /= m_fitHits.size();
+    meanZ /= m_fitHits.size();
+
+    const auto& h0 = hits[m_fitHits.front()].getPosition();
+    const auto& h1 = hits[m_fitHits.back()].getPosition();
+    TVector3 dir(h1.x - h0.x, h1.y - h0.y, h1.z - h0.z);
+    if (dir.Mag() < 1e-6) {
+      dir.SetXYZ(1., 0., 0.);
+    }
+
+    helper.Position = TVector3(meanX * dd4hep::mm, meanY * dd4hep::mm, meanZ * dd4hep::mm);
+    helper.Momentum = dir.Unit(); // 1 GeV/c seed
+  }
+
   return helper;
 }
 
@@ -765,7 +1105,7 @@ GenfitTrack::HelperInitialization GenfitTrack::ComputeInitialParameters(double B
  * - Creates a genfit::RKTrackRep using the signed particle hypothesis.
  * - Instantiates a genfit::Track with the track representation,
  *   state vector, and m_covInit.
- * - Iterates over tracker hits stored in m_edm4hepTrack.
+ * - Iterates over the hits selected for the fit (m_fitHits: all the hits, or the first arc of a looper).
  * - Converts each hit into a Genfit measurement:
  *     - edm4hep::TrackerHitPlane: planar measurement (detID = 0)
  *     - edm4hep::SenseWireHit: wire measurement   (detID = 1)
@@ -812,26 +1152,29 @@ void GenfitTrack::CreateGenFitTrack(int particle_hypotesis, int debug_lvl) {
   // there are no SenseWireHits either, so has_sectors is never actually consumed.
   const bool has_sectors = m_dcDecoder && (m_dcDecoder->fieldDescription().find("sector") != std::string::npos);
 
-  int hit_idx(0);
   int detID(-1);
 
   // The following code creates genfit::TrackPoints from EDM4hep hits and adds them to the genfit::Track.
+  // Only the hits selected for the fit (m_fitHits: all of them, or the first arc of a looper) are used;
+  // the hitId is the 1-based position of the hit in m_edm4hepTrack, so that Fit() can map it back.
   //
   // GENFIT manages ownership of the entire object chain:
   // - A genfit::Track owns its TrackPoints
   // - Deleting a Track automatically deletes all associated TrackPoints
   // - Deleting a TrackPoint also releases the underlying measurement object used to create it
-  for (auto hit : hits_for_genfit) {
+  for (const std::size_t idx : m_fitHits) {
+    auto hit = hits_for_genfit[idx];
+    const int hitId = static_cast<int>(idx) + 1;
 
     if (hit.isA<edm4hep::TrackerHitPlane>()) {
       detID = 0;
       auto planar_hit = hit.as<edm4hep::TrackerHitPlane>();
-      GenfitInterface::PlanarMeasurement measurement(planar_hit, detID, ++hit_idx, debug_lvl);
+      GenfitInterface::PlanarMeasurement measurement(planar_hit, detID, hitId, debug_lvl);
       m_genfitTrack->insertPoint(new genfit::TrackPoint(measurement.getGenFit(), m_genfitTrack.get()));
     } else if (hit.isA<edm4hep::SenseWireHit>()) {
       detID = 1;
       auto wire_hit = hit.as<edm4hep::SenseWireHit>();
-      GenfitInterface::WireMeasurement measurement(wire_hit, m_wireInfo, m_dcDecoder, has_sectors, detID, ++hit_idx,
+      GenfitInterface::WireMeasurement measurement(wire_hit, m_wireInfo, m_dcDecoder, has_sectors, detID, hitId,
                                                    debug_lvl);
       m_genfitTrack->insertPoint(new genfit::TrackPoint(measurement.getGenFit(), m_genfitTrack.get()));
     } else {
@@ -877,7 +1220,8 @@ void GenfitTrack::CreateGenFitTrack(int particle_hypotesis, int debug_lvl) {
  */
 bool GenfitTrack::Fit(edm4hep::TrackerHitPlaneCollection& fittedHits, std::string FitterType = "DAF", int debug_lvl = 0,
                       std::optional<double> Beta_init = 100., std::optional<double> Beta_final = 0.1,
-                      std::optional<int> Beta_steps = 10, std::optional<bool> FilterHits = true) {
+                      std::optional<int> Beta_steps = 10, std::optional<bool> FilterHits = true,
+                      bool NoMaterial = false) {
 
   const bool showFitDiagnostics = (debug_lvl == 1 || debug_lvl == 2);
   const bool showFitterDiagnostics = (debug_lvl == 1);
@@ -924,6 +1268,25 @@ bool GenfitTrack::Fit(edm4hep::TrackerHitPlaneCollection& fittedHits, std::strin
 
   genfitFitter->setDebugLvl(showFitterDiagnostics ? 1 : 0);
 
+  // Recovery option: turn the material effects off for this fit. The step-size oscillations of
+  // the energy-loss machinery at steep material boundaries can generate non positive-definite
+  // transport noise and kill the Kalman recursion; for a first-arc fit the material budget is
+  // tiny, so a fit without material effects is an acceptable last resort. Restored on exit.
+  struct NoMaterialGuard {
+    genfit::MaterialEffects* effects;
+    bool active;
+    explicit NoMaterialGuard(bool on) : effects(genfit::MaterialEffects::getInstance()), active(on) {
+      if (active) {
+        effects->setNoEffects(true);
+      }
+    }
+    ~NoMaterialGuard() {
+      if (active) {
+        effects->setNoEffects(false);
+      }
+    }
+  } noMaterialGuard(NoMaterial);
+
   // Process track
   genfit::Track genfitTrack = *m_genfitTrack;
   genfit::AbsTrackRep* trackRep = genfitTrack.getTrackRep(0);
@@ -955,6 +1318,8 @@ bool GenfitTrack::Fit(edm4hep::TrackerHitPlaneCollection& fittedHits, std::strin
       double dv;
       TVector3 u;
       TVector3 v;
+      uint64_t cellID;   // cellID of the digi hit measured at this point
+      int32_t hitIndex;  // index of that digi hit in the fitted track's hit list (FittedTracks)
     };
     std::vector<PendingFittedHit> pendingFittedHits;
 
@@ -1064,7 +1429,12 @@ bool GenfitTrack::Fit(edm4hep::TrackerHitPlaneCollection& fittedHits, std::strin
           double err_u = std::sqrt(var_u);
           double err_v = std::sqrt(var_v);
 
-          pendingFittedHits.push_back({pos, covXYZ, err_u, err_v, u, v});
+          // Identify the digi hit of this point: the measurement hitId is the 1-based
+          // position of the hit in m_edm4hepTrack (see CreateGenFitTrack)
+          const int hitId = point_track->getRawMeasurement(0)->getHitId();
+          const uint64_t digiCellID = m_edm4hepTrack.getTrackerHits(hitId - 1).getCellID();
+
+          pendingFittedHits.push_back({pos, covXYZ, err_u, err_v, u, v, digiCellID, hitId - 1});
         }
       }
     }
@@ -1120,16 +1490,23 @@ bool GenfitTrack::Fit(edm4hep::TrackerHitPlaneCollection& fittedHits, std::strin
           fittedState, m_vpReferencePoint,
           edm4hep::TrackState::AtIP); // N.B. trackState does not carry meaningful information for displaced tracks
     } catch (const std::exception& e) {
-      if (showFitDiagnostics) {
-        std::cerr << "Exception creating TrackState at IP: " << e.what() << std::endl;
+      // The point-0 state can fail on ill-conditioned measurement averages; the globally
+      // smoothed state (already used above) is a valid fallback instead of losing the track
+      try {
+        fittedState = genfitTrack.getFittedState();
+        trackStateIP = UpdateTrackState(fittedState, m_vpReferencePoint, edm4hep::TrackState::AtIP);
+      } catch (const std::exception&) {
+        if (showFitDiagnostics) {
+          std::cerr << "Exception creating TrackState at IP: " << e.what() << std::endl;
+        }
+
+        m_edm4hepTrack.setChi2(-1);
+        m_edm4hepTrack.setNdf(-1);
+        m_trackWithFit.setChi2(-1);
+        m_trackWithFit.setNdf(-1);
+
+        return false;
       }
-
-      m_edm4hepTrack.setChi2(-1);
-      m_edm4hepTrack.setNdf(-1);
-      m_trackWithFit.setChi2(-1);
-      m_trackWithFit.setNdf(-1);
-
-      return false;
     }
 
     // Commit fitted hits only after all operations that can make the fit fail have succeeded.
@@ -1147,8 +1524,11 @@ bool GenfitTrack::Fit(edm4hep::TrackerHitPlaneCollection& fittedHits, std::strin
       });
       hit3D.setDu(pendingHit.du);
       hit3D.setDv(pendingHit.dv);
-      hit3D.setU({static_cast<float>(pendingHit.u.X()), static_cast<float>(pendingHit.u.Y())});
-      hit3D.setV({static_cast<float>(pendingHit.v.X()), static_cast<float>(pendingHit.v.Y())});
+      // plane axes as (theta, phi) of the unit vectors, following the edm4hep TrackerHitPlane convention
+      hit3D.setU({static_cast<float>(pendingHit.u.Theta()), static_cast<float>(pendingHit.u.Phi())});
+      hit3D.setV({static_cast<float>(pendingHit.v.Theta()), static_cast<float>(pendingHit.v.Phi())});
+      hit3D.setCellID(pendingHit.cellID);
+      hit3D.setQuality(pendingHit.hitIndex);
 
       m_trackWithFit.addToTrackerHits(hit3D);
     }
@@ -1205,6 +1585,10 @@ bool GenfitTrack::Fit(edm4hep::TrackerHitPlaneCollection& fittedHits, std::strin
     return true;
 
   } else {
+    if (showFitDiagnostics) {
+      std::cerr << "Fit not converged: chi2/ndf = " << genfitTrack.getFitStatus(trackRep)->getChi2() << "/"
+                << genfitTrack.getFitStatus(trackRep)->getNdf() << std::endl;
+    }
     m_edm4hepTrack.setChi2(-1);
     m_edm4hepTrack.setNdf(-1);
 

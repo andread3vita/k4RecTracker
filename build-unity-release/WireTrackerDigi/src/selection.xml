@@ -1,0 +1,93 @@
+
+<lcgdict>
+    <selection>
+
+        <!-- components -->
+
+        <!-- datatypes -->
+        <class name="extension::v1::DriftChamberDigiLocalData" ClassVersion="1"/>
+        <class name="std::vector<extension::v1::DriftChamberDigiLocalData>"/>
+        <class name="extension::DriftChamberDigiLocalData" ClassVersion="1"/>
+        <class name="std::vector<extension::DriftChamberDigiLocalData>" ClassVersion="1"/>
+        <class name="extension::MutableDriftChamberDigiLocal" ClassVersion="1"/>
+
+        <class name="extension::DriftChamberDigiLocal" ClassVersion="1"/>
+
+        <class name="extension::DriftChamberDigiLocalCollection" ClassVersion="1"/>
+
+        <class name="extension::v1::DriftChamberDigiData" ClassVersion="1"/>
+        <class name="std::vector<extension::v1::DriftChamberDigiData>"/>
+        <class name="extension::DriftChamberDigiData" ClassVersion="1"/>
+        <class name="std::vector<extension::DriftChamberDigiData>" ClassVersion="1"/>
+        <class name="extension::MutableDriftChamberDigi" ClassVersion="1"/>
+
+        <class name="extension::DriftChamberDigi" ClassVersion="1"/>
+
+        <class name="extension::DriftChamberDigiCollection" ClassVersion="1"/>
+
+        <class name="extension::v1::MCRecoDriftChamberDigiAssociationData" ClassVersion="1"/>
+        <class name="std::vector<extension::v1::MCRecoDriftChamberDigiAssociationData>"/>
+        <class name="extension::MCRecoDriftChamberDigiAssociationData" ClassVersion="1"/>
+        <class name="std::vector<extension::MCRecoDriftChamberDigiAssociationData>" ClassVersion="1"/>
+        <class name="extension::MutableMCRecoDriftChamberDigiAssociation" ClassVersion="1"/>
+
+        <class name="extension::MCRecoDriftChamberDigiAssociation" ClassVersion="1"/>
+
+        <class name="extension::MCRecoDriftChamberDigiAssociationCollection" ClassVersion="1"/>
+
+        <class name="extension::v1::DriftChamberDigiV2Data" ClassVersion="1"/>
+        <class name="std::vector<extension::v1::DriftChamberDigiV2Data>"/>
+        <class name="extension::DriftChamberDigiV2Data" ClassVersion="1"/>
+        <class name="std::vector<extension::DriftChamberDigiV2Data>" ClassVersion="1"/>
+        <class name="extension::MutableDriftChamberDigiV2" ClassVersion="1"/>
+
+        <class name="extension::DriftChamberDigiV2" ClassVersion="1"/>
+
+        <class name="extension::DriftChamberDigiV2Collection" ClassVersion="1"/>
+
+        <class name="extension::v1::MCRecoDriftChamberDigiV2AssociationData" ClassVersion="1"/>
+        <class name="std::vector<extension::v1::MCRecoDriftChamberDigiV2AssociationData>"/>
+        <class name="extension::MCRecoDriftChamberDigiV2AssociationData" ClassVersion="1"/>
+        <class name="std::vector<extension::MCRecoDriftChamberDigiV2AssociationData>" ClassVersion="1"/>
+        <class name="extension::MutableMCRecoDriftChamberDigiV2Association" ClassVersion="1"/>
+
+        <class name="extension::MCRecoDriftChamberDigiV2Association" ClassVersion="1"/>
+
+        <class name="extension::MCRecoDriftChamberDigiV2AssociationCollection" ClassVersion="1"/>
+
+        <class name="extension::v1::TrackData" ClassVersion="1"/>
+        <class name="std::vector<extension::v1::TrackData>"/>
+        <class name="extension::TrackData" ClassVersion="1"/>
+        <class name="std::vector<extension::TrackData>" ClassVersion="1"/>
+        <class name="extension::MutableTrack" ClassVersion="1"/>
+
+        <class name="extension::Track" ClassVersion="1"/>
+
+        <class name="extension::TrackCollection" ClassVersion="1"/>
+
+        <class name="extension::v1::SenseWireHitData" ClassVersion="1"/>
+        <class name="std::vector<extension::v1::SenseWireHitData>"/>
+        <class name="extension::SenseWireHitData" ClassVersion="1"/>
+        <class name="std::vector<extension::SenseWireHitData>" ClassVersion="1"/>
+        <class name="extension::MutableSenseWireHit" ClassVersion="1"/>
+
+        <class name="extension::SenseWireHit" ClassVersion="1"/>
+
+        <class name="extension::SenseWireHitCollection" ClassVersion="1"/>
+
+        <class name="extension::v1::SenseWireHitSimTrackerHitLinkData" ClassVersion="1"/>
+        <class name="std::vector<extension::v1::SenseWireHitSimTrackerHitLinkData>"/>
+        <class name="extension::SenseWireHitSimTrackerHitLinkData" ClassVersion="1"/>
+        <class name="std::vector<extension::SenseWireHitSimTrackerHitLinkData>" ClassVersion="1"/>
+        <class name="extension::MutableSenseWireHitSimTrackerHitLink" ClassVersion="1"/>
+
+        <class name="extension::SenseWireHitSimTrackerHitLink" ClassVersion="1"/>
+
+        <class name="extension::SenseWireHitSimTrackerHitLinkCollection" ClassVersion="1"/>
+
+
+
+    </selection>
+
+
+</lcgdict>
