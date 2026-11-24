@@ -754,6 +754,15 @@ private:
       return std::nullopt;
     }
 
+    // Acceptance criterion shared by all fit modes: a converged fit with a non-positive chi2
+    // or ndf carries no fit-quality information and is not reported (it falls through to the
+    // fallback attempts of the chain instead).
+    const auto& fitted_track = result.interface->GetTrack_edm4hep();
+    if (fitted_track.getChi2() <= 0 || fitted_track.getNdf() <= 0) {
+      debug() << "Track fit produced invalid chi2/ndf for track " << num_tracks_event << endmsg;
+      return std::nullopt;
+    }
+
     return result;
   }
 
@@ -880,9 +889,6 @@ private:
 
       float chi2 = edm4hep_track.getChi2();
       int ndf = edm4hep_track.getNdf();
-
-      if (chi2 <= 0 || ndf <= 0)
-        continue;
 
       double chi2_ndf = chi2 / ndf;
 
