@@ -1,4 +1,0 @@
-#!/usr/bin/env bash
-# Auto-generated script to set the environment before the execution of a command
-. /afs/cern.ch/work/a/adevita/public/workDir/k4RecTracker/build-unity-o2/k4rectrackerenv.sh
-exec "$@"
