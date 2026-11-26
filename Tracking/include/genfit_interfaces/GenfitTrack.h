@@ -20,6 +20,7 @@
 #ifndef GENFIT_TRACK_H
 #define GENFIT_TRACK_H
 
+#include <array>
 #include <memory>
 #include <ranges>
 #include <stdexcept>
@@ -93,12 +94,12 @@ public:
 
   ~GenfitTrack();
 
-  void InitializeTrack(double RadiusForDisplacedTracking, bool UseFirstHitAsReference, bool ForceFirstArc,
-                       int InitializationType, std::optional<int> TrackStateLocation,
-                       std::optional<TVector3> Init_position, std::optional<TVector3> Init_momentum,
-                       double LooperPTThreshold, double MomentumSeedOverride, std::optional<double> sigma_d0,
-                       std::optional<double> sigma_phi, std::optional<double> sigma_omega,
-                       std::optional<double> sigma_z0, std::optional<double> sigma_tanLambda);
+  void InitializeTrack(double RadiusForDisplacedTracking, bool UseFirstHitAsReference, int InitializationType,
+                       std::optional<int> TrackStateLocation, std::optional<TVector3> Init_position,
+                       std::optional<TVector3> Init_momentum, double LooperPTThreshold, double MomentumSeedOverride,
+                       std::optional<double> sigma_d0, std::optional<double> sigma_phi,
+                       std::optional<double> sigma_omega, std::optional<double> sigma_z0,
+                       std::optional<double> sigma_tanLambda);
 
   void CreateGenFitTrack(int particle_hypotesis, int debug_lvl);
   bool RestrictToSiliconHits();
@@ -114,6 +115,11 @@ public:
 
   edm4hep::MutableTrack& GetTrack_edm4hep() { return m_edm4hepTrack; }
   edm4hep::MutableTrack& GetTrackWithFit_edm4hep() { return m_trackWithFit; }
+
+  // std::chrono phase bookkeeping of Fit(): wall time spent in the fitter core
+  // (DAF/Kalman processing) and in the fitted-state/TrackState extraction.
+  double FitCoreSeconds() const { return m_fitCoreSeconds; }
+  double StateExtractionSeconds() const { return m_stateExtractionSeconds; }
 
   int GetCharge() { return m_chargeHypothesis; }
 
@@ -165,7 +171,15 @@ private:
 
   void CheckInitialization();
   void OrderHits(const edm4hep::Track& track, bool skipTrackOrdering);
-  void SelectFirstArcHits(bool force, double pTThresholdGeV, double RadiusForDisplacedTracking);
+  void SelectFirstArcHits(double pTThresholdGeV);
+
+  // First arc for identified loopers from phi_local only (works at theta ~ 90 deg where the z
+  // ordering degenerates). phi = angle around the fitted circle center, radial = distance from
+  // that center (turns of a spiraling track differ in radius), anchor = the trajectory start
+  // (hit closest to the reference point). The returned indices are in trajectory order,
+  // oriented by the radial decrease of an energy-losing track.
+  std::vector<std::size_t> FirstArcPhiChain(const std::vector<double>& phi, const std::vector<double>& radial,
+                                            std::size_t anchor) const;
 
   TMatrixDSym ComputeInitialCovarianceMatrix(double Bz, int Charge, std::optional<double> sigma_d0,
                                              std::optional<double> sigma_phi, std::optional<double> sigma_omega,
@@ -208,6 +222,10 @@ private:
   };
   std::vector<PendingFittedHit> m_pendingFittedHits;
 
+  // std::chrono phase bookkeeping of Fit() [s], see FitCoreSeconds/StateExtractionSeconds.
+  double m_fitCoreSeconds = 0.;
+  double m_stateExtractionSeconds = 0.;
+
   TVector3 m_vpReferencePoint{0., 0., 0.};
   TVector3 m_firstHitReferencePoint{0., 0., 0.};
   TVector3 m_lastHitReferencePoint{0., 0., 0.};
@@ -233,17 +251,12 @@ private:
  *    created with a clone of the relevant master and owns that clone.
  */
 struct GenfitTrack::TrackFitCache {
-  // Products of the first-arc analysis; independent of the force/threshold gates.
+  // Products of the looper analysis (xy circle fit over all hits); independent of the
+  // threshold gate.
   struct Geometry {
     bool valid = false;
-    double z_vertex = 0.;
     double x0 = 0., y0 = 0., rho = 0.;
     double pT_est = 0.;
-    double stepMin = 0.;
-    std::size_t wrap = 0;
-    std::vector<std::size_t> zOrder;
-    std::vector<double> phi_val;
-    std::vector<std::size_t> order;
   } geometry;
 
   // Seed parameters, keyed by the inputs that determine them.

@@ -18,6 +18,7 @@
  */
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <numeric>
 
@@ -164,7 +165,7 @@ void GenfitTrack::OrderHits(const edm4hep::Track& track, bool skipTrackOrdering)
  * Initialization workflow:
  *
  * 1. Looper handling:
- *    - The tracker hits are preprocessed with `SelectFirstArcHits(force, LooperPTThreshold)`.
+ *    - The tracker hits are preprocessed with `SelectFirstArcHits(LooperPTThreshold)`.
  *    - For looping tracks only the hits of the first arc of the loop (the hits before the first
  *      peak of the sawtooth in the (z, phi_local) plane) are used to seed and fit the track.
  *
@@ -218,7 +219,6 @@ void GenfitTrack::OrderHits(const edm4hep::Track& track, bool skipTrackOrdering)
  * @param RadiusForDisplacedTracking If > 0, enables displaced tracking logic:
  *        tracks with first hit outside this radius may use a different reference point.
  * @param UseFirstHitAsReference If true, the first hit is always used as reference point.
- * @param ForceFirstArc If true, force the first-arc hit selection for looping tracks, ignoring the pT threshold.
  * @param InitializationType Strategy selector:
  *        0 = default (first two hits),
  *        1 = refined (computed parameters),
@@ -253,21 +253,18 @@ void GenfitTrack::OrderHits(const edm4hep::Track& track, bool skipTrackOrdering)
  * covariance is directly taken from the input TrackState and transformed
  * to Cartesian coordinates.
  */
-void GenfitTrack::InitializeTrack(double RadiusForDisplacedTracking, bool UseFirstHitAsReference, bool ForceFirstArc,
+void GenfitTrack::InitializeTrack(double RadiusForDisplacedTracking, bool UseFirstHitAsReference,
                                   int InitializationType, std::optional<int> TrackStateLocation,
                                   std::optional<TVector3> Init_position, std::optional<TVector3> Init_momentum,
-                                  double LooperPTThreshold, double MomentumSeedOverride,
-                                  std::optional<double> sigma_d0, std::optional<double> sigma_phi,
-                                  std::optional<double> omega_factor, std::optional<double> z0_factor,
-                                  std::optional<double> sigma_tanLambda) {
+                                  double LooperPTThreshold, double MomentumSeedOverride, std::optional<double> sigma_d0,
+                                  std::optional<double> sigma_phi, std::optional<double> omega_factor,
+                                  std::optional<double> z0_factor, std::optional<double> sigma_tanLambda) {
 
-  // -------------------------------------------------
-  // Looper handling: select the hits of the first arc
-  // -------------------------------------------------
-  // Looping tracks are seeded and fitted with the hits of the first arc only. ForceFirstArc
-  // applies the selection whenever the sawtooth of phi_local shows a wrap, without the pT
-  // gate on LooperPTThreshold (used for the second fit attempt).
-  SelectFirstArcHits(ForceFirstArc, LooperPTThreshold, RadiusForDisplacedTracking);
+
+  // Looping tracks are seeded and fitted with the hits of the first arc only: the looper
+  // identification (pT estimate of the xy circle fit vs LooperPTThreshold) is made here, once,
+  // and the resulting selection feeds every fit attempt of the track.
+  SelectFirstArcHits(LooperPTThreshold);
 
   // =========================
   // Initialization strategies
@@ -429,38 +426,28 @@ void GenfitTrack::InitializeTrack(double RadiusForDisplacedTracking, bool UseFir
  * reconstructed track contains several loops of the same particle: the loops cannot be
  * fitted with a single helix, only the hits of the first arc can.
  *
- * The first arc is identified geometrically in the (z, phi_local) plane:
+ * The first arc is the longest monotone-phi chain rooted at the trajectory start
+ * (FirstArcPhiChain):
  *   1. a circle is fitted to the xy projection of all the hits (FastCircleFit);
- *   2. the start of the trajectory is identified from the hit closest to the IP: if it lies
- *      inside the vertex region the particle comes from the IP and the start is the hit with
- *      the smallest |z| (z_vertex = 0); if it lies outside, the particle is produced away from
- *      the IP (e.g. in the drift chamber) and the start is the z end with the larger local
- *      radius of curvature (the outermost arc: the particle is born with its maximum momentum
- *      and spirals inward), z_vertex being its z. The hits are ordered by their distance from
- *      the vertex along z (|z - z_vertex|), starting from the start of the trajectory, which
- *      defines phi_local = 0; tracks going to +z and tracks going to -z are treated alike;
- *   3. the hit sequence along the trajectory is selected geometrically: phi must progress
- *      continuously between consecutive hits, so both the natural hit order (path order when
- *      the input is ordered) and the order by distance from the vertex along z are tried, and
- *      the more continuous one is used (if neither is continuous the arc is not identifiable
- *      and all the hits are kept);
- *   4. phi_local is the angle around the center of the fitted circle, unwrapped along the
- *      sequence: a looping track produces a sawtooth (phi_local wraps by 2*pi at the end of
- *      every loop) and the first arc is the first full turn, i.e. the hits before the first
- *      peak of the sawtooth.
+ *   2. the anchor, i.e. the start of the trajectory, is the hit closest to the reference
+ *      point (the IP for prompt tracks);
+ *   3. phi_local, the angle around the center of the fitted circle, and the radius from that
+ *      center order the hits along one turn (the turns of a spiraling track differ in radius
+ *      by the energy loss per turn); the first arc is the first 2*pi of the sequence rooted
+ *      at the anchor.
+ * The construction does not use z, so it works also at theta ~ 90 deg, where the z ordering
+ * degenerates.
  *
  * The pT estimated from the fitted circle (pT = 0.3 * Bz * rho) selects which tracks can
- * loop at all: the first-arc hits are used only for pT < pTThresholdGeV, or unconditionally
- * when force is true. Tracks without a wrap of phi_local keep all their hits.
+ * loop at all: the first-arc hits are used only for pT < pTThresholdGeV. If the chain cannot
+ * be identified (fewer than 3 hits) all the hits are kept.
  *
  * m_edm4hepTrack keeps all its hits: only m_fitHits (the hits used for seeding and fitting)
  * is restricted to the first arc.
  *
- * @param force          If true, apply the first-arc selection whenever a wrap of phi_local
- *                       is found, ignoring the pT threshold.
  * @param pTThresholdGeV Transverse momentum threshold for the looper treatment [GeV/c].
  */
-void GenfitTrack::SelectFirstArcHits(bool force, double pTThresholdGeV, double RadiusForDisplacedTracking) {
+void GenfitTrack::SelectFirstArcHits(double pTThresholdGeV) {
 
   auto hits = m_edm4hepTrack.getTrackerHits();
   const std::size_t N = hits.size();
@@ -476,185 +463,162 @@ void GenfitTrack::SelectFirstArcHits(bool force, double pTThresholdGeV, double R
   // Hit positions [mm]
   std::vector<Point2D_xy> points_xy;
   points_xy.reserve(N);
-  std::vector<double> z_val;
-  z_val.reserve(N);
 
   for (const auto& hit : hits) {
     const auto pos = hit.getPosition();
     points_xy.emplace_back(pos.x, pos.y);
-    z_val.push_back(pos.z);
   }
 
-  // The products of the first-arc analysis depend only on the hit geometry: they are
-  // computed once per track and re-used across fit attempts and particle hypotheses through
-  // the per-track cache (nothing is shared between tracks or events).
+  // The circle fit depends only on the hit geometry: it is computed once per track and
+  // re-used across fit attempts and particle hypotheses through the per-track cache
+  // (nothing is shared between tracks or events).
   TrackFitCache::Geometry localGeometry;
   TrackFitCache::Geometry& geo = m_cache ? m_cache->geometry : localGeometry;
 
   if (!geo.valid) {
 
-  // (1) circle fit in the xy plane
-  FastCircleFit circle(points_xy);
+    // Circle fit in the xy plane
+    FastCircleFit circle(points_xy);
+    geo.x0 = circle.x0();
+    geo.y0 = circle.y0();
+    geo.rho = circle.rho();
 
-  // (2) start of the trajectory: the hit closest to the IP decides the particle class. If it
-  //     lies inside the vertex region (RadiusForDisplacedTracking), the particle comes from the
-  //     IP: z_vertex = 0 and the start is the hit closest to it (smallest |z|). If it lies
-  //     outside, the particle is produced away from the IP (e.g. in the drift chamber): it is
-  //     born with its maximum momentum and spirals inward, so the start of the trajectory is
-  //     the z end with the larger local radius of curvature (the outermost arc, i.e. the hit
-  //     closest to its own vertex); z_vertex is its z. The hits are then ordered by their
-  //     distance from the vertex along z (|z - z_vertex|), starting from the start of the
-  //     trajectory, which defines phi_local = 0. Tracks going to +z and tracks going to -z
-  //     are treated in the same way.
-  double z_vertex = 0.;
-  if (RadiusForDisplacedTracking > 0.) {
-    std::size_t closest = 0;
-    double dMin = std::numeric_limits<double>::max();
-    for (std::size_t i = 0; i < N; ++i) {
-      const double d = std::hypot(points_xy[i].x, points_xy[i].y, z_val[i]);
-      if (d < dMin) {
-        dMin = d;
-        closest = i;
-      }
-    }
-    const auto p = hits[closest].getPosition();
-    const TVector3 closestPos(p.x * dd4hep::mm, p.y * dd4hep::mm, p.z * dd4hep::mm);
-    if (closestPos.Mag() > RadiusForDisplacedTracking) {
-      std::vector<std::size_t> zSorted(N);
-      std::iota(zSorted.begin(), zSorted.end(), std::size_t{0});
-      std::ranges::stable_sort(zSorted, [&z_val](std::size_t i, std::size_t j) { return z_val[i] < z_val[j]; });
-
-      // Local radius of curvature at the two z ends, from the first/last hits along z
-      const std::size_t K = std::min<std::size_t>(5, N / 2);
-      double rhoLow = 0.;
-      double rhoHigh = 0.;
-      if (K >= 3) {
-        std::vector<Point2D_xy> ptsLow;
-        std::vector<Point2D_xy> ptsHigh;
-        ptsLow.reserve(K);
-        ptsHigh.reserve(K);
-        for (std::size_t k = 0; k < K; ++k) {
-          ptsLow.emplace_back(points_xy[zSorted[k]]);
-          ptsHigh.emplace_back(points_xy[zSorted[N - 1 - k]]);
-        }
-        rhoLow = FastCircleFit(ptsLow).rho();
-        rhoHigh = FastCircleFit(ptsHigh).rho();
-      }
-
-      z_vertex = (rhoLow >= rhoHigh) ? z_val[zSorted[0]] : z_val[zSorted[N - 1]];
-    }
+    // Looper gate: pT [GeV/c] = 0.3 * Bz [T] * rho [m], with rho from the fitted circle
+    const auto refPos = hits[0].getPosition();
+    const double Bz = m_fieldMap->getBz(TVector3(refPos.x * dd4hep::mm, refPos.y * dd4hep::mm, refPos.z * dd4hep::mm)) /
+                      (dd4hep::tesla / dd4hep::kilogauss); // From kilogauss to Tesla
+    geo.pT_est = std::abs(0.3 * Bz * geo.rho) / 1000.0;    // 1000 is used to convert from m to mm
+    geo.valid = true;
   }
 
-  std::vector<std::size_t> zOrder(N);
-  std::iota(zOrder.begin(), zOrder.end(), std::size_t{0});
-  std::ranges::stable_sort(zOrder, [&z_val, z_vertex](std::size_t i, std::size_t j) {
-    return std::abs(z_val[i] - z_vertex) < std::abs(z_val[j] - z_vertex);
-  });
-
-  // Looper gate: pT [GeV/c] = 0.3 * Bz [T] * rho [m], with rho from the fitted circle
-  const auto refPos = hits[zOrder[0]].getPosition();
-  const double Bz =
-      m_fieldMap->getBz(TVector3(refPos.x * dd4hep::mm, refPos.y * dd4hep::mm, refPos.z * dd4hep::mm)) /
-      (dd4hep::tesla / dd4hep::kilogauss); // From kilogauss to Tesla
-  const double pT_est = std::abs(0.3 * Bz * circle.rho()) / 1000.0; // 1000 is used to convert from m to mm
-
-  // (3) phi around the center of the fitted circle for every hit
-  constexpr double kTwoPi = 6.28318530717958647692;
-  const double x0 = circle.x0();
-  const double y0 = circle.y0();
-
-  std::vector<double> phi_val(N);
-  for (std::size_t i = 0; i < N; ++i) {
-    phi_val[i] = std::atan2(points_xy[i].y - y0, points_xy[i].x - x0);
-  }
-
-  // (4) the hit sequence along the trajectory is the one where phi progresses continuously
-  //     (geometry validates the order): the natural hit order (path order when the input is
-  //     ordered) and the order by distance from the vertex along z are both tried, and the one
-  //     with the smaller mean |wrapToPi(dphi)| between consecutive hits is used. If neither is
-  //     continuous the first arc cannot be identified and all the hits are kept.
-  auto meanStep = [&phi_val](const std::vector<std::size_t>& seq) {
-    double sum = 0.;
-    for (std::size_t k = 1; k < seq.size(); ++k) {
-      double dphi = phi_val[seq[k]] - phi_val[seq[k - 1]];
-      dphi -= kTwoPi * std::round(dphi / kTwoPi); // wrap to (-pi, pi]
-      sum += std::abs(dphi);
-    }
-    return sum / (seq.size() - 1);
-  };
-
-  std::vector<std::size_t> natural(N);
-  std::iota(natural.begin(), natural.end(), std::size_t{0});
-  const double stepNatural = meanStep(natural);
-  const double stepZ = meanStep(zOrder);
-  const std::vector<std::size_t>& order = (stepNatural <= stepZ) ? natural : zOrder;
-
-  // phi_local along the sequence, oriented along the trajectory and zeroed at its start.
-  // The first arc is the first full turn: it ends at the first peak of the sawtooth, i.e. when
-  // the unwrapped angle has advanced by 2*pi (or when phi_local wraps and restarts near 0).
-  double psi = 0.;
-  std::size_t wrap = N;
-  double peak = 0.;
-  for (std::size_t k = 1; k < N; ++k) {
-    double dphi = phi_val[order[k]] - phi_val[order[k - 1]];
-    dphi -= kTwoPi * std::round(dphi / kTwoPi); // wrap to (-pi, pi]
-    psi += dphi;
-    if (std::abs(psi) >= kTwoPi) {
-      wrap = k;
-      break;
-    }
-    const double phiLocal = std::abs(psi) - kTwoPi * std::floor(std::abs(psi) / kTwoPi);
-    if (k > 1 && peak - phiLocal > 3.14159265358979323846 && phiLocal < 1.57079632679489661923) {
-      wrap = k; // sawtooth restart near 0 before a full turn is accumulated
-      break;
-    }
-    if (phiLocal > peak) {
-      peak = phiLocal;
-    }
-  }
-
-  geo.z_vertex = z_vertex;
-  geo.x0 = x0;
-  geo.y0 = y0;
-  geo.rho = circle.rho();
-  geo.pT_est = pT_est;
-  geo.stepMin = std::min(stepNatural, stepZ);
-  geo.wrap = wrap;
-  geo.order.assign(order.begin(), order.end());
-  geo.valid = true;
-  }
-
-  if (!force && geo.pT_est >= pTThresholdGeV) {
+  if (geo.pT_est >= pTThresholdGeV) {
     return;
   }
 
-  if (geo.stepMin > 0.5) {
-    return; // no geometrically ordered sequence: the sawtooth would be meaningless
+  // Anchor: the start of the trajectory, i.e. the hit closest to the reference point (the IP
+  // for prompt tracks). phi_local and radius around the fitted circle center: the turns of a
+  // spiraling track differ in radius by the energy loss per turn, so the radius separates the 
+  // turns that z cannot.
+  std::size_t anchor = 0;
+  double bestDist2 = std::numeric_limits<double>::max();
+  for (std::size_t i = 0; i < N; ++i) {
+    const auto p = hits[i].getPosition();
+    const double dx = p.x * dd4hep::mm - m_vpReferencePoint.X();
+    const double dy = p.y * dd4hep::mm - m_vpReferencePoint.Y();
+    const double dz = p.z * dd4hep::mm - m_vpReferencePoint.Z();
+    const double d2 = dx * dx + dy * dy + dz * dz;
+    if (d2 < bestDist2) {
+      bestDist2 = d2;
+      anchor = i;
+    }
   }
 
-  // The validated sequence is also the order used to seed and fit the track: GENFIT propagates
-  // from hit to hit along the point order, so a scrambled input order breaks the fit even when
-  // the arc identification is correct. All its hits are kept unless the first arc is cut below.
-  m_fitHits.assign(geo.order.begin(), geo.order.end());
-  const auto seqFirst = hits[m_fitHits.front()].getPosition();
-  const auto seqLast = hits[m_fitHits.back()].getPosition();
-  m_firstHitReferencePoint = TVector3(seqFirst.x * dd4hep::mm, seqFirst.y * dd4hep::mm, seqFirst.z * dd4hep::mm);
-  m_lastHitReferencePoint = TVector3(seqLast.x * dd4hep::mm, seqLast.y * dd4hep::mm, seqLast.z * dd4hep::mm);
-
-  if (geo.wrap == N) {
-    return; // no wrap of phi_local: single arc, fit all the hits
-  }
-  if (geo.wrap < 3) {
-    return; // fewer than 3 hits before the wrap: the first arc cannot be fitted on its own
+  std::vector<double> phi(N);
+  std::vector<double> radial(N);
+  for (std::size_t i = 0; i < N; ++i) {
+    phi[i] = std::atan2(points_xy[i].y - geo.y0, points_xy[i].x - geo.x0);
+    radial[i] = std::hypot(points_xy[i].x - geo.x0, points_xy[i].y - geo.y0);
   }
 
-  // (5) keep the hits before the first peak
-  m_fitHits.assign(geo.order.begin(), geo.order.begin() + geo.wrap);
+  auto arc = FirstArcPhiChain(phi, radial, anchor);
+  if (arc.size() < 3) {
+    return; // the arc is not identifiable: keep all the hits
+  }
 
-  const auto firstPos = hits[m_fitHits.front()].getPosition();
-  const auto lastPos = hits[m_fitHits.back()].getPosition();
-  m_firstHitReferencePoint = TVector3(firstPos.x * dd4hep::mm, firstPos.y * dd4hep::mm, firstPos.z * dd4hep::mm);
-  m_lastHitReferencePoint = TVector3(lastPos.x * dd4hep::mm, lastPos.y * dd4hep::mm, lastPos.z * dd4hep::mm);
+  m_fitHits = std::move(arc);
+  const auto arcFirst = hits[m_fitHits.front()].getPosition();
+  const auto arcLast = hits[m_fitHits.back()].getPosition();
+  m_firstHitReferencePoint = TVector3(arcFirst.x * dd4hep::mm, arcFirst.y * dd4hep::mm, arcFirst.z * dd4hep::mm);
+  m_lastHitReferencePoint = TVector3(arcLast.x * dd4hep::mm, arcLast.y * dd4hep::mm, arcLast.z * dd4hep::mm);
+}
+
+namespace {
+
+  // Mean radius of the last third minus the first third of a sequence: negative when the
+  // sequence follows the direction of travel of a track that spirals inward (energy loss).
+  double ArcRadialTrend(const std::vector<std::size_t>& seq, const std::vector<double>& radial) {
+    const std::size_t n = seq.size();
+    const std::size_t third = std::max<std::size_t>(1, n / 3);
+    double first = 0., last = 0.;
+    for (std::size_t i = 0; i < third; ++i) {
+      first += radial[seq[i]];
+      last += radial[seq[n - 1 - i]];
+    }
+    return (last - first) / third;
+  }
+
+} // namespace
+
+/**
+ * @brief First arc as the longest monotone-phi chain from the anchor hit.
+ *
+ * phi_local is measured from the anchor along each direction of travel (the wrap of the
+ * circle is absorbed by the 2*pi-periodic coordinate) and the longest chain with increasing
+ * phi_local, bounded steps and radially continuous neighbours is selected (a longest-
+ * increasing-subsequence with a step constraint). Hits that cannot be chained are left out,
+ * so stray hits cannot derail the sequence the way they can a greedy nearest-neighbour walk.
+ */
+std::vector<std::size_t> GenfitTrack::FirstArcPhiChain(const std::vector<double>& phi,
+                                                       const std::vector<double>& radial, std::size_t anchor) const {
+  constexpr double kTwoPi = 6.28318530717958647692;
+  constexpr double kMaxStep = 0.5; // [rad]
+  constexpr double kRTol = 5.0;    // [mm] radial continuity within one turn
+
+  const std::size_t N = phi.size();
+  std::vector<std::size_t> best;
+  double bestTrend = 0.;
+
+  for (double dir : {1., -1.}) {
+    std::vector<double> u(N);
+    for (std::size_t i = 0; i < N; ++i) {
+      double d = (phi[i] - phi[anchor]) * dir;
+      d -= kTwoPi * std::floor(d / kTwoPi);
+      u[i] = d;
+    }
+    std::vector<std::size_t> order(N);
+    std::iota(order.begin(), order.end(), std::size_t{0});
+    std::ranges::stable_sort(order, [&u](std::size_t i, std::size_t j) { return u[i] < u[j]; });
+
+    // longest chain with increasing u, bounded step and radial continuity, rooted at the anchor
+    std::vector<int> length(N, 0);
+    std::vector<std::size_t> prev(N, N);
+    length[anchor] = 1;
+    for (std::size_t a = 0; a < N; ++a) {
+      const std::size_t i = order[a];
+      if (length[i] == 0)
+        continue;
+      for (std::size_t b = a + 1; b < N; ++b) {
+        const std::size_t j = order[b];
+        const double step = u[j] - u[i];
+        if (step > kMaxStep)
+          break; // u is sorted: no later hit can be closer
+        if (std::abs(radial[j] - radial[i]) > kRTol)
+          continue;
+        if (length[j] < length[i] + 1) {
+          length[j] = length[i] + 1;
+          prev[j] = i;
+        }
+      }
+    }
+
+    std::size_t end = anchor;
+    for (std::size_t i = 0; i < N; ++i) {
+      if (length[i] > length[end])
+        end = i;
+    }
+    std::vector<std::size_t> seq;
+    for (std::size_t i = end; i != N; i = prev[i]) {
+      seq.push_back(i);
+    }
+    std::ranges::reverse(seq);
+
+    const double trend = ArcRadialTrend(seq, radial);
+    if (best.empty() || trend < bestTrend) {
+      best = std::move(seq);
+      bestTrend = trend;
+    }
+  }
+  return best;
 }
 
 /**
@@ -948,7 +912,7 @@ TMatrixDSym GenfitTrack::ComputeInitialCovarianceMatrix(double Bz, int Charge, s
  * The method estimates a first approximation of the particle trajectory
  * starting from a collection of tracker hits. It reconstructs the transverse
  * motion via a circular fit in the XY plane and the longitudinal motion
- * via a linear fit in the R–Z plane.
+ * via a linear fit in the (z, phi_local) plane.
  *
  * The procedure is as follows:
  *
@@ -967,16 +931,17 @@ TMatrixDSym GenfitTrack::ComputeInitialCovarianceMatrix(double Bz, int Charge, s
  *       from the tangent direction.
  *
  * - Reconstructs the longitudinal momentum (pZ):
- *     - Converts each hit into (R, z), where R is the radial distance
- *       from the reference point.
- *     - Performs a linear regression:
- *           z = a * R + b
- *     - Computes:
- *           pZ = a * pT
- *     - Handles degenerate cases (small denominator) by setting pZ = 0.
+ *     - Computes phi_local, the unwrapped angle around the fitted circle
+ *       center along the hit order.
+ *     - Performs a linear regression in the (z, phi_local) plane:
+ *           z = b + a * phi_local
+ *       (z is linear in phi_local for a helix).
+ *     - Computes pZ from the exact helix relation
+ *           dz/dphi = rho * pz / p.
+ *     - Handles degenerate cases by setting pZ = 0.
  *
  * - Determines the z-coordinate at the PCA:
- *     - Uses the intercept b from the linear fit.
+ *     - Evaluates the fitted z(phi_local) line at the PCA angle.
  *
  * - Estimates the particle charge:
  *     - Computes the curvature direction from the circle center.
@@ -1027,11 +992,11 @@ GenfitTrack::HelperInitialization GenfitTrack::ComputeInitialParametersUncached(
     throw std::runtime_error("Not enough hits to compute initial parameters");
   }
 
-  // XY + RZ projection
+  // XY projection + z values (the z fit is done in the (z, phi_local) plane below)
   std::vector<Point2D_xy> points_xy;
+  std::vector<double> z_val;
   points_xy.reserve(N);
-
-  double sumR = 0.0, sumZ = 0.0, sumRZ = 0.0, sumR2 = 0.0;
+  z_val.reserve(N);
 
   for (const std::size_t idx : m_fitHits) {
 
@@ -1039,17 +1004,7 @@ GenfitTrack::HelperInitialization GenfitTrack::ComputeInitialParametersUncached(
 
     // XY for circle fit
     points_xy.emplace_back(p.x, p.y);
-
-    // RZ for linear fit
-    const double dx = p.x - referencePoint_xy.x;
-    const double dy = p.y - referencePoint_xy.y;
-    const double R = std::sqrt(dx * dx + dy * dy);
-    const double Z = p.z;
-
-    sumR += R;
-    sumZ += Z;
-    sumRZ += R * Z;
-    sumR2 += R * R;
+    z_val.push_back(p.z);
   }
 
   // Circle fit (XY)
@@ -1062,23 +1017,55 @@ GenfitTrack::HelperInitialization GenfitTrack::ComputeInitialParametersUncached(
   double init_pT = std::abs(rho * 0.3 * Bz) / 1000.0; // 1000 is used to convert from m to mm
   TVector3 init_mom(tangent_xy.x * init_pT, tangent_xy.y * init_pT, 0.0);
 
-  //  Z fit (linear R-Z)
-  double denominator = N * sumR2 - sumR * sumR;
-
-  double a = 0.0;
-  double b = 0.0;
-
-  if (std::abs(denominator) > 1e-12 * (N * sumR2)) {
-    a = (N * sumRZ - sumR * sumZ) / denominator;
-    b = (sumZ - a * sumR) / N;
-  } else {
-    a = 0.0;
-    b = sumZ / N;
+  // Z fit in the (z, phi_local): for a helix z is linear in the
+  // unwrapped angle around the fitted circle center, z = z0 + (dz/dphi) * phi_local, so the
+  // slope and intercept give z at the PCA and the longitudinal momentum.
+  constexpr double kTwoPi = 6.28318530717958647692;
+  const double x0c = circle.x0();
+  const double y0c = circle.y0();
+  std::vector<double> phi_val(N);
+  for (std::size_t i = 0; i < N; ++i) {
+    phi_val[i] = std::atan2(points_xy[i].y - y0c, points_xy[i].x - x0c);
+    if (i > 0) {
+      double dphi = phi_val[i] - phi_val[i - 1];
+      dphi -= kTwoPi * std::round(dphi / kTwoPi); // wrap to (-pi, pi]
+      phi_val[i] = phi_val[i - 1] + dphi;
+    }
   }
 
-  double z_PCA = b;
+  double sumP = 0., sumZ = 0., sumPP = 0., sumPZ = 0.;
+  for (std::size_t i = 0; i < N; ++i) {
+    sumP += phi_val[i];
+    sumZ += z_val[i];
+    sumPP += phi_val[i] * phi_val[i];
+    sumPZ += phi_val[i] * z_val[i];
+  }
 
-  init_mom.SetZ(a * init_pT);
+  double slope = 0.0; // dz/dphi_local [mm/rad]
+  double intercept = sumZ / N;
+  const double denominator = N * sumPP - sumP * sumP;
+  if (std::abs(denominator) > 1e-12 * (N * sumPP)) {
+    slope = (N * sumPZ - sumP * sumZ) / denominator;
+    intercept = (sumZ - slope * sumP) / N;
+  }
+
+  // z at the PCA: evaluate the fitted line at the PCA angle, mapped into the unwrapped frame
+  double phi_pca = std::atan2(closestPoint.y - y0c, closestPoint.x - x0c);
+  const double phi_mid = 0.5 * (phi_val.front() + phi_val.back());
+  phi_pca += kTwoPi * std::round((phi_mid - phi_pca) / kTwoPi);
+  double z_PCA = intercept + slope * phi_pca;
+
+  // Exact helix relation, with the sense of travel along the hit order:
+  // dz/dphi = sense * rho * pz / p  ->  pz = sense * slope * pT / sqrt(rho^2 - slope^2)
+  const double radX = closestPoint.x - x0c;
+  const double radY = closestPoint.y - y0c;
+  const double sense = (tangent_xy.x * (-radY) + tangent_xy.y * radX >= 0.) ? 1. : -1.;
+  const double transverse2 = rho * rho - slope * slope;
+  if (transverse2 > 0.) {
+    init_mom.SetZ(sense * slope * init_pT / std::sqrt(transverse2));
+  } else {
+    init_mom.SetZ(0.); // degenerate fit (|dz/dphi| >= rho): no longitudinal seed
+  }
 
   // Charge
   TVector3 pos(closestPoint.x, closestPoint.y, z_PCA);
@@ -1282,10 +1269,9 @@ void GenfitTrack::CreateGenFitTrack(int particle_hypotesis, int debug_lvl) {
  * @note If any exception occurs during fitting or state extrapolation, the function
  *       returns false and does not update the track.
  */
-bool GenfitTrack::Fit(std::string FitterType = "DAF", int debug_lvl = 0,
-                      std::optional<double> Beta_init = 100., std::optional<double> Beta_final = 0.1,
-                      std::optional<int> Beta_steps = 10, std::optional<bool> FilterHits = true,
-                      bool NoMaterial = false) {
+bool GenfitTrack::Fit(std::string FitterType = "DAF", int debug_lvl = 0, std::optional<double> Beta_init = 100.,
+                      std::optional<double> Beta_final = 0.1, std::optional<int> Beta_steps = 10,
+                      std::optional<bool> FilterHits = true, bool NoMaterial = false) {
 
   const bool showFitDiagnostics = (debug_lvl == 1 || debug_lvl == 2);
   const bool showFitterDiagnostics = (debug_lvl == 1);
@@ -1351,7 +1337,9 @@ bool GenfitTrack::Fit(std::string FitterType = "DAF", int debug_lvl = 0,
 
   try {
 
+    const auto tFitCoreStart = std::chrono::steady_clock::now();
     genfitFitter->processTrackWithRep(&genfitTrack, trackRep);
+    m_fitCoreSeconds += std::chrono::duration<double>(std::chrono::steady_clock::now() - tFitCoreStart).count();
 
   } catch (const std::exception& e) {
 
@@ -1366,6 +1354,13 @@ bool GenfitTrack::Fit(std::string FitterType = "DAF", int debug_lvl = 0,
 
     return false;
   }
+
+  const auto tStateStart = std::chrono::steady_clock::now();
+  struct StateTimerGuard {
+    double& acc;
+    std::chrono::steady_clock::time_point t0;
+    ~StateTimerGuard() { acc += std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count(); }
+  } stateTimerGuard{m_stateExtractionSeconds, tStateStart};
 
   if (genfitFitter->isTrackFitted(&genfitTrack, trackRep)) {
 

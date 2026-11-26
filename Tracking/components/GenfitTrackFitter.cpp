@@ -18,6 +18,7 @@
  */
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
@@ -27,6 +28,7 @@
 #include <map>
 #include <memory>
 #include <numeric>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <typeinfo>
@@ -112,6 +114,7 @@ struct GenfitTrackFitter final
                          }) {}
 
   StatusCode initialize() {
+    const auto tInitStart = std::chrono::steady_clock::now();
 
     // Initialize printout level for debug information
     m_printoutLevel = msgLevel();
@@ -301,6 +304,10 @@ struct GenfitTrackFitter final
       }
     }
 
+    const auto tInitEnd = std::chrono::steady_clock::now();
+    info() << "TIMING fitter initialize: "
+           << std::chrono::duration<double>(tInitEnd - tInitStart).count() << " s" << endmsg;
+
     return StatusCode::SUCCESS;
   }
 
@@ -313,19 +320,51 @@ struct GenfitTrackFitter final
   // for any thread that is not the one that initialized the geometry
   bool isReEntrant() const override { return false; }
 
+  // per-event phase timings [s], accumulated across the tracks of one event
+  mutable double m_tInitTracks = 0.;
+  mutable double m_tFit = 0.;
+  mutable double m_tTrackStates = 0.;
+  mutable double m_tSave = 0.;
+
+  /// RAII stopwatch adding its span to a phase accumulator on destruction
+  /// (also on early return, of which FitTrack has several).
+  struct PhaseTimer {
+    double& acc;
+    std::chrono::steady_clock::time_point t0;
+    bool stopped = false;
+    explicit PhaseTimer(double& a) : acc(a), t0(std::chrono::steady_clock::now()) {}
+    ~PhaseTimer() { stop(); }
+    void stop() {
+      if (!stopped) {
+        acc += std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+        stopped = true;
+      }
+    }
+    PhaseTimer(const PhaseTimer&) = delete;
+    PhaseTimer& operator=(const PhaseTimer&) = delete;
+  };
+
   std::tuple<edm4hep::TrackCollection, edm4hep::TrackCollection, edm4hep::TrackerHitPlaneCollection>
   operator()(const edm4hep::TrackCollection& tracks_input) const override {
 
     debug() << "Event number: " << event_counter++ << endmsg;
     num_tracks_event = 0;
 
+    // per-event phase timers (std::chrono; algorithm is non-reentrant, see isReEntrant)
+    const auto tOpStart = std::chrono::steady_clock::now();
+    m_tInitTracks = m_tFit = m_tTrackStates = m_tSave = 0.;
+
     // These collections store the output of the fit
     edm4hep::TrackCollection FittedTracks;
     edm4hep::TrackCollection FittedTracksWithFilteredHits;
     edm4hep::TrackerHitPlaneCollection FittedHits;
 
-    // Loop over the tracks created by the pattern recognition step
-    for (const auto& track : tracks_input) {
+    // Per-track processing returns the fitted result (if any); the output collections are
+    // filled in input order after all tracks of the event have been processed.
+    std::vector<edm4hep::Track> trackList(tracks_input.begin(), tracks_input.end());
+
+    auto processOne = [&](std::size_t idx) -> std::optional<FittedResult> {
+      const auto& track = trackList[idx];
 
       num_tracks++;
       num_tracks_event++;
@@ -335,17 +374,37 @@ struct GenfitTrackFitter final
                                                       track.getType()) != m_ListOfTypesToSkip.end()) {
         num_skip += 1;
         debug() << "Skipping track " << num_tracks_event << " with type " << track.getType() << "\n" << endmsg;
-        continue;
+        return std::nullopt;
       }
 
       // skip tracks with less then 3 hits (seed initialization needs 3 hits)
       if (track.getTrackerHits().size() < 3) {
         num_skip += 1;
         debug() << "Track " << num_tracks_event << ": less than 3 hits, skipping fit.\n" << endmsg;
-        continue;
+        return std::nullopt;
       }
 
       num_processed_tracks += 1;
+
+      // Per-track phase timing: logs the phase deltas of this iteration (all fit attempts
+      // included) on scope exit, whichever way the iteration ends.
+      struct TrackTimer {
+        const GenfitTrackFitter& self;
+        int event, track;
+        std::size_t hits;
+        double i0, f0, s0, v0;
+        std::chrono::steady_clock::time_point t0;
+        TrackTimer(const GenfitTrackFitter& s, int ev, int tr, std::size_t h)
+            : self(s), event(ev), track(tr), hits(h), i0(s.m_tInitTracks), f0(s.m_tFit),
+              s0(s.m_tTrackStates), v0(s.m_tSave), t0(std::chrono::steady_clock::now()) {}
+        ~TrackTimer() {
+          const auto dt = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+          self.info() << "TIMING fittertrack event: " << event << " track: " << track << " hits: " << hits
+                      << " init: " << self.m_tInitTracks - i0 << " fit: " << self.m_tFit - f0
+                      << " trackstates: " << self.m_tTrackStates - s0 << " save: " << self.m_tSave - v0
+                      << " total: " << dt << endmsg;
+        }
+      } trackTimer(*this, event_counter - 1, static_cast<int>(idx) + 1, track.getTrackerHits().size());
 
       // Per-track cache and attempt ledger: both live only for this track's processing and
       // are never shared with other tracks or events, so the results cannot depend on the
@@ -353,76 +412,94 @@ struct GenfitTrackFitter final
       auto cache = std::make_shared<GenfitInterface::GenfitTrack::TrackFitCache>();
       std::vector<AttemptKey> attempted;
 
-      // Attempt chain: all hits (with the automatic first-arc selection for loopers), the forced
-      // first-arc selection, the silicon-only fallback, a thinned hit set, a scan of alternative
-      // momentum seeds on the thinned set, and finally fits without material effects
-      auto tryFit = [&](bool forceFirstArc, bool siOnly, int thinTarget, double seedOverride, bool noMaterial,
-                        bool ransacInliers) -> int {
+      // Attempt chain: the automatic hit selection (all hits for non-loopers, first arc for
+      // loopers), then the recovery mode: the silicon-only fallback, a thinned hit set, a scan of
+      // alternative momentum seeds on the thinned set, and finally fits without material effects
+      auto tryFit = [&](bool siOnly, int thinTarget, double seedOverride, bool noMaterial, bool ransacInliers,
+                        int betaStepsOverride = -1) -> std::optional<FittedResult> {
         ransacInliers = ransacInliers && m_ransacFallback;
-        std::optional<FittedResult> result;
         if (m_singleEvaluation) {
-          result = FitTrack(track, forceFirstArc, siOnly, ransacInliers, thinTarget, seedOverride, noMaterial,
-                            m_particleHypothesis[0], cache, attempted);
-        } else {
-          result = FitBestHypothesis(track, forceFirstArc, siOnly, ransacInliers, thinTarget, seedOverride,
-                                     noMaterial, cache, attempted);
+          return FitTrack(track, siOnly, ransacInliers, thinTarget, seedOverride, noMaterial,
+                          m_particleHypothesis[0], cache, attempted, betaStepsOverride);
         }
-        if (!result) {
-          return 0;
-        }
-        FillOutput(std::move(*result), track, FittedTracks, FittedTracksWithFilteredHits, FittedHits,
-                   m_runCalorimeterExtrapolation.value());
-        return 1;
+        return FitBestHypothesis(track, siOnly, ransacInliers, thinTarget, seedOverride, noMaterial, cache, attempted);
       };
 
-      int isSuccess = tryFit(false, false, 0, 0., false, false);
+      // Probe: a cheap first pass with few annealing steps. On success it is accepted and
+      // the track is done; on failure the full chain below runs UNCHANGED (the probe is a
+      // different AttemptKey because of its betaSteps, so the full-schedule attempts are
+      // never suppressed by it). A track that needs more annealing steps is therefore never
+      // lost: the probe can only make the chain longer, never shorter.
+      std::optional<FittedResult> fitResult;
 
-      if (!isSuccess) {
-        debug() << "Track " << num_tracks_event << ": fit failed, trying with the first-arc hit selection." << endmsg;
-        isSuccess = tryFit(true, false, 0, 0., false, false);
+      if (m_probeSteps.value() > 0 && m_probeSteps.value() < m_Beta_steps.value()) {
+        fitResult = tryFit(false, 0, 0., false, false, m_probeSteps.value());
+        if (fitResult) {
+          return fitResult;  // cheap fit accepted for this track
+        }
+        debug() << "Track " << num_tracks_event << ": probe with " << m_probeSteps.value()
+                << " beta steps failed, running the full attempt chain." << endmsg;
       }
 
-      if (!isSuccess && m_siOnlyFallback) {
+      fitResult = tryFit(false, 0, 0., false, false);
+
+      if (!fitResult && m_siOnlyFallback) {
         debug() << "Track " << num_tracks_event << ": fit failed, trying with the silicon hits only." << endmsg;
-        isSuccess = tryFit(false, true, 0, 0., false, false);
+        fitResult = tryFit(true, 0, 0., false, false);
       }
 
-      if (!isSuccess && m_ransacFallback) {
+      if (!fitResult && m_ransacFallback) {
         debug() << "Track " << num_tracks_event << ": fit failed, trying with the dominant-circle inliers." << endmsg;
-        isSuccess = tryFit(true, false, 0, 0., false, true);
+        fitResult = tryFit(false, 0, 0., false, true);
       }
 
-      if (!isSuccess) {
+      if (!fitResult) {
         debug() << "Track " << num_tracks_event << ": fit failed, trying with a thinned hit set." << endmsg;
-        isSuccess = tryFit(true, false, 50, 0., false, true);
+        fitResult = tryFit(false, 50, 0., false, true);
       }
 
       for (double seedP : {0.2, 0.7, 2.0}) {
-        if (isSuccess) {
+        if (fitResult) {
           break;
         }
-        debug() << "Track " << num_tracks_event << ": fit failed, trying with a " << seedP << " GeV/c momentum seed."
-                << endmsg;
-        isSuccess = tryFit(true, false, 50, seedP, false, true);
+        debug() << "Track " << num_tracks_event << ": fit failed, trying with a " << seedP
+                << " GeV/c momentum seed." << endmsg;
+        fitResult = tryFit(false, 50, seedP, false, true);
       }
 
-      if (!isSuccess) {
+      if (!fitResult) {
         debug() << "Track " << num_tracks_event << ": fit failed, trying without material effects." << endmsg;
-        isSuccess = tryFit(true, false, 0, 0., true, true);
+        fitResult = tryFit(false, 0, 0., true, true);
       }
 
-      if (!isSuccess) {
+      if (!fitResult) {
         debug() << "Track " << num_tracks_event << ": fit failed, trying a thinned set without material effects."
                 << endmsg;
-        isSuccess = tryFit(true, false, 50, 0., true, true);
+        fitResult = tryFit(false, 50, 0., true, true);
       }
 
-      if (!isSuccess) {
+      if (!fitResult) {
         number_failures += 1;
         debug() << "Track " << num_tracks_event << ": fit failed for all attempts, skipping track." << endmsg;
-        continue;
+      }
+
+      return fitResult;
+    };
+
+    // Serial execution: process and fill track by track.
+    for (std::size_t idx = 0; idx < trackList.size(); ++idx) {
+      auto fitResult = processOne(idx);
+      if (fitResult) {
+        FillOutput(std::move(*fitResult), trackList[idx], FittedTracks, FittedTracksWithFilteredHits, FittedHits,
+                   m_runCalorimeterExtrapolation.value());
       }
     }
+
+    const auto tOpEnd = std::chrono::steady_clock::now();
+    info() << "TIMING fitter event: " << (event_counter - 1) << " tracks: " << tracks_input.size()
+           << " init: " << m_tInitTracks << " fit: " << m_tFit << " trackstates: " << m_tTrackStates
+           << " save: " << m_tSave
+           << " total: " << std::chrono::duration<double>(tOpEnd - tOpStart).count() << endmsg;
 
     return std::make_tuple(std::move(FittedTracks), std::move(FittedTracksWithFilteredHits), std::move(FittedHits));
   }
@@ -499,14 +576,13 @@ private:
   Gaudi::Property<bool> m_useBrems{this, "UseBrems", false, "Include Bremsstrahlung energy loss and noise in the fit"};
 
   Gaudi::Property<std::string> m_mscModel{
-      this, "MscModel", "Highland",
-      "Multiple-scattering model used for the material noise (genfit MSC formulas)"};
-  Gaudi::Property<bool> m_energyLossBetheBloch{
-      this, "EnergyLossBetheBloch", true, "Include Bethe-Bloch energy loss in the material effects"};
-  Gaudi::Property<bool> m_noiseBetheBloch{
-      this, "NoiseBetheBloch", true, "Include Bethe-Bloch energy-loss noise in the material effects"};
-  Gaudi::Property<bool> m_noiseCoulomb{
-      this, "NoiseCoulomb", true, "Include multiple-scattering (Coulomb) noise in the material effects"};
+      this, "MscModel", "Highland", "Multiple-scattering model used for the material noise (genfit MSC formulas)"};
+  Gaudi::Property<bool> m_energyLossBetheBloch{this, "EnergyLossBetheBloch", true,
+                                               "Include Bethe-Bloch energy loss in the material effects"};
+  Gaudi::Property<bool> m_noiseBetheBloch{this, "NoiseBetheBloch", true,
+                                          "Include Bethe-Bloch energy-loss noise in the material effects"};
+  Gaudi::Property<bool> m_noiseCoulomb{this, "NoiseCoulomb", true,
+                                       "Include multiple-scattering (Coulomb) noise in the material effects"};
 
   Gaudi::Property<std::string> m_Fitter_type{
       this, "FitterType", "DAF",
@@ -521,6 +597,9 @@ private:
   Gaudi::Property<int> m_Beta_steps{this, "BetaSteps", 15,
                                     "Number of steps in the annealing schedule (if m_Fitter_type == 'DAF') "
                                     "[https://indico.cern.ch/event/258092/papers/1588579/files/4253-genfit.pdf]"};
+  Gaudi::Property<int> m_probeSteps{this, "ProbeSteps", 0,
+                                    "Cheap first fit attempt with this many annealing steps; on success the fit is "
+                                    "accepted, on failure the full attempt chain runs unchanged (0 disables)"};
 
   //////////////////////////
   // Track Initialization //
@@ -575,9 +654,8 @@ private:
   Gaudi::Property<double> m_looperPTThreshold{
       this, "LooperPTThreshold", 0.7,
       "Transverse momentum threshold [GeV/c] below which a track is treated as a looper: the circle is fitted in the "
-      "xy plane, phi_local (the angle around the fitted circle center, zeroed at the hit closest to the z-origin) is "
-      "computed, and only the hits before the first peak of the sawtooth in the (z, phi_local) plane are seeded and "
-      "fitted, i.e. the first arc of the loop. Tracks curling inside the tracker scale with the magnetic field "
+      "xy plane and only the hits of the first arc of the loop are seeded and fitted (longest monotone-phi chain "
+      "from the anchor hit). Tracks curling inside the tracker scale with the magnetic field "
       "(pT ~ 0.3 * B[T] * R[m]): adjust the threshold when the field is changed (0.7 GeV/c corresponds to B = 2 T)."};
 
   ////////////////////////////////////
@@ -603,8 +681,8 @@ private:
 
   Gaudi::Property<bool> m_siOnlyFallback{
       this, "SiliconOnlyFallback", true,
-      "If true, tracks whose fit fails both with all the hits and with the first-arc hits of a looper are retried "
-      "fitting only the silicon (planar) hits of the selected hit set: those are much more precise than the drift "
+      "If true, tracks whose fit fails with the selected hit set are retried fitting only the silicon (planar) "
+      "hits of that set: those are much more precise than the drift "
       "chamber ones (whose z resolution is of the order of cm) and the fit often converges on them alone."};
 
   Gaudi::Property<bool> m_ransacFallback{
@@ -653,8 +731,10 @@ private:
     double seed = 0.;
     bool noMaterial = false;
     int pdg = 0;
+    int betaSteps = 0;  // a probe with few annealing steps is a different configuration
     bool operator==(const AttemptKey& other) const {
-      return seed == other.seed && noMaterial == other.noMaterial && pdg == other.pdg && fitHits == other.fitHits;
+      return seed == other.seed && noMaterial == other.noMaterial && pdg == other.pdg && fitHits == other.fitHits &&
+             betaSteps == other.betaSteps;
     }
   };
 
@@ -671,13 +751,14 @@ private:
    *         duplicated, or the fit fails or throws.
    */
   std::optional<FittedResult>
-  FitTrack(const edm4hep::Track& track, bool ForceFirstArc, bool SiOnly, bool RansacInliers, int ThinTarget,
+  FitTrack(const edm4hep::Track& track, bool SiOnly, bool RansacInliers, int ThinTarget,
            double SeedMomentumOverride, bool NoMaterial, int particleHypothesis,
            const std::shared_ptr<GenfitInterface::GenfitTrack::TrackFitCache>& cache,
-           std::vector<AttemptKey>& attempted) const {
+           std::vector<AttemptKey>& attempted, int BetaStepsOverride = -1) const {
 
+    PhaseTimer phaseInit(m_tInitTracks);
     auto track_interface = std::make_unique<GenfitInterface::GenfitTrack>(track, m_skipTrackOrdering, m_wire_info,
-                                                                         m_dc_decoder, m_genfitField.get());
+                                                                          m_dc_decoder, m_genfitField.get());
     track_interface->SetTrackCache(cache);
 
     TVector3 Init_position(m_init_position.value()[0] * dd4hep::mm, m_init_position.value()[1] * dd4hep::mm,
@@ -687,11 +768,10 @@ private:
 
     double RadialThresholdPromptTrack_cm = m_RadialThresholdPromptTrack.value() * dd4hep::mm;
 
-    track_interface->InitializeTrack(RadialThresholdPromptTrack_cm, m_useFirstHitAsReference, ForceFirstArc,
-                                     m_initializationType, m_trackStateLocation.value(), Init_position, Init_momentum,
-                                     m_looperPTThreshold.value(), SeedMomentumOverride, m_sigma_d0.value(),
-                                     m_sigma_phi.value(), m_omega_factor.value(), m_z0_factor.value(),
-                                     m_sigma_tanLambda.value());
+    track_interface->InitializeTrack(
+        RadialThresholdPromptTrack_cm, m_useFirstHitAsReference, m_initializationType, m_trackStateLocation.value(),
+        Init_position, Init_momentum, m_looperPTThreshold.value(), SeedMomentumOverride, m_sigma_d0.value(),
+        m_sigma_phi.value(), m_omega_factor.value(), m_z0_factor.value(), m_sigma_tanLambda.value());
 
     if (SiOnly && !track_interface->RestrictToSiliconHits()) {
       return std::nullopt;
@@ -705,7 +785,8 @@ private:
       track_interface->RestrictToEvenlySpacedHits(static_cast<std::size_t>(ThinTarget));
     }
 
-    const AttemptKey key{track_interface->GetFitHits(), SeedMomentumOverride, NoMaterial, particleHypothesis};
+    const AttemptKey key{track_interface->GetFitHits(), SeedMomentumOverride, NoMaterial, particleHypothesis,
+                         BetaStepsOverride > 0 ? BetaStepsOverride : m_Beta_steps.value()};
     if (std::find(attempted.begin(), attempted.end(), key) != attempted.end()) {
       return std::nullopt; // identical configuration already attempted and failed: skip the duplicate fit
     }
@@ -736,18 +817,26 @@ private:
     int debug_track = showDebugOutput ? 1 : 0;
 
     track_interface->CreateGenFitTrack(particleHypothesis, debug_track);
+    phaseInit.stop();
 
     FittedResult result;
     result.interface = std::move(track_interface);
 
     bool isFit = false;
+    const auto tFitWallStart = std::chrono::steady_clock::now();
     try {
-      isFit = result.interface->Fit(m_Fitter_type.value(), m_printoutLevel, m_Beta_init, m_Beta_final, m_Beta_steps,
+      isFit = result.interface->Fit(m_Fitter_type.value(), m_printoutLevel, m_Beta_init, m_Beta_final,
+                                    BetaStepsOverride > 0 ? BetaStepsOverride : m_Beta_steps.value(),
                                     m_filterTrackHits, NoMaterial);
     } catch (const std::exception& e) {
       debug() << "Track fit threw for track " << num_tracks_event << ": " << e.what() << endmsg;
       return std::nullopt;
     }
+    // split the Fit() wall time: fitted-state/TrackState extraction is timed inside
+    // GenfitTrack::Fit(); the remainder (DAF/Kalman core + setup) counts as "fit".
+    const double fitWall = std::chrono::duration<double>(std::chrono::steady_clock::now() - tFitWallStart).count();
+    m_tTrackStates += result.interface->StateExtractionSeconds();
+    m_tFit += fitWall - result.interface->StateExtractionSeconds();
 
     if (!isFit) {
       debug() << "Track fit FAILED for track " << num_tracks_event << endmsg;
@@ -757,6 +846,7 @@ private:
     // Acceptance criterion shared by all fit modes: a converged fit with a non-positive chi2
     // or ndf carries no fit-quality information and is not reported (it falls through to the
     // fallback attempts of the chain instead).
+    PhaseTimer phaseStatesCheck(m_tTrackStates);
     const auto& fitted_track = result.interface->GetTrack_edm4hep();
     if (fitted_track.getChi2() <= 0 || fitted_track.getNdf() <= 0) {
       debug() << "Track fit produced invalid chi2/ndf for track " << num_tracks_event << endmsg;
@@ -782,6 +872,7 @@ private:
     auto& edm4hep_track = track_interface.GetTrack_edm4hep();
     const bool showDebugOutput = m_printoutLevel == uint(MSG::DEBUG) || m_printoutLevel == uint(MSG::VERBOSE);
 
+    PhaseTimer phaseStates(m_tTrackStates);
     double Bz = 0.;
     for (auto ts : edm4hep_track.getTrackStates()) {
       if (ts.location == edm4hep::TrackState::AtLastHit) {
@@ -822,6 +913,8 @@ private:
     }
 
     FittedTracks.push_back(edm4hep_track);
+    phaseStates.stop();
+    PhaseTimer phaseSave(m_tSave);
 
     if (m_filterTrackHits) {
 
@@ -830,6 +923,8 @@ private:
       // collections). Only the winning configuration reaches this point, so the output
       // receives exactly the hits of the fit being reported.
       track_interface.CreateFilteredHits(FittedHits);
+      phaseSave.stop();
+      PhaseTimer phaseStates2(m_tTrackStates);
 
       auto edm4hep_track_with_fit = track_interface.GetTrackWithFit_edm4hep();
 
@@ -850,7 +945,9 @@ private:
           }
         }
       }
+      phaseStates2.stop();
 
+      PhaseTimer phaseSave2(m_tSave);
       FittedTracksWithFilteredHits.push_back(edm4hep_track_with_fit);
     }
   }
@@ -868,7 +965,7 @@ private:
    *         produced a valid fit.
    */
   std::optional<FittedResult>
-  FitBestHypothesis(const edm4hep::Track& track, bool ForceFirstArc, bool SiOnly, bool RansacInliers, int ThinTarget,
+  FitBestHypothesis(const edm4hep::Track& track, bool SiOnly, bool RansacInliers, int ThinTarget,
                     double SeedMomentumOverride, bool NoMaterial,
                     const std::shared_ptr<GenfitInterface::GenfitTrack::TrackFitCache>& cache,
                     std::vector<AttemptKey>& attempted) const {
@@ -878,8 +975,8 @@ private:
 
     for (int pdgCode : m_particleHypothesis) {
 
-      auto result = FitTrack(track, ForceFirstArc, SiOnly, RansacInliers, ThinTarget, SeedMomentumOverride,
-                             NoMaterial, pdgCode, cache, attempted);
+      auto result = FitTrack(track, SiOnly, RansacInliers, ThinTarget, SeedMomentumOverride, NoMaterial, pdgCode, cache,
+                             attempted);
 
       if (!result) {
         continue;
