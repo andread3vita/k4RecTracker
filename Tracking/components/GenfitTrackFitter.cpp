@@ -325,12 +325,8 @@ struct GenfitTrackFitter final
     edm4hep::TrackCollection FittedTracksWithFilteredHits;
     edm4hep::TrackerHitPlaneCollection FittedHits;
 
-    // Per-track processing returns the fitted result (if any); the output collections are
-    // filled in input order after all tracks of the event have been processed.
-    std::vector<edm4hep::Track> trackList(tracks_input.begin(), tracks_input.end());
-
-    auto processOne = [&](std::size_t idx) -> std::optional<FittedResult> {
-      const auto& track = trackList[idx];
+    // Loop over the tracks created by the pattern recognition step
+    for (const auto& track : tracks_input) {
 
       num_tracks++;
       num_tracks_event++;
@@ -340,14 +336,14 @@ struct GenfitTrackFitter final
                                                       track.getType()) != m_ListOfTypesToSkip.end()) {
         num_skip += 1;
         debug() << "Skipping track " << num_tracks_event << " with type " << track.getType() << "\n" << endmsg;
-        return std::nullopt;
+        continue;
       }
 
       // skip tracks with less then 3 hits (seed initialization needs 3 hits)
       if (track.getTrackerHits().size() < 3) {
         num_skip += 1;
         debug() << "Track " << num_tracks_event << ": less than 3 hits, skipping fit.\n" << endmsg;
-        return std::nullopt;
+        continue;
       }
 
       num_processed_tracks += 1;
@@ -362,13 +358,22 @@ struct GenfitTrackFitter final
       // loopers), then the recovery mode: the silicon-only fallback, a thinned hit set, a scan of
       // alternative momentum seeds on the thinned set, and finally fits without material effects
       auto tryFit = [&](bool siOnly, int thinTarget, double seedOverride, bool noMaterial, bool ransacInliers,
-                        int betaStepsOverride = -1) -> std::optional<FittedResult> {
+                        int betaStepsOverride = -1) -> int {
         ransacInliers = ransacInliers && m_ransacFallback;
+        std::optional<FittedResult> result;
         if (m_singleEvaluation) {
-          return FitTrack(track, siOnly, ransacInliers, thinTarget, seedOverride, noMaterial,
-                          m_particleHypothesis[0], cache, attempted, betaStepsOverride);
+          result = FitTrack(track, siOnly, ransacInliers, thinTarget, seedOverride, noMaterial,
+                            m_particleHypothesis[0], cache, attempted, betaStepsOverride);
+        } else {
+          result = FitBestHypothesis(track, siOnly, ransacInliers, thinTarget, seedOverride, noMaterial, cache,
+                                     attempted);
         }
-        return FitBestHypothesis(track, siOnly, ransacInliers, thinTarget, seedOverride, noMaterial, cache, attempted);
+        if (!result) {
+          return 0;
+        }
+        FillOutput(std::move(*result), track, FittedTracks, FittedTracksWithFilteredHits, FittedHits,
+                   m_runCalorimeterExtrapolation.value());
+        return 1;
       };
 
       // Probe: a cheap first pass with few annealing steps. On success it is accepted and
@@ -376,68 +381,54 @@ struct GenfitTrackFitter final
       // different AttemptKey because of its betaSteps, so the full-schedule attempts are
       // never suppressed by it). A track that needs more annealing steps is therefore never
       // lost: the probe can only make the chain longer, never shorter.
-      std::optional<FittedResult> fitResult;
-
       if (m_probeSteps.value() > 0 && m_probeSteps.value() < m_Beta_steps.value()) {
-        fitResult = tryFit(false, 0, 0., false, false, m_probeSteps.value());
-        if (fitResult) {
-          return fitResult;  // cheap fit accepted for this track
+        if (tryFit(false, 0, 0., false, false, m_probeSteps.value())) {
+          continue;  // cheap fit accepted for this track
         }
         debug() << "Track " << num_tracks_event << ": probe with " << m_probeSteps.value()
                 << " beta steps failed, running the full attempt chain." << endmsg;
       }
 
-      fitResult = tryFit(false, 0, 0., false, false);
+      int isSuccess = tryFit(false, 0, 0., false, false);
 
-      if (!fitResult && m_siOnlyFallback) {
+      if (!isSuccess && m_siOnlyFallback) {
         debug() << "Track " << num_tracks_event << ": fit failed, trying with the silicon hits only." << endmsg;
-        fitResult = tryFit(true, 0, 0., false, false);
+        isSuccess = tryFit(true, 0, 0., false, false);
       }
 
-      if (!fitResult && m_ransacFallback) {
+      if (!isSuccess && m_ransacFallback) {
         debug() << "Track " << num_tracks_event << ": fit failed, trying with the dominant-circle inliers." << endmsg;
-        fitResult = tryFit(false, 0, 0., false, true);
+        isSuccess = tryFit(false, 0, 0., false, true);
       }
 
-      if (!fitResult) {
+      if (!isSuccess) {
         debug() << "Track " << num_tracks_event << ": fit failed, trying with a thinned hit set." << endmsg;
-        fitResult = tryFit(false, 50, 0., false, true);
+        isSuccess = tryFit(false, 50, 0., false, true);
       }
 
       for (double seedP : {0.2, 0.7, 2.0}) {
-        if (fitResult) {
+        if (isSuccess) {
           break;
         }
         debug() << "Track " << num_tracks_event << ": fit failed, trying with a " << seedP
                 << " GeV/c momentum seed." << endmsg;
-        fitResult = tryFit(false, 50, seedP, false, true);
+        isSuccess = tryFit(false, 50, seedP, false, true);
       }
 
-      if (!fitResult) {
+      if (!isSuccess) {
         debug() << "Track " << num_tracks_event << ": fit failed, trying without material effects." << endmsg;
-        fitResult = tryFit(false, 0, 0., true, true);
+        isSuccess = tryFit(false, 0, 0., true, true);
       }
 
-      if (!fitResult) {
+      if (!isSuccess) {
         debug() << "Track " << num_tracks_event << ": fit failed, trying a thinned set without material effects."
                 << endmsg;
-        fitResult = tryFit(false, 50, 0., true, true);
+        isSuccess = tryFit(false, 50, 0., true, true);
       }
 
-      if (!fitResult) {
+      if (!isSuccess) {
         number_failures += 1;
         debug() << "Track " << num_tracks_event << ": fit failed for all attempts, skipping track." << endmsg;
-      }
-
-      return fitResult;
-    };
-
-    // Serial execution: process and fill track by track.
-    for (std::size_t idx = 0; idx < trackList.size(); ++idx) {
-      auto fitResult = processOne(idx);
-      if (fitResult) {
-        FillOutput(std::move(*fitResult), trackList[idx], FittedTracks, FittedTracksWithFilteredHits, FittedHits,
-                   m_runCalorimeterExtrapolation.value());
       }
     }
 
