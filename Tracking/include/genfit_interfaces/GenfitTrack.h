@@ -116,11 +116,6 @@ public:
   edm4hep::MutableTrack& GetTrack_edm4hep() { return m_edm4hepTrack; }
   edm4hep::MutableTrack& GetTrackWithFit_edm4hep() { return m_trackWithFit; }
 
-  // std::chrono phase bookkeeping of Fit(): wall time spent in the fitter core
-  // (DAF/Kalman processing) and in the fitted-state/TrackState extraction.
-  double FitCoreSeconds() const { return m_fitCoreSeconds; }
-  double StateExtractionSeconds() const { return m_stateExtractionSeconds; }
-
   int GetCharge() { return m_chargeHypothesis; }
 
   void SetVPPosition(TVector3 referencePoint) { m_vpReferencePoint = referencePoint; }
@@ -221,10 +216,6 @@ private:
     int32_t hitIndex = 0; // index of that digi hit in the fitted track's hit list
   };
   std::vector<PendingFittedHit> m_pendingFittedHits;
-
-  // std::chrono phase bookkeeping of Fit() [s], see FitCoreSeconds/StateExtractionSeconds.
-  double m_fitCoreSeconds = 0.;
-  double m_stateExtractionSeconds = 0.;
 
   TVector3 m_vpReferencePoint{0., 0., 0.};
   TVector3 m_firstHitReferencePoint{0., 0., 0.};

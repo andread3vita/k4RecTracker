@@ -18,7 +18,6 @@
  */
 
 #include <algorithm>
-#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
@@ -114,7 +113,6 @@ struct GenfitTrackFitter final
                          }) {}
 
   StatusCode initialize() {
-    const auto tInitStart = std::chrono::steady_clock::now();
 
     // Initialize printout level for debug information
     m_printoutLevel = msgLevel();
@@ -304,10 +302,6 @@ struct GenfitTrackFitter final
       }
     }
 
-    const auto tInitEnd = std::chrono::steady_clock::now();
-    info() << "TIMING fitter initialize: "
-           << std::chrono::duration<double>(tInitEnd - tInitStart).count() << " s" << endmsg;
-
     return StatusCode::SUCCESS;
   }
 
@@ -320,39 +314,11 @@ struct GenfitTrackFitter final
   // for any thread that is not the one that initialized the geometry
   bool isReEntrant() const override { return false; }
 
-  // per-event phase timings [s], accumulated across the tracks of one event
-  mutable double m_tInitTracks = 0.;
-  mutable double m_tFit = 0.;
-  mutable double m_tTrackStates = 0.;
-  mutable double m_tSave = 0.;
-
-  /// RAII stopwatch adding its span to a phase accumulator on destruction
-  /// (also on early return, of which FitTrack has several).
-  struct PhaseTimer {
-    double& acc;
-    std::chrono::steady_clock::time_point t0;
-    bool stopped = false;
-    explicit PhaseTimer(double& a) : acc(a), t0(std::chrono::steady_clock::now()) {}
-    ~PhaseTimer() { stop(); }
-    void stop() {
-      if (!stopped) {
-        acc += std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
-        stopped = true;
-      }
-    }
-    PhaseTimer(const PhaseTimer&) = delete;
-    PhaseTimer& operator=(const PhaseTimer&) = delete;
-  };
-
   std::tuple<edm4hep::TrackCollection, edm4hep::TrackCollection, edm4hep::TrackerHitPlaneCollection>
   operator()(const edm4hep::TrackCollection& tracks_input) const override {
 
     debug() << "Event number: " << event_counter++ << endmsg;
     num_tracks_event = 0;
-
-    // per-event phase timers (std::chrono; algorithm is non-reentrant, see isReEntrant)
-    const auto tOpStart = std::chrono::steady_clock::now();
-    m_tInitTracks = m_tFit = m_tTrackStates = m_tSave = 0.;
 
     // These collections store the output of the fit
     edm4hep::TrackCollection FittedTracks;
@@ -385,26 +351,6 @@ struct GenfitTrackFitter final
       }
 
       num_processed_tracks += 1;
-
-      // Per-track phase timing: logs the phase deltas of this iteration (all fit attempts
-      // included) on scope exit, whichever way the iteration ends.
-      struct TrackTimer {
-        const GenfitTrackFitter& self;
-        int event, track;
-        std::size_t hits;
-        double i0, f0, s0, v0;
-        std::chrono::steady_clock::time_point t0;
-        TrackTimer(const GenfitTrackFitter& s, int ev, int tr, std::size_t h)
-            : self(s), event(ev), track(tr), hits(h), i0(s.m_tInitTracks), f0(s.m_tFit),
-              s0(s.m_tTrackStates), v0(s.m_tSave), t0(std::chrono::steady_clock::now()) {}
-        ~TrackTimer() {
-          const auto dt = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
-          self.info() << "TIMING fittertrack event: " << event << " track: " << track << " hits: " << hits
-                      << " init: " << self.m_tInitTracks - i0 << " fit: " << self.m_tFit - f0
-                      << " trackstates: " << self.m_tTrackStates - s0 << " save: " << self.m_tSave - v0
-                      << " total: " << dt << endmsg;
-        }
-      } trackTimer(*this, event_counter - 1, static_cast<int>(idx) + 1, track.getTrackerHits().size());
 
       // Per-track cache and attempt ledger: both live only for this track's processing and
       // are never shared with other tracks or events, so the results cannot depend on the
@@ -494,12 +440,6 @@ struct GenfitTrackFitter final
                    m_runCalorimeterExtrapolation.value());
       }
     }
-
-    const auto tOpEnd = std::chrono::steady_clock::now();
-    info() << "TIMING fitter event: " << (event_counter - 1) << " tracks: " << tracks_input.size()
-           << " init: " << m_tInitTracks << " fit: " << m_tFit << " trackstates: " << m_tTrackStates
-           << " save: " << m_tSave
-           << " total: " << std::chrono::duration<double>(tOpEnd - tOpStart).count() << endmsg;
 
     return std::make_tuple(std::move(FittedTracks), std::move(FittedTracksWithFilteredHits), std::move(FittedHits));
   }
@@ -756,9 +696,8 @@ private:
            const std::shared_ptr<GenfitInterface::GenfitTrack::TrackFitCache>& cache,
            std::vector<AttemptKey>& attempted, int BetaStepsOverride = -1) const {
 
-    PhaseTimer phaseInit(m_tInitTracks);
     auto track_interface = std::make_unique<GenfitInterface::GenfitTrack>(track, m_skipTrackOrdering, m_wire_info,
-                                                                          m_dc_decoder, m_genfitField.get());
+                                                                         m_dc_decoder, m_genfitField.get());
     track_interface->SetTrackCache(cache);
 
     TVector3 Init_position(m_init_position.value()[0] * dd4hep::mm, m_init_position.value()[1] * dd4hep::mm,
@@ -817,13 +756,11 @@ private:
     int debug_track = showDebugOutput ? 1 : 0;
 
     track_interface->CreateGenFitTrack(particleHypothesis, debug_track);
-    phaseInit.stop();
 
     FittedResult result;
     result.interface = std::move(track_interface);
 
     bool isFit = false;
-    const auto tFitWallStart = std::chrono::steady_clock::now();
     try {
       isFit = result.interface->Fit(m_Fitter_type.value(), m_printoutLevel, m_Beta_init, m_Beta_final,
                                     BetaStepsOverride > 0 ? BetaStepsOverride : m_Beta_steps.value(),
@@ -832,11 +769,6 @@ private:
       debug() << "Track fit threw for track " << num_tracks_event << ": " << e.what() << endmsg;
       return std::nullopt;
     }
-    // split the Fit() wall time: fitted-state/TrackState extraction is timed inside
-    // GenfitTrack::Fit(); the remainder (DAF/Kalman core + setup) counts as "fit".
-    const double fitWall = std::chrono::duration<double>(std::chrono::steady_clock::now() - tFitWallStart).count();
-    m_tTrackStates += result.interface->StateExtractionSeconds();
-    m_tFit += fitWall - result.interface->StateExtractionSeconds();
 
     if (!isFit) {
       debug() << "Track fit FAILED for track " << num_tracks_event << endmsg;
@@ -846,7 +778,6 @@ private:
     // Acceptance criterion shared by all fit modes: a converged fit with a non-positive chi2
     // or ndf carries no fit-quality information and is not reported (it falls through to the
     // fallback attempts of the chain instead).
-    PhaseTimer phaseStatesCheck(m_tTrackStates);
     const auto& fitted_track = result.interface->GetTrack_edm4hep();
     if (fitted_track.getChi2() <= 0 || fitted_track.getNdf() <= 0) {
       debug() << "Track fit produced invalid chi2/ndf for track " << num_tracks_event << endmsg;
@@ -872,7 +803,6 @@ private:
     auto& edm4hep_track = track_interface.GetTrack_edm4hep();
     const bool showDebugOutput = m_printoutLevel == uint(MSG::DEBUG) || m_printoutLevel == uint(MSG::VERBOSE);
 
-    PhaseTimer phaseStates(m_tTrackStates);
     double Bz = 0.;
     for (auto ts : edm4hep_track.getTrackStates()) {
       if (ts.location == edm4hep::TrackState::AtLastHit) {
@@ -913,8 +843,6 @@ private:
     }
 
     FittedTracks.push_back(edm4hep_track);
-    phaseStates.stop();
-    PhaseTimer phaseSave(m_tSave);
 
     if (m_filterTrackHits) {
 
@@ -923,8 +851,6 @@ private:
       // collections). Only the winning configuration reaches this point, so the output
       // receives exactly the hits of the fit being reported.
       track_interface.CreateFilteredHits(FittedHits);
-      phaseSave.stop();
-      PhaseTimer phaseStates2(m_tTrackStates);
 
       auto edm4hep_track_with_fit = track_interface.GetTrackWithFit_edm4hep();
 
@@ -945,9 +871,6 @@ private:
           }
         }
       }
-      phaseStates2.stop();
-
-      PhaseTimer phaseSave2(m_tSave);
       FittedTracksWithFilteredHits.push_back(edm4hep_track_with_fit);
     }
   }

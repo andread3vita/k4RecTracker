@@ -18,7 +18,6 @@
  */
 
 #include <algorithm>
-#include <chrono>
 #include <cmath>
 #include <numeric>
 
@@ -1337,9 +1336,7 @@ bool GenfitTrack::Fit(std::string FitterType = "DAF", int debug_lvl = 0, std::op
 
   try {
 
-    const auto tFitCoreStart = std::chrono::steady_clock::now();
     genfitFitter->processTrackWithRep(&genfitTrack, trackRep);
-    m_fitCoreSeconds += std::chrono::duration<double>(std::chrono::steady_clock::now() - tFitCoreStart).count();
 
   } catch (const std::exception& e) {
 
@@ -1354,13 +1351,6 @@ bool GenfitTrack::Fit(std::string FitterType = "DAF", int debug_lvl = 0, std::op
 
     return false;
   }
-
-  const auto tStateStart = std::chrono::steady_clock::now();
-  struct StateTimerGuard {
-    double& acc;
-    std::chrono::steady_clock::time_point t0;
-    ~StateTimerGuard() { acc += std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count(); }
-  } stateTimerGuard{m_stateExtractionSeconds, tStateStart};
 
   if (genfitFitter->isTrackFitted(&genfitTrack, trackRep)) {
 

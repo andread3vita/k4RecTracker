@@ -20,7 +20,6 @@
 // Standard Library
 #include <algorithm>
 #include <atomic>
-#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <limits>
@@ -84,7 +83,6 @@ struct GGTFTrackFinder final : k4FWCore::MultiTransformer<std::tuple<edm4hep::Tr
                          {KeyValues("OutputTracksGGTF", {"OutputTracksGGTF"})}) {}
 
   StatusCode initialize() override {
-    const auto tInitStart = std::chrono::steady_clock::now();
     if (m_modelPath.value().empty()) {
       error() << "ModelPath is empty; an ONNX model file must be configured." << endmsg;
       return StatusCode::FAILURE;
@@ -153,10 +151,6 @@ struct GGTFTrackFinder final : k4FWCore::MultiTransformer<std::tuple<edm4hep::Tr
       return StatusCode::FAILURE;
     }
 
-    const auto tInitEnd = std::chrono::steady_clock::now();
-    info() << "TIMING finder initialize: "
-           << std::chrono::duration<double>(tInitEnd - tInitStart).count() << " s" << endmsg;
-
     return StatusCode::SUCCESS;
   }
 
@@ -183,7 +177,6 @@ struct GGTFTrackFinder final : k4FWCore::MultiTransformer<std::tuple<edm4hep::Tr
     // One workspace per processing thread, reused across events: after the largest event the
     // vectors hold enough capacity and these buffers stop allocating on the heap.
     thread_local Workspace workspace;
-    const auto tPreStart = std::chrono::steady_clock::now();
     workspace.features.resize(inputHitCount * kFeatureCount);
     workspace.hitRefs.clear();
     workspace.hitRefs.reserve(inputHitCount);
@@ -193,7 +186,6 @@ struct GGTFTrackFinder final : k4FWCore::MultiTransformer<std::tuple<edm4hep::Tr
 
     const std::size_t nHits = workspace.hitRefs.size();
     workspace.features.resize(nHits * kFeatureCount);
-    const auto tPreEnd = std::chrono::steady_clock::now();
 
     // ORT retains per-input-shape allocations for every distinct hit count it meets (a few
     // MB per new shape for this graph); recreating the session on a fixed cadence releases
@@ -211,26 +203,10 @@ struct GGTFTrackFinder final : k4FWCore::MultiTransformer<std::tuple<edm4hep::Tr
       session = m_session;
     }
 
-    const auto tInfStart = std::chrono::steady_clock::now();
     InferenceOutput inference = runInference(*session, workspace.features);
-    const auto tInfEnd = std::chrono::steady_clock::now();
-    const auto tCluStart = tInfEnd;
     clusterHits(inference, workspace);
-    const auto tCluEnd = std::chrono::steady_clock::now();
 
-    const auto tSaveStart = tCluEnd;
     buildTracks(workspace.clusterIds, workspace, inputPlanarHitCollections, inputWireHitCollections, outputTracks);
-    const auto tSaveEnd = std::chrono::steady_clock::now();
-
-    auto sec = [](std::chrono::steady_clock::time_point a, std::chrono::steady_clock::time_point b) {
-      return std::chrono::duration<double>(b - a).count();
-    };
-    info() << "TIMING finder event: " << eventNumber << " hits: " << inputHitCount
-           << " preprocess: " << sec(tPreStart, tPreEnd)
-           << " inference: " << sec(tInfStart, tInfEnd)
-           << " clustering: " << sec(tCluStart, tCluEnd)
-           << " save: " << sec(tSaveStart, tSaveEnd)
-           << " total: " << sec(tPreStart, tSaveEnd) << endmsg;
 
     return std::make_tuple(std::move(outputTracks));
   }
