@@ -355,8 +355,8 @@ struct GenfitTrackFitter final
       std::vector<AttemptKey> attempted;
 
       // Attempt chain: the automatic hit selection (all hits for non-loopers, first arc for
-      // loopers), then the recovery mode: the silicon-only fallback, a thinned hit set, a scan of
-      // alternative momentum seeds on the thinned set, and finally fits without material effects
+      // loopers), then the recovery mode: the silicon-only fallback, a thinned hit set, a re-seed
+      // at the looper momentum scale on the thinned set, and finally a fit without material effects
       auto tryFit = [&](bool siOnly, int thinTarget, double seedOverride, bool noMaterial, bool ransacInliers,
                         int betaStepsOverride = -1) -> int {
         ransacInliers = ransacInliers && m_ransacFallback;
@@ -406,24 +406,15 @@ struct GenfitTrackFitter final
         isSuccess = tryFit(false, 50, 0., false, true);
       }
 
-      for (double seedP : {0.2, 0.7, 2.0}) {
-        if (isSuccess) {
-          break;
-        }
-        debug() << "Track " << num_tracks_event << ": fit failed, trying with a " << seedP
+      if (!isSuccess) {
+        debug() << "Track " << num_tracks_event << ": fit failed, trying with a " << m_looperPTThreshold.value()
                 << " GeV/c momentum seed." << endmsg;
-        isSuccess = tryFit(false, 50, seedP, false, true);
+        isSuccess = tryFit(false, 50, m_looperPTThreshold.value(), false, true);
       }
 
       if (!isSuccess) {
         debug() << "Track " << num_tracks_event << ": fit failed, trying without material effects." << endmsg;
         isSuccess = tryFit(false, 0, 0., true, true);
-      }
-
-      if (!isSuccess) {
-        debug() << "Track " << num_tracks_event << ": fit failed, trying a thinned set without material effects."
-                << endmsg;
-        isSuccess = tryFit(false, 50, 0., true, true);
       }
 
       if (!isSuccess) {
